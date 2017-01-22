@@ -1,0 +1,64 @@
+From 180a82fb0eb876cd8d42aedb4ecf05f0423ffe9b Mon Sep 17 00:00:00 2001
+Message-Id: <180a82fb0eb876cd8d42aedb4ecf05f0423ffe9b@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Wed, 23 Sep 2015 14:48:06 +0200
+Subject: [PATCH] domain: Fix migratable XML with graphics/@listen
+
+As of commit 6992994, we set graphics/@listen attribute according to the
+first listen child element even if that element is of type='network'.
+This was done for backward compatibility with applications which only
+support the original listen attribute. However, by doing so we broke
+migration to older libvirt which tried to check that the listen
+attribute matches one of the listen child elements but which did not
+take type='network' elements into account.
+
+We are not concerned about compatibility with old applications when
+formatting domain XML for migration for two reasons. The XML is consumed
+only by libvirtd and the IP address associated with type='network'
+listen address on the source host is just useless on the destination
+host. Thus, we can safely avoid propagating the type='network' IP
+address to graphics/@listen attribute when creating migratable XML.
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1265111
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+(cherry picked from commit c0806dc30bda562810b0d686e33c903862e3c8f1)
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/conf/domain_conf.c | 16 +++++++---------
+ 1 file changed, 7 insertions(+), 9 deletions(-)
+
+diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
+index f5320fe..a0ecc94 100644
+--- a/src/conf/domain_conf.c
++++ b/src/conf/domain_conf.c
+@@ -20824,19 +20824,17 @@ virDomainGraphicsDefFormat(virBufferPtr buf,
+     * <graphics>. This is done to improve backward compatibility.
+     */
+     for (i = 0; i < def->nListens; i++) {
+-        virDomainGraphicsListenType listenType;
+-
+         if (flags & VIR_DOMAIN_DEF_FORMAT_MIGRATABLE &&
+             def->listens[i].fromConfig)
+             continue;
+-        listenType = virDomainGraphicsListenGetType(def, i);
+ 
+-        if (listenType == VIR_DOMAIN_GRAPHICS_LISTEN_TYPE_ADDRESS ||
+-            (listenType == VIR_DOMAIN_GRAPHICS_LISTEN_TYPE_NETWORK &&
+-             !(flags & VIR_DOMAIN_DEF_FORMAT_INACTIVE))) {
+-            if ((listenAddr = virDomainGraphicsListenGetAddress(def, i)))
+-                break;
+-        }
++        if (def->listens[i].type == VIR_DOMAIN_GRAPHICS_LISTEN_TYPE_NETWORK &&
++            flags & (VIR_DOMAIN_DEF_FORMAT_INACTIVE |
++                     VIR_DOMAIN_DEF_FORMAT_MIGRATABLE))
++            continue;
++
++        if ((listenAddr = virDomainGraphicsListenGetAddress(def, i)))
++            break;
+     }
+ 
+     virBufferAsprintf(buf, "<graphics type='%s'", type);
+-- 
+2.5.3
+

@@ -1,0 +1,47 @@
+From 8aa9a7056bc7d9510819b67a7a082ad661d9dc99 Mon Sep 17 00:00:00 2001
+Message-Id: <8aa9a7056bc7d9510819b67a7a082ad661d9dc99@dist-git>
+From: Michal Privoznik <mprivozn@redhat.com>
+Date: Mon, 13 Jul 2015 15:26:04 +0200
+Subject: [PATCH] qemuProcessHandleMigrationStatus: Update migration status
+ more frequently
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1212077
+
+After Jirka's migration patches libvirt is listening on migration
+events from qemu instead of actively polling on the monitor. There is,
+however, a little regression (introduced in 6d2edb6a42d0d41). The
+problem is, the current status of migration job is updated in
+qemuProcessHandleMigrationStatus if and only if migration job was
+started. But eventually every asynchronous job may result in
+migration. Therefore, since this job is not strictly a
+migration job, internal state was not updated and later checks failed:
+
+  virsh # save fedora22 /tmp/fedora22_ble.save
+  error: Failed to save domain fedora22 to /tmp/fedora22_ble.save
+  error: operation failed: domain save job: is not active
+
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+(cherry picked from commit 45cc2fca5c97d7e6d6e00389c6f459b5660d0f1f)
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_process.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/src/qemu/qemu_process.c b/src/qemu/qemu_process.c
+index 91ff5f8..e05be54 100644
+--- a/src/qemu/qemu_process.c
++++ b/src/qemu/qemu_process.c
+@@ -1532,8 +1532,7 @@ qemuProcessHandleMigrationStatus(qemuMonitorPtr mon ATTRIBUTE_UNUSED,
+               qemuMonitorMigrationStatusTypeToString(status));
+ 
+     priv = vm->privateData;
+-    if (priv->job.asyncJob != QEMU_ASYNC_JOB_MIGRATION_OUT &&
+-        priv->job.asyncJob != QEMU_ASYNC_JOB_MIGRATION_IN) {
++    if (priv->job.asyncJob == QEMU_ASYNC_JOB_NONE) {
+         VIR_DEBUG("got MIGRATION event without a migration job");
+         goto cleanup;
+     }
+-- 
+2.5.0
+

@@ -1,0 +1,102 @@
+From e2860c4cd200424d09be581bc5c0b206dcffb629 Mon Sep 17 00:00:00 2001
+Message-Id: <e2860c4cd200424d09be581bc5c0b206dcffb629@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Tue, 14 Jul 2015 15:02:58 +0200
+Subject: [PATCH] qemu: process: Improve update of maximum balloon state at
+ startup
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1242940
+
+In commit 641a145d73fdc3dd9350fd57b3d3247abf101c05 I've added code that
+resets the balloon memory value to full size prior to resuming the vCPUs
+since the size certainly was not reduced at that point.
+
+Since qemuProcessStart is used also in code paths with already booted
+up guests (migration, save/restore) the assumption is not entirely true
+since the guest might already been running before.
+
+This patch adds a function that queries the monitor rather than using
+the full size since a balloon event would not be reissued in case we are
+recovering a saved migration state.
+
+Additionally the new function is used also when reconnecting to a VM
+after libvirtd restart since we might have missed a few balloon events
+while libvirtd was not running.
+
+(cherry picked from commit c212e0c77986b0592f63e02d9ecd816aaf7aac18)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_process.c | 40 ++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 38 insertions(+), 2 deletions(-)
+
+diff --git a/src/qemu/qemu_process.c b/src/qemu/qemu_process.c
+index e05be54..35b6513 100644
+--- a/src/qemu/qemu_process.c
++++ b/src/qemu/qemu_process.c
+@@ -2116,6 +2116,38 @@ qemuProcessReconnectRefreshChannelVirtioState(virQEMUDriverPtr driver,
+ 
+ 
+ static int
++qemuProcessRefreshBalloonState(virQEMUDriverPtr driver,
++                               virDomainObjPtr vm,
++                               int asyncJob)
++{
++    unsigned long long balloon;
++    int rc;
++
++    /* if no ballooning is available, the current size equals to the current
++     * full memory size */
++    if (!vm->def->memballoon ||
++        vm->def->memballoon->model == VIR_DOMAIN_MEMBALLOON_MODEL_NONE) {
++        vm->def->mem.cur_balloon = virDomainDefGetMemoryActual(vm->def);
++        return 0;
++    }
++
++    if (qemuDomainObjEnterMonitorAsync(driver, vm, asyncJob) < 0)
++        return -1;
++
++    rc = qemuMonitorGetBalloonInfo(qemuDomainGetMonitor(vm), &balloon);
++    if (qemuDomainObjExitMonitor(driver, vm) < 0)
++        rc = -1;
++
++    if (rc < 0)
++        return -1;
++
++    vm->def->mem.cur_balloon = balloon;
++
++    return 0;
++}
++
++
++static int
+ qemuProcessWaitForMonitor(virQEMUDriverPtr driver,
+                           virDomainObjPtr vm,
+                           int asyncJob,
+@@ -3830,6 +3862,9 @@ qemuProcessReconnect(void *opaque)
+     if (qemuProcessReconnectRefreshChannelVirtioState(driver, obj) < 0)
+         goto error;
+ 
++    if (qemuProcessRefreshBalloonState(driver, obj, QEMU_ASYNC_JOB_NONE) < 0)
++        goto error;
++
+     if (qemuProcessRecoverJob(driver, obj, conn, &oldjob) < 0)
+         goto error;
+ 
+@@ -4970,10 +5005,11 @@ int qemuProcessStart(virConnectPtr conn,
+             goto cleanup;
+     }
+ 
+-    /* Since CPUs were not started yet, the ballon could not return the memory
++    /* Since CPUs were not started yet, the balloon could not return the memory
+      * to the host and thus cur_balloon needs to be updated so that GetXMLdesc
+      * and friends return the correct size in case they can't grab the job */
+-    vm->def->mem.cur_balloon = virDomainDefGetMemoryActual(vm->def);
++    if (qemuProcessRefreshBalloonState(driver, vm, asyncJob) < 0)
++        goto cleanup;
+ 
+     VIR_DEBUG("Detecting actual memory size for video device");
+     if (qemuProcessUpdateVideoRamSize(driver, vm, asyncJob) < 0)
+-- 
+2.5.0
+

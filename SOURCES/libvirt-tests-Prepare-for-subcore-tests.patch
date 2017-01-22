@@ -1,0 +1,115 @@
+From eddb74776301338b7066555076740689bb69e950 Mon Sep 17 00:00:00 2001
+Message-Id: <eddb74776301338b7066555076740689bb69e950@dist-git>
+From: Shivaprasad G Bhat <sbhat@linux.vnet.ibm.com>
+Date: Wed, 5 Aug 2015 18:18:36 +0200
+Subject: [PATCH] tests: Prepare for subcore tests
+
+The nodeGetThreadsPerSubcore() function is mocked to return 8 for
+ppc64 tests, which corresponds to the default subcore mode.
+
+Update the expected output for the deconfigured-cpus nodeinfo
+test to account for this change.
+
+Signed-off-by: Shivaprasad G Bhat <sbhat@linux.vnet.ibm.com>
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+(cherry picked from commit 3020f550cad1f928f6e98308453d00cd68fa0d86)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ tests/Makefile.am                                  |  6 ++++
+ .../nodeinfodata/linux-ppc64-deconf-cpus.expected  |  2 +-
+ tests/nodeinfomock.c                               | 35 ++++++++++++++++++++++
+ tests/nodeinfotest.c                               |  2 +-
+ 4 files changed, 43 insertions(+), 2 deletions(-)
+ create mode 100644 tests/nodeinfomock.c
+
+diff --git a/tests/Makefile.am b/tests/Makefile.am
+index b202195..bde7f5b 100644
+--- a/tests/Makefile.am
++++ b/tests/Makefile.am
+@@ -412,6 +412,7 @@ test_libraries = libshunload.la \
+ 		vircgroupmock.la \
+ 		virpcimock.la \
+ 		virnetdevmock.la \
++		nodeinfomock.la \
+ 		$(NULL)
+ if WITH_QEMU
+ test_libraries += libqemumonitortestutils.la \
+@@ -1048,6 +1049,11 @@ virpcimock_la_LIBADD = $(GNULIB_LIBS) \
+ 					   ../src/libvirt.la
+ virpcimock_la_LDFLAGS = $(MOCKLIBS_LDFLAGS)
+ 
++nodeinfomock_la_SOURCES = \
++	nodeinfomock.c
++nodeinfomock_la_CFLAGS = $(AM_CFLAGS)
++nodeinfomock_la_LDFLAGS = $(MOCKLIBS_LDFLAGS)
++
+ virnetdevtest_SOURCES = \
+ 	virnetdevtest.c testutils.h testutils.c
+ virnetdevtest_CFLAGS = $(AM_CFLAGS) $(LIBNL_CFLAGS)
+diff --git a/tests/nodeinfodata/linux-ppc64-deconf-cpus.expected b/tests/nodeinfodata/linux-ppc64-deconf-cpus.expected
+index 304f423..113bfa8 100644
+--- a/tests/nodeinfodata/linux-ppc64-deconf-cpus.expected
++++ b/tests/nodeinfodata/linux-ppc64-deconf-cpus.expected
+@@ -1 +1 @@
+-CPUs: 10/80, MHz: 3690, Nodes: 1, Sockets: 1, Cores: 80, Threads: 1
++CPUs: 80/80, MHz: 3690, Nodes: 1, Sockets: 1, Cores: 80, Threads: 1
+diff --git a/tests/nodeinfomock.c b/tests/nodeinfomock.c
+new file mode 100644
+index 0000000..b9c0152
+--- /dev/null
++++ b/tests/nodeinfomock.c
+@@ -0,0 +1,35 @@
++/*
++ * Copyright (C) 2015 Red Hat, Inc.
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library.  If not, see
++ * <http://www.gnu.org/licenses/>.
++ *
++ */
++
++#include <config.h>
++
++#include "internal.h"
++#include "nodeinfo.h"
++
++int
++nodeGetThreadsPerSubcore(virArch arch)
++{
++    int threads_per_subcore = 0;
++
++    // Emulate SMT=8 on POWER hardware
++    if (ARCH_IS_PPC64(arch))
++        threads_per_subcore = 8;
++
++    return threads_per_subcore;
++}
+diff --git a/tests/nodeinfotest.c b/tests/nodeinfotest.c
+index 3fffdb2..ccef4a9 100644
+--- a/tests/nodeinfotest.c
++++ b/tests/nodeinfotest.c
+@@ -256,6 +256,6 @@ mymain(void)
+     return ret == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+ }
+ 
+-VIRT_TEST_MAIN(mymain)
++VIRT_TEST_MAIN_PRELOAD(mymain, abs_builddir "/.libs/nodeinfomock.so")
+ 
+ #endif /* __linux__ */
+-- 
+2.5.0
+

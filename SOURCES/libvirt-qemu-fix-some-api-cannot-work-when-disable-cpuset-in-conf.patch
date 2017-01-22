@@ -1,0 +1,105 @@
+From 3f53107a34adf39f8e380a1036eda619b3460a2c Mon Sep 17 00:00:00 2001
+Message-Id: <3f53107a34adf39f8e380a1036eda619b3460a2c@dist-git>
+From: Luyao Huang <lhuang@redhat.com>
+Date: Thu, 6 Aug 2015 13:08:35 +0200
+Subject: [PATCH] qemu: fix some api cannot work when disable cpuset in conf
+
+If cpuset is disabled or not available, it libvirt must not use it.
+Mainly for actions that do not need it and can use sched_setaffinity()
+or numa_membind() instead, because they will fail without good reason.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1244664
+
+Signed-off-by: Luyao Huang <lhuang@redhat.com>
+(cherry picked from commit 1439eb32afc9f97378d1d121c0b5c80d2f84896c)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_cgroup.c | 16 ++++++++--------
+ src/qemu/qemu_driver.c | 10 +++++++---
+ 2 files changed, 15 insertions(+), 11 deletions(-)
+
+diff --git a/src/qemu/qemu_cgroup.c b/src/qemu/qemu_cgroup.c
+index ab21e12..e1a2827 100644
+--- a/src/qemu/qemu_cgroup.c
++++ b/src/qemu/qemu_cgroup.c
+@@ -1025,10 +1025,6 @@ qemuSetupCgroupForVcpu(virDomainObjPtr vm)
+         if (virCgroupAddTask(cgroup_vcpu, priv->vcpupids[i]) < 0)
+             goto cleanup;
+ 
+-        if (mem_mask &&
+-            virCgroupSetCpusetMems(cgroup_vcpu, mem_mask) < 0)
+-            goto cleanup;
+-
+         if (period || quota) {
+             if (qemuSetupCgroupVcpuBW(cgroup_vcpu, period, quota) < 0)
+                 goto cleanup;
+@@ -1038,6 +1034,10 @@ qemuSetupCgroupForVcpu(virDomainObjPtr vm)
+         if (virCgroupHasController(priv->cgroup, VIR_CGROUP_CONTROLLER_CPUSET)) {
+             virBitmapPtr cpumap = NULL;
+ 
++            if (mem_mask &&
++                virCgroupSetCpusetMems(cgroup_vcpu, mem_mask) < 0)
++                goto cleanup;
++
+             /* try to use the default cpu maps */
+             if (vm->def->placement_mode == VIR_DOMAIN_CPU_PLACEMENT_MODE_AUTO)
+                 cpumap = priv->autoCpuset;
+@@ -1202,15 +1202,15 @@ qemuSetupCgroupForIOThreads(virDomainObjPtr vm)
+                 goto cleanup;
+         }
+ 
+-        if (mem_mask &&
+-            virCgroupSetCpusetMems(cgroup_iothread, mem_mask) < 0)
+-            goto cleanup;
+-
+         /* Set iothreadpin in cgroup if iothreadpin xml is provided */
+         if (virCgroupHasController(priv->cgroup,
+                                    VIR_CGROUP_CONTROLLER_CPUSET)) {
+             virBitmapPtr cpumask = NULL;
+ 
++            if (mem_mask &&
++                virCgroupSetCpusetMems(cgroup_iothread, mem_mask) < 0)
++                goto cleanup;
++
+             if (def->iothreadids[i]->cpumask)
+                 cpumask = def->iothreadids[i]->cpumask;
+             else if (def->placement_mode == VIR_DOMAIN_CPU_PLACEMENT_MODE_AUTO)
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index 6b715bf..bb0dc7e 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -4613,7 +4613,9 @@ qemuDomainAddCgroupForThread(virCgroupPtr cgroup,
+     if (virCgroupNewThread(cgroup, nameval, idx, true, &new_cgroup) < 0)
+         return NULL;
+ 
+-    if (mem_mask && virCgroupSetCpusetMems(new_cgroup, mem_mask) < 0)
++    if (mem_mask &&
++        virCgroupHasController(cgroup, VIR_CGROUP_CONTROLLER_CPUSET) &&
++        virCgroupSetCpusetMems(new_cgroup, mem_mask) < 0)
+         goto error;
+ 
+     /* Add pid/thread to the cgroup */
+@@ -4669,7 +4671,8 @@ qemuDomainHotplugPinThread(virBitmapPtr cpumask,
+ {
+     int ret = -1;
+ 
+-    if (cgroup) {
++    if (cgroup &&
++        virCgroupHasController(cgroup, VIR_CGROUP_CONTROLLER_CPUSET)) {
+         if (qemuSetupCgroupCpusetCpus(cgroup, cpumask) < 0) {
+             virReportError(VIR_ERR_OPERATION_INVALID,
+                            _("failed to set cpuset.cpus in cgroup for id %d"),
+@@ -4912,7 +4915,8 @@ qemuDomainSetVcpusFlags(virDomainPtr dom, unsigned int nvcpus,
+     if (virDomainObjGetDefs(vm, flags, &def, &persistentDef) < 0)
+         goto endjob;
+ 
+-    if (def && !(flags & VIR_DOMAIN_VCPU_GUEST) && virNumaIsAvailable()) {
++    if (def && !(flags & VIR_DOMAIN_VCPU_GUEST) && virNumaIsAvailable() &&
++        virCgroupHasController(priv->cgroup, VIR_CGROUP_CONTROLLER_CPUSET)) {
+         if (virCgroupNewThread(priv->cgroup, VIR_CGROUP_THREAD_EMULATOR, 0,
+                                false, &cgroup_temp) < 0)
+             goto endjob;
+-- 
+2.5.0
+

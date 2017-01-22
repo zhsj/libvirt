@@ -1,0 +1,79 @@
+From 7d1f7fce8d06ca2154be5f0a6f9a07bddcfac794 Mon Sep 17 00:00:00 2001
+Message-Id: <7d1f7fce8d06ca2154be5f0a6f9a07bddcfac794@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Thu, 1 Oct 2015 21:54:38 +0200
+Subject: [PATCH] qemu: Copy completed migration stats only on success
+
+The destination host gets detailed statistics about the current
+migration form the source host via migration cookie and copies them to
+the domain object so that they can be queried using
+virDomainGetJobStats. However, we should only copy statistics to the
+domain object when migration finished successfully.
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+(cherry picked from commit b106c8b910ec49f1018146dd82b0f93833a66600)
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1265902
+
+Conflicts:
+	src/qemu/qemu_migration.c -- missing qemuMigrationFinish
+        refactoring
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_migration.c | 25 ++++++++++++++-----------
+ 1 file changed, 14 insertions(+), 11 deletions(-)
+
+diff --git a/src/qemu/qemu_migration.c b/src/qemu/qemu_migration.c
+index 759fd21..e04459d 100644
+--- a/src/qemu/qemu_migration.c
++++ b/src/qemu/qemu_migration.c
+@@ -5617,6 +5617,10 @@ qemuMigrationFinish(virQEMUDriverPtr driver,
+      * object, but if no, clean up the empty qemu process.
+      */
+     if (retcode == 0) {
++        unsigned long long timeReceived = 0;
++
++        ignore_value(virTimeMillisNow(&timeReceived));
++
+         if (!virDomainObjIsActive(vm) && !(flags & VIR_MIGRATE_OFFLINE)) {
+             virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+                            _("guest unexpectedly quit"));
+@@ -5624,16 +5628,6 @@ qemuMigrationFinish(virQEMUDriverPtr driver,
+             goto endjob;
+         }
+ 
+-        if (mig->jobInfo) {
+-            qemuDomainJobInfoPtr jobInfo = mig->jobInfo;
+-            priv->job.completed = jobInfo;
+-            mig->jobInfo = NULL;
+-            if (jobInfo->sent && virTimeMillisNow(&jobInfo->received) == 0) {
+-                jobInfo->timeDelta = jobInfo->received - jobInfo->sent;
+-                jobInfo->timeDeltaSet = true;
+-            }
+-        }
+-
+         if (!(flags & VIR_MIGRATE_OFFLINE)) {
+             if (qemuMigrationVPAssociatePortProfiles(vm->def) < 0) {
+                 qemuProcessStop(driver, vm, VIR_DOMAIN_SHUTOFF_FAILED,
+@@ -5737,7 +5731,16 @@ qemuMigrationFinish(virQEMUDriverPtr driver,
+             }
+         }
+ 
+-        if (priv->job.completed) {
++        if (mig->jobInfo) {
++            qemuDomainJobInfoPtr jobInfo = mig->jobInfo;
++            priv->job.completed = jobInfo;
++            mig->jobInfo = NULL;
++
++            if (jobInfo->sent && timeReceived) {
++                jobInfo->timeDelta = timeReceived - jobInfo->sent;
++                jobInfo->received = timeReceived;
++                jobInfo->timeDeltaSet = true;
++            }
+             qemuDomainJobInfoUpdateTime(priv->job.completed);
+             qemuDomainJobInfoUpdateDowntime(priv->job.completed);
+         }
+-- 
+2.6.1
+

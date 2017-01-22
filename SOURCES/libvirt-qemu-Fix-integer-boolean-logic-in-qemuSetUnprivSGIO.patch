@@ -1,0 +1,49 @@
+From 8c46231056f7c633a9f8576018d764e3a0b7251f Mon Sep 17 00:00:00 2001
+Message-Id: <8c46231056f7c633a9f8576018d764e3a0b7251f@dist-git>
+From: John Ferlan <jferlan@redhat.com>
+Date: Thu, 9 Jul 2015 08:28:56 -0400
+Subject: [PATCH] qemu: Fix integer/boolean logic in qemuSetUnprivSGIO
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1072736
+
+Setting of 'val' is a boolean expression, so handle it that way and
+adjust the check/return logic to be clearer
+
+Signed-off-by: John Ferlan <jferlan@redhat.com>
+(cherry picked from commit 69b850fe2a19d0c32ae2f209e8d8463df6ead665)
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_conf.c | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/src/qemu/qemu_conf.c b/src/qemu/qemu_conf.c
+index d41f166..7d317d7 100644
+--- a/src/qemu/qemu_conf.c
++++ b/src/qemu/qemu_conf.c
+@@ -1433,7 +1433,7 @@ qemuSetUnprivSGIO(virDomainDeviceDefPtr dev)
+     virDomainHostdevDefPtr hostdev = NULL;
+     char *sysfs_path = NULL;
+     const char *path = NULL;
+-    int val = -1;
++    bool val;
+     int ret = -1;
+ 
+     /* "sgio" is only valid for block disk; cdrom
+@@ -1475,8 +1475,12 @@ qemuSetUnprivSGIO(virDomainDeviceDefPtr dev)
+      * whitelist is enabled.  But if requesting unfiltered access, always call
+      * virSetDeviceUnprivSGIO, to report an error for unsupported unpriv_sgio.
+      */
+-    if ((virFileExists(sysfs_path) || val == 1) &&
+-        virSetDeviceUnprivSGIO(path, NULL, val) < 0)
++    if (!val || !virFileExists(sysfs_path)) {
++        ret = 0;
++        goto cleanup;
++    }
++
++    if (virSetDeviceUnprivSGIO(path, NULL, 1) < 0)
+         goto cleanup;
+ 
+     ret = 0;
+-- 
+2.5.1
+

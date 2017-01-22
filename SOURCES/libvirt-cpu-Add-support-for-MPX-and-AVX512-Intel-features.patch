@@ -1,0 +1,56 @@
+From 9ba4e23393ea05ba0b6feabf7f365310f1c600ed Mon Sep 17 00:00:00 2001
+Message-Id: <9ba4e23393ea05ba0b6feabf7f365310f1c600ed@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Thu, 9 Jul 2015 09:47:34 +0200
+Subject: [PATCH] cpu: Add support for MPX and AVX512 Intel features
+
+Corresponding QEMU commits:
+    MPX     79e9ebebbf2a00c46fcedb6dc7dd5e12bbd30216
+    AVX512  9aecd6f8aef653cea58932f06a2740299dbe5fd3
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+(cherry picked from commit 1cd70869d97760d91baa1e2ad76c02b470f0d5bd)
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1076170
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/cpu/cpu_map.xml | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/src/cpu/cpu_map.xml b/src/cpu/cpu_map.xml
+index 2110c0b..51474e1 100644
+--- a/src/cpu/cpu_map.xml
++++ b/src/cpu/cpu_map.xml
+@@ -317,6 +317,12 @@
+     <feature name='rtm'>
+       <cpuid function='0x00000007' ebx='0x00000800'/>
+     </feature>
++    <feature name='mpx'>
++      <cpuid function='0x00000007' ebx='0x00004000'/>
++    </feature>
++    <feature name='avx512f'> <!-- AVX-512 Foundation -->
++      <cpuid function='0x00000007' ebx='0x00010000'/>
++    </feature>
+     <feature name='rdseed'>
+       <cpuid function='0x00000007' ebx='0x00040000'/>
+     </feature>
+@@ -326,6 +332,15 @@
+     <feature name='smap'>
+       <cpuid function='0x00000007' ebx='0x00100000'/>
+     </feature>
++    <feature name='avx512pf'> <!-- AVX-512 Prefetch -->
++      <cpuid function='0x00000007' ebx='0x04000000'/>
++    </feature>
++    <feature name='avx512er'> <!-- AVX-512 Exponential and Reciprocal -->
++      <cpuid function='0x00000007' ebx='0x08000000'/>
++    </feature>
++    <feature name='avx512cd'> <!-- AVX-512 Conflict Detection -->
++      <cpuid function='0x00000007' ebx='0x10000000'/>
++    </feature>
+ 
+     <!-- Advanced Power Management edx features -->
+     <feature name='invtsc' migratable='no'>
+-- 
+2.4.5
+

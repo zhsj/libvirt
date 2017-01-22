@@ -1,0 +1,92 @@
+From cd6ca9ba097bb551c02dbfd85d5010d3bceee9b9 Mon Sep 17 00:00:00 2001
+Message-Id: <cd6ca9ba097bb551c02dbfd85d5010d3bceee9b9@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Wed, 5 Aug 2015 18:18:27 +0200
+Subject: [PATCH] nodeinfo: Rename nodeGetCPUBitmap() to
+ nodeGetOnlineCPUBitmap()
+
+The new name makes it clear that the returned bitmap contains the
+information about which CPUs are online, not eg. which CPUs are
+present.
+
+No behavioral change.
+
+(cherry picked from commit c1df42d734fbd40b7220dad4a9c15f2584828a80)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/libvirt_private.syms | 2 +-
+ src/nodeinfo.c           | 6 +++---
+ src/nodeinfo.h           | 2 +-
+ 3 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/src/libvirt_private.syms b/src/libvirt_private.syms
+index e92d2d0..1363c92 100644
+--- a/src/libvirt_private.syms
++++ b/src/libvirt_private.syms
+@@ -998,7 +998,6 @@ virLockManagerRelease;
+ nodeAllocPages;
+ nodeCapsInitNUMA;
+ nodeGetCellsFreeMemory;
+-nodeGetCPUBitmap;
+ nodeGetCPUCount;
+ nodeGetCPUMap;
+ nodeGetCPUStats;
+@@ -1007,6 +1006,7 @@ nodeGetInfo;
+ nodeGetMemory;
+ nodeGetMemoryParameters;
+ nodeGetMemoryStats;
++nodeGetOnlineCPUBitmap;
+ nodeGetPresentCPUBitmap;
+ nodeSetMemoryParameters;
+ 
+diff --git a/src/nodeinfo.c b/src/nodeinfo.c
+index 69c15fc..3550e24 100644
+--- a/src/nodeinfo.c
++++ b/src/nodeinfo.c
+@@ -1324,7 +1324,7 @@ nodeGetPresentCPUBitmap(const char *sysfs_prefix ATTRIBUTE_UNUSED)
+ }
+ 
+ virBitmapPtr
+-nodeGetCPUBitmap(const char *sysfs_prefix ATTRIBUTE_UNUSED)
++nodeGetOnlineCPUBitmap(const char *sysfs_prefix ATTRIBUTE_UNUSED)
+ {
+ #ifdef __linux__
+     const char *prefix = sysfs_prefix ? sysfs_prefix : SYSFS_SYSTEM_PATH;
+@@ -1369,7 +1369,7 @@ nodeGetCPUBitmap(const char *sysfs_prefix ATTRIBUTE_UNUSED)
+     return cpumap;
+ #else
+     virReportError(VIR_ERR_NO_SUPPORT, "%s",
+-                   _("node cpumap not implemented on this platform"));
++                   _("node online CPU map not implemented on this platform"));
+     return NULL;
+ #endif
+ }
+@@ -1691,7 +1691,7 @@ nodeGetCPUMap(const char *sysfs_prefix,
+     if (!cpumap && !online)
+         return nodeGetCPUCount(sysfs_prefix);
+ 
+-    if (!(cpus = nodeGetCPUBitmap(sysfs_prefix)))
++    if (!(cpus = nodeGetOnlineCPUBitmap(sysfs_prefix)))
+         goto cleanup;
+ 
+     if (cpumap && virBitmapToData(cpus, cpumap, &dummy) < 0)
+diff --git a/src/nodeinfo.h b/src/nodeinfo.h
+index 02af9c5..1810c1c 100644
+--- a/src/nodeinfo.h
++++ b/src/nodeinfo.h
+@@ -45,7 +45,7 @@ int nodeGetMemory(unsigned long long *mem,
+                   unsigned long long *freeMem);
+ 
+ virBitmapPtr nodeGetPresentCPUBitmap(const char *sysfs_prefix);
+-virBitmapPtr nodeGetCPUBitmap(const char *sysfs_prefix);
++virBitmapPtr nodeGetOnlineCPUBitmap(const char *sysfs_prefix);
+ int nodeGetCPUCount(const char *sysfs_prefix);
+ 
+ int nodeGetMemoryParameters(virTypedParameterPtr params,
+-- 
+2.5.0
+

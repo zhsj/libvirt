@@ -1,0 +1,31 @@
+From 4bc98662c54fa9ae891d1af9c380c72bd5f928b7 Mon Sep 17 00:00:00 2001
+Message-Id: <4bc98662c54fa9ae891d1af9c380c72bd5f928b7@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Tue, 11 Aug 2015 17:15:58 +0200
+Subject: [PATCH] tests: Remove unused file
+
+No functional changes.
+
+(cherry picked from commit 81a925e0f9f0d675afe4e57204350f9b797d1eb7)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1250977
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ tests/cputestdata/ppc64-baseline-1-result.xml | 3 ---
+ 1 file changed, 3 deletions(-)
+ delete mode 100644 tests/cputestdata/ppc64-baseline-1-result.xml
+
+diff --git a/tests/cputestdata/ppc64-baseline-1-result.xml b/tests/cputestdata/ppc64-baseline-1-result.xml
+deleted file mode 100644
+index cbdd9bc..0000000
+--- a/tests/cputestdata/ppc64-baseline-1-result.xml
++++ /dev/null
+@@ -1,3 +0,0 @@
+-<cpu mode='custom' match='exact'>
+-  <model fallback='allow'>POWER7+_v2.1</model>
+-</cpu>
+-- 
+2.5.0
+

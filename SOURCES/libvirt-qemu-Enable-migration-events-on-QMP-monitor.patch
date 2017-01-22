@@ -1,0 +1,114 @@
+From ddad58d06d082ce9522de4139f3768e02de39309 Mon Sep 17 00:00:00 2001
+Message-Id: <ddad58d06d082ce9522de4139f3768e02de39309@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Tue, 7 Jul 2015 18:17:25 +0200
+Subject: [PATCH] qemu: Enable migration events on QMP monitor
+
+Even if QEMU supports migration events it doesn't send them by default.
+We have to enable them by calling migrate-set-capabilities. Let's enable
+migration events everytime we can and clear QEMU_CAPS_MIGRATION_EVENT in
+case migrate-set-capabilities does not support events.
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+(cherry picked from commit 3df4d2a45aaafd0fe2191c648c83a609726638f7)
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1212077
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_monitor.c |  2 +-
+ src/qemu/qemu_monitor.h |  1 +
+ src/qemu/qemu_process.c | 36 ++++++++++++++++++++++++------------
+ 3 files changed, 26 insertions(+), 13 deletions(-)
+
+diff --git a/src/qemu/qemu_monitor.c b/src/qemu/qemu_monitor.c
+index dd742cf..d7d211e 100644
+--- a/src/qemu/qemu_monitor.c
++++ b/src/qemu/qemu_monitor.c
+@@ -163,7 +163,7 @@ VIR_ENUM_IMPL(qemuMonitorMigrationStatus,
+ 
+ VIR_ENUM_IMPL(qemuMonitorMigrationCaps,
+               QEMU_MONITOR_MIGRATION_CAPS_LAST,
+-              "xbzrle", "auto-converge", "rdma-pin-all")
++              "xbzrle", "auto-converge", "rdma-pin-all", "events")
+ 
+ VIR_ENUM_IMPL(qemuMonitorVMStatus,
+               QEMU_MONITOR_VM_STATUS_LAST,
+diff --git a/src/qemu/qemu_monitor.h b/src/qemu/qemu_monitor.h
+index d2b2f94..2ceba28 100644
+--- a/src/qemu/qemu_monitor.h
++++ b/src/qemu/qemu_monitor.h
+@@ -512,6 +512,7 @@ typedef enum {
+     QEMU_MONITOR_MIGRATION_CAPS_XBZRLE,
+     QEMU_MONITOR_MIGRATION_CAPS_AUTO_CONVERGE,
+     QEMU_MONITOR_MIGRATION_CAPS_RDMA_PIN_ALL,
++    QEMU_MONITOR_MIGRATION_CAPS_EVENTS,
+ 
+     QEMU_MONITOR_MIGRATION_CAPS_LAST
+ } qemuMonitorMigrationCaps;
+diff --git a/src/qemu/qemu_process.c b/src/qemu/qemu_process.c
+index ba84182..1d223d3 100644
+--- a/src/qemu/qemu_process.c
++++ b/src/qemu/qemu_process.c
+@@ -1546,7 +1546,7 @@ qemuConnectMonitor(virQEMUDriverPtr driver, virDomainObjPtr vm, int asyncJob,
+                                                vm->def) < 0) {
+         VIR_ERROR(_("Failed to set security context for monitor for %s"),
+                   vm->def->name);
+-        goto error;
++        return -1;
+     }
+ 
+     /* Hold an extra reference because we can't allow 'vm' to be
+@@ -1578,26 +1578,38 @@ qemuConnectMonitor(virQEMUDriverPtr driver, virDomainObjPtr vm, int asyncJob,
+     if (virSecurityManagerClearSocketLabel(driver->securityManager, vm->def) < 0) {
+         VIR_ERROR(_("Failed to clear security context for monitor for %s"),
+                   vm->def->name);
+-        goto error;
++        return -1;
+     }
+ 
+     if (priv->mon == NULL) {
+         VIR_INFO("Failed to connect monitor for %s", vm->def->name);
+-        goto error;
++        return -1;
+     }
+ 
+ 
+     if (qemuDomainObjEnterMonitorAsync(driver, vm, asyncJob) < 0)
+-        goto error;
+-    ret = qemuMonitorSetCapabilities(priv->mon);
+-    if (ret == 0 &&
+-        virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_MONITOR_JSON))
+-        ret = virQEMUCapsProbeQMP(priv->qemuCaps, priv->mon);
++        return -1;
++
++    if (qemuMonitorSetCapabilities(priv->mon) < 0)
++        goto cleanup;
++
++    if (virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_MONITOR_JSON) &&
++        virQEMUCapsProbeQMP(priv->qemuCaps, priv->mon) < 0)
++        goto cleanup;
++
++    if (virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_MIGRATION_EVENT) &&
++        qemuMonitorSetMigrationCapability(priv->mon,
++                                          QEMU_MONITOR_MIGRATION_CAPS_EVENTS,
++                                          true) < 0) {
++        VIR_DEBUG("Cannot enable migration events; clearing capability");
++        virQEMUCapsClear(priv->qemuCaps, QEMU_CAPS_MIGRATION_EVENT);
++    }
++
++    ret = 0;
++
++ cleanup:
+     if (qemuDomainObjExitMonitor(driver, vm) < 0)
+-        return -1;
+-
+- error:
+-
++        ret = -1;
+     return ret;
+ }
+ 
+-- 
+2.4.5
+

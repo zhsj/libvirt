@@ -1,0 +1,216 @@
+From 3216788d3cd902dd31705cac5e91589b9b467543 Mon Sep 17 00:00:00 2001
+Message-Id: <3216788d3cd902dd31705cac5e91589b9b467543@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Thu, 6 Aug 2015 13:10:54 +0200
+Subject: [PATCH] qemu: Reject updating unsupported disk information
+
+If one calls update-device with information that is not updatable,
+libvirt reports success even though no data were updated.  The example
+used in the bug linked below uses updating device with <boot order='2'/>
+which, in my opinion, is a valid thing to request from user's
+perspective.  Mainly since we properly error out if user wants to update
+such data on a network device for example.
+
+And since there are many things that might happen (update-device on disk
+basically knows just how to change removable media), check for what's
+changing and moreover, since the function might be usable in other
+drivers (updating only disk path is a valid possibility) let's abstract
+it for any two disks.
+
+We can't possibly check for everything since for many fields our code
+does not properly differentiate between default and unspecified values.
+Even though this could be changed, I don't feel like it's worth the
+complexity so it's not the aim of this patch.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1007228
+(cherry picked from commit 717c99f3602354136ca97edca6afc8dce69aae85)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/conf/domain_conf.c   | 128 +++++++++++++++++++++++++++++++++++++++++++++++
+ src/conf/domain_conf.h   |   2 +
+ src/libvirt_private.syms |   1 +
+ src/qemu/qemu_driver.c   |   3 ++
+ 4 files changed, 134 insertions(+)
+
+diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
+index 72d87dd..4fe38ae 100644
+--- a/src/conf/domain_conf.c
++++ b/src/conf/domain_conf.c
+@@ -5690,6 +5690,134 @@ virDomainDiskFindByBusAndDst(virDomainDefPtr def,
+     return NULL;
+ }
+ 
++
++/*
++ * Makes sure the @disk differs from @orig_disk only by the source
++ * path and nothing else.  Fields that are being checked and the
++ * information whether they are nullable (may not be specified) or is
++ * taken from the virDomainDiskDefFormat() code.
++ */
++bool
++virDomainDiskDiffersSourceOnly(virDomainDiskDefPtr disk,
++                               virDomainDiskDefPtr orig_disk)
++{
++#define CHECK_EQ(field, field_name, nullable)                           \
++    do {                                                                \
++        if (nullable && !disk->field)                                   \
++            break;                                                      \
++        if (disk->field != orig_disk->field) {                          \
++            virReportError(VIR_ERR_OPERATION_UNSUPPORTED,               \
++                           _("cannot modify field '%s' of the disk"),   \
++                           field_name);                                 \
++            return false;                                               \
++        }                                                               \
++    } while (0)
++
++    CHECK_EQ(device, "device", false);
++    CHECK_EQ(cachemode, "cache", true);
++    CHECK_EQ(error_policy, "error_policy", true);
++    CHECK_EQ(rerror_policy, "rerror_policy", true);
++    CHECK_EQ(iomode, "io", true);
++    CHECK_EQ(ioeventfd, "ioeventfd", true);
++    CHECK_EQ(event_idx, "event_idx", true);
++    CHECK_EQ(copy_on_read, "copy_on_read", true);
++    CHECK_EQ(discard, "discard", true);
++    CHECK_EQ(iothread, "iothread", true);
++
++    if (disk->geometry.cylinders &&
++        disk->geometry.heads &&
++        disk->geometry.sectors) {
++        CHECK_EQ(geometry.cylinders, "geometry cylinders", false);
++        CHECK_EQ(geometry.heads, "geometry heads", false);
++        CHECK_EQ(geometry.sectors, "geometry sectors", false);
++        CHECK_EQ(geometry.trans, "BIOS-translation-modus", true);
++    }
++
++    CHECK_EQ(blockio.logical_block_size,
++             "blockio logical_block_size", false);
++    CHECK_EQ(blockio.physical_block_size,
++             "blockio physical_block_size", false);
++
++    if (disk->bus == VIR_DOMAIN_DISK_BUS_USB)
++        CHECK_EQ(removable, "removable", true);
++
++    CHECK_EQ(blkdeviotune.total_bytes_sec,
++             "blkdeviotune total_bytes_sec",
++             true);
++    CHECK_EQ(blkdeviotune.read_bytes_sec,
++             "blkdeviotune read_bytes_sec",
++             true);
++    CHECK_EQ(blkdeviotune.write_bytes_sec,
++             "blkdeviotune write_bytes_sec",
++             true);
++    CHECK_EQ(blkdeviotune.total_iops_sec,
++             "blkdeviotune total_iops_sec",
++             true);
++    CHECK_EQ(blkdeviotune.read_iops_sec,
++             "blkdeviotune read_iops_sec",
++             true);
++    CHECK_EQ(blkdeviotune.write_iops_sec,
++             "blkdeviotune write_iops_sec",
++             true);
++    CHECK_EQ(blkdeviotune.total_bytes_sec_max,
++             "blkdeviotune total_bytes_sec_max",
++             true);
++    CHECK_EQ(blkdeviotune.read_bytes_sec_max,
++             "blkdeviotune read_bytes_sec_max",
++             true);
++    CHECK_EQ(blkdeviotune.write_bytes_sec_max,
++             "blkdeviotune write_bytes_sec_max",
++             true);
++    CHECK_EQ(blkdeviotune.total_iops_sec_max,
++             "blkdeviotune total_iops_sec_max",
++             true);
++    CHECK_EQ(blkdeviotune.read_iops_sec_max,
++             "blkdeviotune read_iops_sec_max",
++             true);
++    CHECK_EQ(blkdeviotune.write_iops_sec_max,
++             "blkdeviotune write_iops_sec_max",
++             true);
++    CHECK_EQ(blkdeviotune.size_iops_sec,
++             "blkdeviotune size_iops_sec",
++             true);
++
++    CHECK_EQ(transient, "transient", true);
++
++    if (disk->serial && STRNEQ(disk->serial, orig_disk->serial)) {
++        virReportError(VIR_ERR_OPERATION_UNSUPPORTED,
++                       _("cannot modify field '%s' of the disk"),
++                       "serial");
++        return false;
++    }
++
++    if (disk->wwn && STRNEQ(disk->wwn, orig_disk->wwn)) {
++        virReportError(VIR_ERR_OPERATION_UNSUPPORTED,
++                       _("cannot modify field '%s' of the disk"),
++                       "wwn");
++        return false;
++    }
++
++    if (disk->vendor && STRNEQ(disk->vendor, orig_disk->vendor)) {
++        virReportError(VIR_ERR_OPERATION_UNSUPPORTED,
++                       _("cannot modify field '%s' of the disk"),
++                       "vendor");
++        return false;
++    }
++
++    if (disk->product && STRNEQ(disk->product, orig_disk->product)) {
++        virReportError(VIR_ERR_OPERATION_UNSUPPORTED,
++                       _("cannot modify field '%s' of the disk"),
++                       "product");
++        return false;
++    }
++
++    CHECK_EQ(info.bootIndex, "boot order", true);
++
++#undef CHECK_EQ
++
++    return true;
++}
++
+ int
+ virDomainDiskDefAssignAddress(virDomainXMLOptionPtr xmlopt,
+                               virDomainDiskDefPtr def)
+diff --git a/src/conf/domain_conf.h b/src/conf/domain_conf.h
+index 604d0b8..1be8e63 100644
+--- a/src/conf/domain_conf.h
++++ b/src/conf/domain_conf.h
+@@ -2474,6 +2474,8 @@ int virDomainDeviceFindControllerModel(virDomainDefPtr def,
+ virDomainDiskDefPtr virDomainDiskFindByBusAndDst(virDomainDefPtr def,
+                                                  int bus,
+                                                  char *dst);
++bool virDomainDiskDiffersSourceOnly(virDomainDiskDefPtr disk,
++                                    virDomainDiskDefPtr orig_disk);
+ void virDomainControllerDefFree(virDomainControllerDefPtr def);
+ void virDomainFSDefFree(virDomainFSDefPtr def);
+ void virDomainActualNetDefFree(virDomainActualNetDefPtr def);
+diff --git a/src/libvirt_private.syms b/src/libvirt_private.syms
+index 46e535e..0517c24 100644
+--- a/src/libvirt_private.syms
++++ b/src/libvirt_private.syms
+@@ -249,6 +249,7 @@ virDomainDiskDefFree;
+ virDomainDiskDefNew;
+ virDomainDiskDefSourceParse;
+ virDomainDiskDeviceTypeToString;
++virDomainDiskDiffersSourceOnly;
+ virDomainDiskDiscardTypeToString;
+ virDomainDiskErrorPolicyTypeFromString;
+ virDomainDiskErrorPolicyTypeToString;
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index bb0dc7e..8d569fe 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -7940,6 +7940,9 @@ qemuDomainChangeDiskMediaLive(virConnectPtr conn,
+             goto end;
+         }
+ 
++        if (!virDomainDiskDiffersSourceOnly(disk, orig_disk))
++            goto end;
++
+         /* Add the new disk src into shared disk hash table */
+         if (qemuAddSharedDevice(driver, dev, vm->def->name) < 0)
+             goto end;
+-- 
+2.5.0
+

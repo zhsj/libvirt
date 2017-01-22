@@ -1,0 +1,98 @@
+From 47dd73a795f67459851f20af3f9dded334f3a941 Mon Sep 17 00:00:00 2001
+Message-Id: <47dd73a795f67459851f20af3f9dded334f3a941@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Mon, 24 Aug 2015 13:04:47 +0200
+Subject: [PATCH] security: Add virSecurityDomainSetDirLabel
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1146886
+
+That function can be used for setting security labels on arbitrary
+directories.
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit f65a2a12f4b9ab6144a979774f0486cdc4f7a60a)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/libvirt_private.syms        |  1 +
+ src/security/security_driver.h  |  5 +++++
+ src/security/security_manager.c | 17 +++++++++++++++++
+ src/security/security_manager.h |  4 ++++
+ 4 files changed, 27 insertions(+)
+
+diff --git a/src/libvirt_private.syms b/src/libvirt_private.syms
+index be85c6b..434bbf3 100644
+--- a/src/libvirt_private.syms
++++ b/src/libvirt_private.syms
+@@ -1022,6 +1022,7 @@ virSecurityDriverLookup;
+ # security/security_manager.h
+ virSecurityManagerCheckAllLabel;
+ virSecurityManagerClearSocketLabel;
++virSecurityManagerDomainSetDirLabel;
+ virSecurityManagerGenLabel;
+ virSecurityManagerGetBaseLabel;
+ virSecurityManagerGetDOI;
+diff --git a/src/security/security_driver.h b/src/security/security_driver.h
+index f0dca09..784b0de 100644
+--- a/src/security/security_driver.h
++++ b/src/security/security_driver.h
+@@ -118,6 +118,9 @@ typedef int (*virSecurityDomainSetImageLabel) (virSecurityManagerPtr mgr,
+ typedef int (*virSecurityDomainRestoreImageLabel) (virSecurityManagerPtr mgr,
+                                                    virDomainDefPtr def,
+                                                    virStorageSourcePtr src);
++typedef int (*virSecurityDomainSetDirLabel) (virSecurityManagerPtr mgr,
++                                             virDomainDefPtr def,
++                                             const char *path);
+ 
+ 
+ struct _virSecurityDriver {
+@@ -168,6 +171,8 @@ struct _virSecurityDriver {
+     virSecurityDomainSetHugepages domainSetSecurityHugepages;
+ 
+     virSecurityDriverGetBaseLabel getBaseLabel;
++
++    virSecurityDomainSetDirLabel domainSetDirLabel;
+ };
+ 
+ virSecurityDriverPtr virSecurityDriverLookup(const char *name,
+diff --git a/src/security/security_manager.c b/src/security/security_manager.c
+index b0cd9e8..1098558 100644
+--- a/src/security/security_manager.c
++++ b/src/security/security_manager.c
+@@ -991,3 +991,20 @@ virSecurityManagerSetHugepages(virSecurityManagerPtr mgr,
+ 
+     return 0;
+ }
++
++
++int
++virSecurityManagerDomainSetDirLabel(virSecurityManagerPtr mgr,
++                                    virDomainDefPtr vm,
++                                    const char *path)
++{
++    if (mgr->drv->domainSetDirLabel) {
++        int ret;
++        virObjectLock(mgr);
++        ret = mgr->drv->domainSetDirLabel(mgr, vm, path);
++        virObjectUnlock(mgr);
++        return ret;
++    }
++
++    return 0;
++}
+diff --git a/src/security/security_manager.h b/src/security/security_manager.h
+index 13468db..78f34a0 100644
+--- a/src/security/security_manager.h
++++ b/src/security/security_manager.h
+@@ -150,4 +150,8 @@ int virSecurityManagerRestoreImageLabel(virSecurityManagerPtr mgr,
+                                         virDomainDefPtr vm,
+                                         virStorageSourcePtr src);
+ 
++int virSecurityManagerDomainSetDirLabel(virSecurityManagerPtr mgr,
++                                        virDomainDefPtr vm,
++                                        const char *path);
++
+ #endif /* VIR_SECURITY_MANAGER_H__ */
+-- 
+2.5.1
+

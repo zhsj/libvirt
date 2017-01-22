@@ -1,0 +1,101 @@
+From 007cca58b412fbc476d6bebed0f1fbc7e9fa194e Mon Sep 17 00:00:00 2001
+Message-Id: <007cca58b412fbc476d6bebed0f1fbc7e9fa194e@dist-git>
+From: John Ferlan <jferlan@redhat.com>
+Date: Wed, 5 Aug 2015 18:18:10 +0200
+Subject: [PATCH] nodeinfo: Add sysfs_prefix to nodeGetCPUBitmap
+
+Add the sysfs_prefix argument to the call to allow for setting the
+path for tests to something other than SYSFS_SYSTEM_PATH.
+
+(cherry picked from commit f220a3e5a883035d609f81d481bf52bb1c0b4974)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/nodeinfo.c | 24 ++++++++++++++++--------
+ src/nodeinfo.h |  2 +-
+ 2 files changed, 17 insertions(+), 9 deletions(-)
+
+diff --git a/src/nodeinfo.c b/src/nodeinfo.c
+index 34de720..75e0a02 100644
+--- a/src/nodeinfo.c
++++ b/src/nodeinfo.c
+@@ -1275,29 +1275,35 @@ nodeGetPresentCPUBitmap(const char *sysfs_prefix)
+ }
+ 
+ virBitmapPtr
+-nodeGetCPUBitmap(int *max_id ATTRIBUTE_UNUSED)
++nodeGetCPUBitmap(const char *sysfs_prefix ATTRIBUTE_UNUSED,
++                 int *max_id ATTRIBUTE_UNUSED)
+ {
+ #ifdef __linux__
++    const char *prefix = sysfs_prefix ? sysfs_prefix : SYSFS_SYSTEM_PATH;
++    char *online_path = NULL;
+     virBitmapPtr cpumap;
+     int present;
+ 
+-    present = nodeGetCPUCount(NULL);
++    present = nodeGetCPUCount(prefix);
+     if (present < 0)
+         return NULL;
+ 
+-    if (virFileExists(SYSFS_SYSTEM_PATH "/cpu/online")) {
+-        cpumap = linuxParseCPUmap(present, SYSFS_SYSTEM_PATH "/cpu/online");
++    if (virAsprintf(&online_path, "%s/cpu/online", prefix) < 0)
++        return NULL;
++    if (virFileExists(online_path)) {
++        cpumap = linuxParseCPUmap(present, online_path);
+     } else {
+         size_t i;
+ 
+         cpumap = virBitmapNew(present);
+         if (!cpumap)
+-            return NULL;
++            goto cleanup;
+         for (i = 0; i < present; i++) {
+-            int online = virNodeGetCpuValue(SYSFS_SYSTEM_PATH, i, "online", 1);
++            int online = virNodeGetCpuValue(prefix, i, "online", 1);
+             if (online < 0) {
+                 virBitmapFree(cpumap);
+-                return NULL;
++                cpumap = NULL;
++                goto cleanup;
+             }
+             if (online)
+                 ignore_value(virBitmapSetBit(cpumap, i));
+@@ -1305,6 +1311,8 @@ nodeGetCPUBitmap(int *max_id ATTRIBUTE_UNUSED)
+     }
+     if (max_id && cpumap)
+         *max_id = present;
++ cleanup:
++    VIR_FREE(online_path);
+     return cpumap;
+ #else
+     virReportError(VIR_ERR_NO_SUPPORT, "%s",
+@@ -1630,7 +1638,7 @@ nodeGetCPUMap(unsigned char **cpumap,
+     if (!cpumap && !online)
+         return nodeGetCPUCount(NULL);
+ 
+-    if (!(cpus = nodeGetCPUBitmap(&maxpresent)))
++    if (!(cpus = nodeGetCPUBitmap(NULL, &maxpresent)))
+         goto cleanup;
+ 
+     if (cpumap && virBitmapToData(cpus, cpumap, &dummy) < 0)
+diff --git a/src/nodeinfo.h b/src/nodeinfo.h
+index 3ef206b..439ef35 100644
+--- a/src/nodeinfo.h
++++ b/src/nodeinfo.h
+@@ -44,7 +44,7 @@ int nodeGetMemory(unsigned long long *mem,
+                   unsigned long long *freeMem);
+ 
+ virBitmapPtr nodeGetPresentCPUBitmap(const char *sysfs_prefix);
+-virBitmapPtr nodeGetCPUBitmap(int *max_id);
++virBitmapPtr nodeGetCPUBitmap(const char *sysfs_prefix, int *max_id);
+ int nodeGetCPUCount(const char *sysfs_prefix);
+ 
+ int nodeGetMemoryParameters(virTypedParameterPtr params,
+-- 
+2.5.0
+

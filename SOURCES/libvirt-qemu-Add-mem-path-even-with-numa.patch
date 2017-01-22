@@ -1,0 +1,46 @@
+From eb59153c2c09c2e59f214e0bdcb90ea430753060 Mon Sep 17 00:00:00 2001
+Message-Id: <eb59153c2c09c2e59f214e0bdcb90ea430753060@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Tue, 6 Oct 2015 15:20:34 +0200
+Subject: [PATCH] qemu: Add -mem-path even with numa
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1266856
+
+So since the introduction of the memory-backend-file object until now we
+only added '-mem-path' for non-NUMA guests and we used the parameters of
+the memory-backend-file object to specify the path to the hugetlbfs
+mount.  But hugepages can be also used without memory-backend-file
+object, as it used to be before its introduction.  Let's just get this
+part of the code back and properly append the '-mem-path' for NUMA
+guests as well, but only when the memory backend is not needed.
+
+This parameter is already being applied when no numa is requested and
+because we still use memory-object-file unconditionally for
+hugepage-backed NUMA guests, this should not fire until later.
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit a2dba3ceb2e2639cc5fd91da81204682f27d0d8c)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_command.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
+index 0822ee4..1d020d2 100644
+--- a/src/qemu/qemu_command.c
++++ b/src/qemu/qemu_command.c
+@@ -7856,6 +7856,10 @@ qemuBuildNumaArgStr(virQEMUDriverConfigPtr cfg,
+         }
+     }
+ 
++    if (!needBackend &&
++        qemuBuildMemPathStr(cfg, def, qemuCaps, cmd) < 0)
++        goto cleanup;
++
+     for (i = 0; i < ncells; i++) {
+         VIR_FREE(cpumask);
+         if (!(cpumask = virBitmapFormat(virDomainNumaGetNodeCpumask(def->numa, i))))
+-- 
+2.6.1
+

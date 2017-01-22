@@ -1,0 +1,41 @@
+From 476ed77dafaf2b43298ddd936320cd5d3739e0a1 Mon Sep 17 00:00:00 2001
+Message-Id: <476ed77dafaf2b43298ddd936320cd5d3739e0a1@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Thu, 6 Aug 2015 13:10:43 +0200
+Subject: [PATCH] docs: Document how libvirt handles companion controllers
+
+The information on companion controllers we give in our documentation is
+rather sparse.  For example, it looks like any controller can be used as
+a companion one.  Also, when using ich9-uhci2, for example, we are able
+to set some sensible defaults, but it might get confusing for the user
+as we don't do that for all controller models.
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1069590
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit b84a2cd87dad4a10e3a0064c30ac3df037048101)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ docs/formatdomain.html.in | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/docs/formatdomain.html.in b/docs/formatdomain.html.in
+index 8785200..e2ccfa5 100644
+--- a/docs/formatdomain.html.in
++++ b/docs/formatdomain.html.in
+@@ -3007,6 +3007,11 @@
+       relationship of the companion to its master controller.
+       A companion controller is on the same bus as its master, so
+       the companion <code>index</code> value should be equal.
++      Not all controller models can be used as companion controllers
++      and libvirt might provide some sensible defaults (settings
++      of <code>master startport</code> and <code>function</code> of an
++      address) for some particular models.
++      Preferred companion controllers are <code>ich-uhci[123]</code>.
+     </p>
+ 
+ <pre>
+-- 
+2.5.0
+

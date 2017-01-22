@@ -1,0 +1,134 @@
+From f7b5000e807b3907165edd784fcf59a682d1d5ad Mon Sep 17 00:00:00 2001
+Message-Id: <f7b5000e807b3907165edd784fcf59a682d1d5ad@dist-git>
+From: John Ferlan <jferlan@redhat.com>
+Date: Fri, 4 Sep 2015 08:55:45 -0400
+Subject: [PATCH] qemu: Introduce qemuDomainMachineIsS390CCW
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1258361
+
+Rather than have different usages of STR function in order to determine
+whether the domain is s390-ccw or s390-ccw-virtio, make a single API
+which will check the machine.os prefix. Then use the function.
+
+(cherry picked from commit d334c91751c8eea33abe8e92761433a145e38112)
+Signed-off-by: John Ferlan <jferlan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_command.c |  4 ++--
+ src/qemu/qemu_domain.c  |  6 ++++++
+ src/qemu/qemu_domain.h  |  1 +
+ src/qemu/qemu_hotplug.c | 12 ++++++------
+ 4 files changed, 15 insertions(+), 8 deletions(-)
+
+diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
+index f3e45a5..f8fb71e 100644
+--- a/src/qemu/qemu_command.c
++++ b/src/qemu/qemu_command.c
+@@ -1327,7 +1327,7 @@ qemuDomainAssignS390Addresses(virDomainDefPtr def,
+     virDomainCCWAddressSetPtr addrs = NULL;
+     qemuDomainObjPrivatePtr priv = NULL;
+ 
+-    if (STREQLEN(def->os.machine, "s390-ccw", 8) &&
++    if (qemuDomainMachineIsS390CCW(def) &&
+         virQEMUCapsGet(qemuCaps, QEMU_CAPS_VIRTIO_CCW)) {
+         qemuDomainPrimeVirtioDeviceAddresses(
+             def, VIR_DOMAIN_DEVICE_ADDRESS_TYPE_CCW);
+@@ -1826,7 +1826,7 @@ qemuDomainReleaseDeviceAddress(virDomainObjPtr vm,
+         devstr = info->alias;
+ 
+     if (info->type == VIR_DOMAIN_DEVICE_ADDRESS_TYPE_CCW &&
+-        STREQLEN(vm->def->os.machine, "s390-ccw", 8) &&
++        qemuDomainMachineIsS390CCW(vm->def) &&
+         virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_VIRTIO_CCW) &&
+         virDomainCCWAddressReleaseAddr(priv->ccwaddrs, info) < 0)
+         VIR_WARN("Unable to release CCW address on %s",
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index 943d727..66d8e3a 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -3294,6 +3294,12 @@ qemuDomainMachineNeedsFDC(const virDomainDef *def)
+ }
+ 
+ 
++bool
++qemuDomainMachineIsS390CCW(const virDomainDef *def)
++{
++    return STRPREFIX(def->os.machine, "s390-ccw");
++}
++
+ 
+ /**
+  * qemuDomainUpdateCurrentMemorySize:
+diff --git a/src/qemu/qemu_domain.h b/src/qemu/qemu_domain.h
+index 2af7c59..91eaea1 100644
+--- a/src/qemu/qemu_domain.h
++++ b/src/qemu/qemu_domain.h
+@@ -469,6 +469,7 @@ virDomainChrSourceDefPtr qemuFindAgentConfig(virDomainDefPtr def);
+ bool qemuDomainMachineIsQ35(const virDomainDef *def);
+ bool qemuDomainMachineIsI440FX(const virDomainDef *def);
+ bool qemuDomainMachineNeedsFDC(const virDomainDef *def);
++bool qemuDomainMachineIsS390CCW(const virDomainDef *def);
+ 
+ int qemuDomainUpdateCurrentMemorySize(virQEMUDriverPtr driver,
+                                       virDomainObjPtr vm);
+diff --git a/src/qemu/qemu_hotplug.c b/src/qemu/qemu_hotplug.c
+index aabdb78..b79fc56 100644
+--- a/src/qemu/qemu_hotplug.c
++++ b/src/qemu/qemu_hotplug.c
+@@ -326,7 +326,7 @@ qemuDomainAttachVirtioDiskDevice(virConnectPtr conn,
+     const char *src = virDomainDiskGetSource(disk);
+ 
+     if (!disk->info.type) {
+-        if (STREQLEN(vm->def->os.machine, "s390-ccw", 8) &&
++        if (qemuDomainMachineIsS390CCW(vm->def) &&
+             virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_VIRTIO_CCW))
+             disk->info.type = VIR_DOMAIN_DEVICE_ADDRESS_TYPE_CCW;
+         else if (virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_VIRTIO_S390))
+@@ -443,7 +443,7 @@ int qemuDomainAttachControllerDevice(virQEMUDriverPtr driver,
+ 
+     if (virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_DEVICE)) {
+         if (controller->info.type == VIR_DOMAIN_DEVICE_ADDRESS_TYPE_NONE) {
+-            if (STRPREFIX(vm->def->os.machine, "s390-ccw") &&
++            if (qemuDomainMachineIsS390CCW(vm->def) &&
+                 virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_VIRTIO_CCW))
+                 controller->info.type = VIR_DOMAIN_DEVICE_ADDRESS_TYPE_CCW;
+             else if (virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_VIRTIO_S390))
+@@ -991,7 +991,7 @@ int qemuDomainAttachNetDevice(virConnectPtr conn,
+             goto cleanup;
+     }
+ 
+-    if (STREQLEN(vm->def->os.machine, "s390-ccw", 8) &&
++    if (qemuDomainMachineIsS390CCW(vm->def) &&
+         virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_VIRTIO_CCW)) {
+         net->info.type = VIR_DOMAIN_DEVICE_ADDRESS_TYPE_CCW;
+         if (virDomainCCWAddressAssign(&net->info, priv->ccwaddrs,
+@@ -1657,7 +1657,7 @@ qemuDomainAttachRNGDevice(virQEMUDriverPtr driver,
+         return -1;
+ 
+     if (rng->info.type == VIR_DOMAIN_DEVICE_ADDRESS_TYPE_NONE) {
+-        if (STRPREFIX(vm->def->os.machine, "s390-ccw") &&
++        if (qemuDomainMachineIsS390CCW(vm->def) &&
+             virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_VIRTIO_CCW)) {
+             rng->info.type = VIR_DOMAIN_DEVICE_ADDRESS_TYPE_CCW;
+         } else if (virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_VIRTIO_S390)) {
+@@ -3415,7 +3415,7 @@ qemuDomainDetachVirtioDiskDevice(virQEMUDriverPtr driver,
+         goto cleanup;
+     }
+ 
+-    if (STREQLEN(vm->def->os.machine, "s390-ccw", 8) &&
++    if (qemuDomainMachineIsS390CCW(vm->def) &&
+         virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_VIRTIO_CCW)) {
+         if (!virDomainDeviceAddressIsValid(&detach->info,
+                                            VIR_DOMAIN_DEVICE_ADDRESS_TYPE_CCW)) {
+@@ -3945,7 +3945,7 @@ qemuDomainDetachNetDevice(virQEMUDriverPtr driver,
+                                              virDomainNetGetActualHostdev(detach));
+         goto cleanup;
+     }
+-    if (STREQLEN(vm->def->os.machine, "s390-ccw", 8) &&
++    if (qemuDomainMachineIsS390CCW(vm->def) &&
+         virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_VIRTIO_CCW)) {
+         if (!virDomainDeviceAddressIsValid(&detach->info,
+                                            VIR_DOMAIN_DEVICE_ADDRESS_TYPE_CCW)) {
+-- 
+2.5.1
+

@@ -1,0 +1,46 @@
+From 10b9626e8866873f047662b6e2ecdccd3235d76d Mon Sep 17 00:00:00 2001
+Message-Id: <10b9626e8866873f047662b6e2ecdccd3235d76d@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Tue, 11 Aug 2015 17:16:10 +0200
+Subject: [PATCH] cpu: Forbid model fallback in the ppc64 driver
+
+Unlike what happens on x86, on ppc64 you can't mix and match CPU
+features to obtain the guest CPU you want regardless of the host
+CPU, so the concept of model fallback doesn't apply.
+
+Make sure CPU definitions emitted by the driver, eg. as output of
+the cpuBaseline() and cpuUpdate() calls, reflect this fact.
+
+(cherry picked from commit 344d1675e84be60c024080afd74f0da6d25c5f6b)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1250977
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/cpu/cpu_ppc64.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/cpu/cpu_ppc64.c b/src/cpu/cpu_ppc64.c
+index f24fc41..33fec8b 100644
+--- a/src/cpu/cpu_ppc64.c
++++ b/src/cpu/cpu_ppc64.c
+@@ -670,6 +670,7 @@ ppc64DriverUpdate(virCPUDefPtr guest,
+     case VIR_CPU_MODE_HOST_MODEL:
+     case VIR_CPU_MODE_HOST_PASSTHROUGH:
+         guest->match = VIR_CPU_MATCH_EXACT;
++        guest->fallback = VIR_CPU_FALLBACK_FORBID;
+         virCPUDefFreeModel(guest);
+         return virCPUDefCopyModel(guest, host, true);
+ 
+@@ -768,6 +769,7 @@ ppc64DriverBaseline(virCPUDefPtr *cpus,
+ 
+     cpu->type = VIR_CPU_TYPE_GUEST;
+     cpu->match = VIR_CPU_MATCH_EXACT;
++    cpu->fallback = VIR_CPU_FALLBACK_FORBID;
+ 
+  cleanup:
+     ppc64MapFree(map);
+-- 
+2.5.0
+

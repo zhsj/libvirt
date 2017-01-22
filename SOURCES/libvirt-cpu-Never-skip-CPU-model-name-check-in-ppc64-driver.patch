@@ -1,0 +1,75 @@
+From 22376689ed26a2bba1c8a9fa328a046eee0da4c4 Mon Sep 17 00:00:00 2001
+Message-Id: <22376689ed26a2bba1c8a9fa328a046eee0da4c4@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Tue, 11 Aug 2015 17:16:00 +0200
+Subject: [PATCH] cpu: Never skip CPU model name check in ppc64 driver
+
+ppc64Compute(), called by cpuNodeData(), is used not only to retrieve
+the driver-specific data associated to a guest CPU definition, but
+also to check whether said guest CPU is compatible with the host CPU.
+
+If the user is not interested in the CPU data, it's perfectly fine
+to pass a NULL pointer instead of a return location, and the
+compatibility data returned should not be affected by this. One of
+the checks, specifically the one on CPU model name, was however
+only performed if the return location was non-NULL.
+
+(cherry picked from commit 8382136d42fd2caf2e5c7ad3b579f4fc5f104533)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1250977
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/cpu/cpu_ppc64.c | 31 +++++++++++++++----------------
+ 1 file changed, 15 insertions(+), 16 deletions(-)
+
+diff --git a/src/cpu/cpu_ppc64.c b/src/cpu/cpu_ppc64.c
+index 5921263..53d8fb0 100644
+--- a/src/cpu/cpu_ppc64.c
++++ b/src/cpu/cpu_ppc64.c
+@@ -407,26 +407,25 @@ ppc64Compute(virCPUDefPtr host,
+         !(guest_model = ppc64ModelFromCPU(cpu, map)))
+         goto cleanup;
+ 
+-    if (guestData) {
+-        if (cpu->type == VIR_CPU_TYPE_GUEST &&
+-            cpu->match == VIR_CPU_MATCH_STRICT &&
+-            STRNEQ(guest_model->name, host_model->name)) {
+-            VIR_DEBUG("host CPU model does not match required CPU model %s",
+-                      guest_model->name);
+-            if (message &&
+-                virAsprintf(message,
+-                            _("host CPU model does not match required "
+-                            "CPU model %s"),
+-                            guest_model->name) < 0)
+-                goto cleanup;
+-
+-            ret = VIR_CPU_COMPARE_INCOMPATIBLE;
++    if (cpu->type == VIR_CPU_TYPE_GUEST &&
++        cpu->match == VIR_CPU_MATCH_STRICT &&
++        STRNEQ(guest_model->name, host_model->name)) {
++        VIR_DEBUG("host CPU model does not match required CPU model %s",
++                  guest_model->name);
++        if (message &&
++            virAsprintf(message,
++                        _("host CPU model does not match required "
++                        "CPU model %s"),
++                        guest_model->name) < 0)
+             goto cleanup;
+-        }
+ 
++        ret = VIR_CPU_COMPARE_INCOMPATIBLE;
++        goto cleanup;
++    }
++
++    if (guestData)
+         if (!(*guestData = ppc64MakeCPUData(arch, &guest_model->data)))
+             goto cleanup;
+-    }
+ 
+     ret = VIR_CPU_COMPARE_IDENTICAL;
+ 
+-- 
+2.5.0
+

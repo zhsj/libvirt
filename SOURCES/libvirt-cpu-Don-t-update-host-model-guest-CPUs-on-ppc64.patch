@@ -1,0 +1,48 @@
+From 202a17ed092c28749335bc7ed1641c5590841be6 Mon Sep 17 00:00:00 2001
+Message-Id: <202a17ed092c28749335bc7ed1641c5590841be6@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Fri, 21 Aug 2015 16:36:01 -0700
+Subject: [PATCH] cpu: Don't update host-model guest CPUs on ppc64
+
+If a guest CPU is defined using
+
+  <cpu mode='host-model'/>
+
+the <model> sub-element will contain the compatibility mode to use.
+That means we can't just copy the host CPU model on cpuUpdate(),
+otherwise we'll overwrite that information and migration of such
+guests will fail.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1251927
+(cherry picked from commit 6d7c2f65c103c9b98baf595d14725e62651bdb1b)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1251927
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/cpu/cpu_ppc64.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/cpu/cpu_ppc64.c b/src/cpu/cpu_ppc64.c
+index 85aa5bc..72b8fa0 100644
+--- a/src/cpu/cpu_ppc64.c
++++ b/src/cpu/cpu_ppc64.c
+@@ -667,13 +667,13 @@ ppc64DriverUpdate(virCPUDefPtr guest,
+                   const virCPUDef *host)
+ {
+     switch ((virCPUMode) guest->mode) {
+-    case VIR_CPU_MODE_HOST_MODEL:
+     case VIR_CPU_MODE_HOST_PASSTHROUGH:
+         guest->match = VIR_CPU_MATCH_EXACT;
+         guest->fallback = VIR_CPU_FALLBACK_FORBID;
+         virCPUDefFreeModel(guest);
+         return virCPUDefCopyModel(guest, host, true);
+ 
++    case VIR_CPU_MODE_HOST_MODEL:
+     case VIR_CPU_MODE_CUSTOM:
+         return 0;
+ 
+-- 
+2.5.0
+

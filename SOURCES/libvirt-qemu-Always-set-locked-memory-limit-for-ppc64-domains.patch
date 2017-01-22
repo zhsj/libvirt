@@ -1,0 +1,51 @@
+From 3f49b7d6c486486baabcfa956bea6aa32f133a91 Mon Sep 17 00:00:00 2001
+Message-Id: <3f49b7d6c486486baabcfa956bea6aa32f133a91@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Fri, 20 Nov 2015 13:29:15 +0100
+Subject: [PATCH] qemu: Always set locked memory limit for ppc64 domains
+
+Unlike other architectures, ppc64 domains need to lock memory
+even when VFIO is not used.
+
+Change qemuDomainRequiresMlock() to reflect this fact.
+
+(cherry picked from commit 16562bbc587add5a03a01c8eb8607c9e05819607)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1283924
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_domain.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index 4615e3e..d0df935 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -3551,8 +3551,9 @@ qemuDomainGetMlockLimitBytes(virDomainDefPtr def)
+ /**
+  * @def: domain definition
+  *
+- * Returns ture if the locked memory limit needs to be set or updated due to
+- * configuration or passthrough devices.
++ * Returns true if the locked memory limit needs to be set or updated because
++ * of domain configuration, VFIO passthrough devices or architecture-specific
++ * requirements.
+  * */
+ bool
+ qemuDomainRequiresMlock(virDomainDefPtr def)
+@@ -3562,6 +3563,10 @@ qemuDomainRequiresMlock(virDomainDefPtr def)
+     if (def->mem.locked)
+         return true;
+ 
++    /* ppc64 domains need to lock some memory even when VFIO is not used */
++    if (ARCH_IS_PPC64(def->os.arch))
++        return true;
++
+     for (i = 0; i < def->nhostdevs; i++) {
+         virDomainHostdevDefPtr dev = def->hostdevs[i];
+ 
+-- 
+2.6.3
+

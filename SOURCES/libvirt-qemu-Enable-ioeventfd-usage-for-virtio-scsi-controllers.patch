@@ -1,0 +1,76 @@
+From eb34bc3c4d9a9db2785d56ff30f6d7ca86663cb9 Mon Sep 17 00:00:00 2001
+Message-Id: <eb34bc3c4d9a9db2785d56ff30f6d7ca86663cb9@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Thu, 3 Sep 2015 15:55:44 +0200
+Subject: [PATCH] qemu: Enable ioeventfd usage for virtio-scsi controllers
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1150484
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit cf0404455cecb47ddbfa3266eea6b66f8540facd)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_command.c                                          | 7 +++++++
+ .../qemuxml2argv-disk-virtio-scsi-ioeventfd.args                 | 9 +++++++++
+ tests/qemuxml2argvtest.c                                         | 3 +++
+ 3 files changed, 19 insertions(+)
+ create mode 100644 tests/qemuxml2argvdata/qemuxml2argv-disk-virtio-scsi-ioeventfd.args
+
+diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
+index aebaf35..f3e45a5 100644
+--- a/src/qemu/qemu_command.c
++++ b/src/qemu/qemu_command.c
+@@ -4509,6 +4509,11 @@ qemuBuildControllerDevStr(virDomainDefPtr domainDef,
+                            _("'max_sectors' is only supported by virtio-scsi controller"));
+             return NULL;
+         }
++        if (def->ioeventfd) {
++            virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
++                           _("'ioeventfd' is only supported by virtio-scsi controller"));
++            return NULL;
++        }
+     }
+ 
+     switch (def->type) {
+@@ -4654,6 +4659,8 @@ qemuBuildControllerDevStr(virDomainDefPtr domainDef,
+     if (def->max_sectors)
+         virBufferAsprintf(&buf, ",max_sectors=%u", def->max_sectors);
+ 
++    qemuBuildIoEventFdStr(&buf, def->ioeventfd, qemuCaps);
++
+     if (qemuBuildDeviceAddressStr(&buf, domainDef, &def->info, qemuCaps) < 0)
+         goto error;
+ 
+diff --git a/tests/qemuxml2argvdata/qemuxml2argv-disk-virtio-scsi-ioeventfd.args b/tests/qemuxml2argvdata/qemuxml2argv-disk-virtio-scsi-ioeventfd.args
+new file mode 100644
+index 0000000..1c53189
+--- /dev/null
++++ b/tests/qemuxml2argvdata/qemuxml2argv-disk-virtio-scsi-ioeventfd.args
+@@ -0,0 +1,9 @@
++LC_ALL=C PATH=/bin HOME=/home/test USER=test LOGNAME=test QEMU_AUDIO_DRV=none \
++/usr/bin/qemu -S -M pc -m 214 -smp 8 -nographic -nodefconfig -nodefaults \
++-monitor unix:/tmp/test-monitor,server,nowait -no-acpi -boot c \
++-device virtio-scsi-pci,id=scsi0,ioeventfd=on,bus=pci.0,addr=0x3 \
++-usb \
++-drive file=/dev/HostVG/QEMUGuest1,if=none,id=drive-scsi0-0-0-0 \
++-device scsi-disk,bus=scsi0.0,channel=0,scsi-id=0,lun=0,\
++drive=drive-scsi0-0-0-0,id=scsi0-0-0-0 \
++-device virtio-balloon-pci,id=balloon0,bus=pci.0,addr=0x4
+diff --git a/tests/qemuxml2argvtest.c b/tests/qemuxml2argvtest.c
+index c2657d7..0dd1b9a 100644
+--- a/tests/qemuxml2argvtest.c
++++ b/tests/qemuxml2argvtest.c
+@@ -877,6 +877,9 @@ mymain(void)
+     DO_TEST("disk-virtio-scsi-max_sectors",
+             QEMU_CAPS_DRIVE, QEMU_CAPS_DEVICE, QEMU_CAPS_NODEFCONFIG,
+             QEMU_CAPS_VIRTIO_SCSI);
++    DO_TEST("disk-virtio-scsi-ioeventfd",
++            QEMU_CAPS_DRIVE, QEMU_CAPS_DEVICE, QEMU_CAPS_NODEFCONFIG,
++            QEMU_CAPS_VIRTIO_IOEVENTFD, QEMU_CAPS_VIRTIO_SCSI);
+     DO_TEST("disk-scsi-megasas",
+             QEMU_CAPS_DRIVE, QEMU_CAPS_DEVICE, QEMU_CAPS_NODEFCONFIG,
+             QEMU_CAPS_SCSI_MEGASAS);
+-- 
+2.5.1
+

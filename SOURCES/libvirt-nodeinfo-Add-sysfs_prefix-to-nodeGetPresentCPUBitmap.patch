@@ -1,0 +1,78 @@
+From ffadd3f17a8d1f970bcfe31cebd08a11da9fb5ef Mon Sep 17 00:00:00 2001
+Message-Id: <ffadd3f17a8d1f970bcfe31cebd08a11da9fb5ef@dist-git>
+From: John Ferlan <jferlan@redhat.com>
+Date: Wed, 5 Aug 2015 18:18:09 +0200
+Subject: [PATCH] nodeinfo: Add sysfs_prefix to nodeGetPresentCPUBitmap
+
+Add the sysfs_prefix argument to the call to allow for setting the
+path for tests to something other than SYSFS_SYSTEM_PATH.
+
+(cherry picked from commit 51281dcb9032610983c19dd98295a0aa8e5c40d6)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/nodeinfo.c       | 7 ++++---
+ src/nodeinfo.h       | 2 +-
+ src/util/vircgroup.c | 2 +-
+ 3 files changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/src/nodeinfo.c b/src/nodeinfo.c
+index 409f922..34de720 100644
+--- a/src/nodeinfo.c
++++ b/src/nodeinfo.c
+@@ -1249,19 +1249,20 @@ nodeGetCPUCount(const char *sysfs_prefix ATTRIBUTE_UNUSED)
+ }
+ 
+ virBitmapPtr
+-nodeGetPresentCPUBitmap(void)
++nodeGetPresentCPUBitmap(const char *sysfs_prefix)
+ {
+     int max_present;
+ #ifdef __linux__
+     char *present_path = NULL;
+     virBitmapPtr bitmap = NULL;
+ #endif
++    const char *prefix = sysfs_prefix ? sysfs_prefix : SYSFS_SYSTEM_PATH;
+ 
+-    if ((max_present = nodeGetCPUCount(NULL)) < 0)
++    if ((max_present = nodeGetCPUCount(prefix)) < 0)
+         return NULL;
+ 
+ #ifdef __linux__
+-    if (!(present_path = linuxGetCPUPresentPath(NULL)))
++    if (!(present_path = linuxGetCPUPresentPath(prefix)))
+         return NULL;
+     if (virFileExists(present_path))
+         bitmap = linuxParseCPUmap(max_present, present_path);
+diff --git a/src/nodeinfo.h b/src/nodeinfo.h
+index 4f9699e..3ef206b 100644
+--- a/src/nodeinfo.h
++++ b/src/nodeinfo.h
+@@ -43,7 +43,7 @@ int nodeGetCellsFreeMemory(unsigned long long *freeMems,
+ int nodeGetMemory(unsigned long long *mem,
+                   unsigned long long *freeMem);
+ 
+-virBitmapPtr nodeGetPresentCPUBitmap(void);
++virBitmapPtr nodeGetPresentCPUBitmap(const char *sysfs_prefix);
+ virBitmapPtr nodeGetCPUBitmap(int *max_id);
+ int nodeGetCPUCount(const char *sysfs_prefix);
+ 
+diff --git a/src/util/vircgroup.c b/src/util/vircgroup.c
+index 29b2ab9..0599ba5 100644
+--- a/src/util/vircgroup.c
++++ b/src/util/vircgroup.c
+@@ -3037,7 +3037,7 @@ virCgroupGetPercpuStats(virCgroupPtr group,
+     }
+ 
+     /* To parse account file, we need to know how many cpus are present.  */
+-    if (!(cpumap = nodeGetPresentCPUBitmap()))
++    if (!(cpumap = nodeGetPresentCPUBitmap(NULL)))
+         return rv;
+ 
+     total_cpus = virBitmapSize(cpumap);
+-- 
+2.5.0
+

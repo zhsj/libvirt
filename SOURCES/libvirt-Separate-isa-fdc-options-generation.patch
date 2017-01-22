@@ -1,0 +1,64 @@
+From 699ce9cb3514bc0458ab61e4e82b725922011dbd Mon Sep 17 00:00:00 2001
+Message-Id: <699ce9cb3514bc0458ab61e4e82b725922011dbd@dist-git>
+From: =?UTF-8?q?J=C3=A1n=20Tomko?= <jtomko@redhat.com>
+Date: Wed, 8 Jul 2015 15:56:46 +0200
+Subject: [PATCH] Separate isa-fdc options generation
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1227880
+
+For the implicit controller, we set them via -global.
+Separating them will allow reuse for explicit fdc controller as well.
+
+No functional impact apart from one extra allocation.
+
+(cherry picked from commit 4ef21ec192f0de6e638d22b6a406cd87744f6b99)
+Signed-off-by: Ján Tomko <jtomko@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_command.c | 23 +++++++++++++++--------
+ 1 file changed, 15 insertions(+), 8 deletions(-)
+
+diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
+index ca14ffc..d8ce22f 100644
+--- a/src/qemu/qemu_command.c
++++ b/src/qemu/qemu_command.c
+@@ -9805,18 +9805,25 @@ qemuBuildCommandLine(virConnectPtr conn,
+ 
+             if (withDeviceArg) {
+                 if (disk->bus == VIR_DOMAIN_DISK_BUS_FDC) {
++                    if (virAsprintf(&optstr, "drive%c=drive-%s",
++                                    disk->info.addr.drive.unit ? 'B' : 'A',
++                                    disk->info.alias) < 0)
++                        goto error;
++
+                     virCommandAddArg(cmd, "-global");
+-                    virCommandAddArgFormat(cmd, "isa-fdc.drive%c=drive-%s",
+-                                           disk->info.addr.drive.unit
+-                                           ? 'B' : 'A',
+-                                           disk->info.alias);
++                    virCommandAddArgFormat(cmd, "isa-fdc.%s", optstr);
++                    VIR_FREE(optstr);
+ 
+                     if (bootindex) {
++                        if (virAsprintf(&optstr, "bootindex%c=%d",
++                                        disk->info.addr.drive.unit
++                                        ? 'B' : 'A',
++                                        bootindex) < 0)
++                            goto error;
++
+                         virCommandAddArg(cmd, "-global");
+-                        virCommandAddArgFormat(cmd, "isa-fdc.bootindex%c=%d",
+-                                               disk->info.addr.drive.unit
+-                                               ? 'B' : 'A',
+-                                               bootindex);
++                        virCommandAddArgFormat(cmd, "isa-fdc.%s", optstr);
++                        VIR_FREE(optstr);
+                     }
+                 } else {
+                     virCommandAddArg(cmd, "-device");
+-- 
+2.4.5
+

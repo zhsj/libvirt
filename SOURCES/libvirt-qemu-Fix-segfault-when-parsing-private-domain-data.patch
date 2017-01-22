@@ -1,0 +1,52 @@
+From e8ffa273684efa5de18fad0913d6da4a93a9682d Mon Sep 17 00:00:00 2001
+Message-Id: <e8ffa273684efa5de18fad0913d6da4a93a9682d@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Thu, 13 Aug 2015 15:11:45 +0200
+Subject: [PATCH] qemu: Fix segfault when parsing private domain data
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1162947
+
+When parsing private domain data, there are two paths that are flawed.
+They are both error paths, just from different parts of the function.
+One of them can call free() on an uninitialized pointer.  Initialization
+to NULL is enough here.  The other one is a bit trickier to explain, but
+as easy as the first one to fix.  We create capabilities, parse them and
+then assign them into the private data pointer inside the domain object.
+If, however, we get to fail from now on, the error path calls unrefs the
+capabilities and then, when the domain object is being cleaned,
+qemuDomainObjPrivateFree() tries to unref them as well.  That causes a
+segfault.  Settin the pointer to NULL upon successful addition to the
+private data is enough.
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 92ddffdbd3c91d99f8f7ed9b661388a2c5d36cc2)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_domain.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index c247737..d95f24f 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -627,7 +627,7 @@ qemuDomainObjPrivateXMLParse(xmlXPathContextPtr ctxt,
+ {
+     qemuDomainObjPrivatePtr priv = vm->privateData;
+     char *monitorpath;
+-    char *tmp;
++    char *tmp = NULL;
+     int n;
+     size_t i;
+     xmlNodePtr *nodes = NULL;
+@@ -715,6 +715,7 @@ qemuDomainObjPrivateXMLParse(xmlXPathContextPtr ctxt,
+         }
+ 
+         priv->qemuCaps = qemuCaps;
++        qemuCaps = NULL;
+     }
+     VIR_FREE(nodes);
+ 
+-- 
+2.5.0
+

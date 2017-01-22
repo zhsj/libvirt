@@ -1,0 +1,57 @@
+From 7b6d887931845fb14f04bdfd997d61de940a0cff Mon Sep 17 00:00:00 2001
+Message-Id: <7b6d887931845fb14f04bdfd997d61de940a0cff@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Tue, 22 Sep 2015 16:59:47 +0200
+Subject: [PATCH] qemu: ppc64: Align memory sizes to 256MiB blocks
+
+For some machine types ppc64 machines now require that memory sizes are
+aligned to 256MiB increments (due to the dynamically reconfigurable
+memory). As now we treat existing configs reasonably in regards to
+migration, we can round all the sizes unconditionally. The only drawback
+will be that the memory size of a VM can potentially increase by
+(256MiB - 1byte) * number_of_NUMA_nodes.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1249006
+(cherry picked from commit bd874b6c422283ff9c07ee28b042b424e85a2398)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_domain.c                                      | 7 ++++++-
+ tests/qemuxml2argvdata/qemuxml2argv-pseries-cpu-compat.args | 2 +-
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index 77f3d6a..a47535e 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -3159,8 +3159,13 @@ qemuDomainAgentAvailable(virDomainObjPtr vm,
+ 
+ 
+ static unsigned long long
+-qemuDomainGetMemorySizeAlignment(virDomainDefPtr def ATTRIBUTE_UNUSED)
++qemuDomainGetMemorySizeAlignment(virDomainDefPtr def)
+ {
++    /* PPC requires the memory sizes to be rounded to 256MiB increments, so
++     * round them to the size always. */
++    if (ARCH_IS_PPC64(def->os.arch))
++        return 256 * 1024;
++
+     /* Align memory size. QEMU requires rounding to next 4KiB block.
+      * We'll take the "traditional" path and round it to 1MiB*/
+ 
+diff --git a/tests/qemuxml2argvdata/qemuxml2argv-pseries-cpu-compat.args b/tests/qemuxml2argvdata/qemuxml2argv-pseries-cpu-compat.args
+index 64df406..305e924 100644
+--- a/tests/qemuxml2argvdata/qemuxml2argv-pseries-cpu-compat.args
++++ b/tests/qemuxml2argvdata/qemuxml2argv-pseries-cpu-compat.args
+@@ -1,7 +1,7 @@
+ LC_ALL=C PATH=/bin HOME=/home/test USER=test LOGNAME=test \
+ QEMU_AUDIO_DRV=none /usr/bin/qemu-system-ppc64 -S -M pseries \
+ -cpu host,compat=power7 \
+--m 214 -smp 4 -nographic -nodefconfig -nodefaults \
++-m 256 -smp 4 -nographic -nodefconfig -nodefaults \
+ -chardev socket,id=charmonitor,path=/tmp/test-monitor,server,nowait \
+ -mon chardev=charmonitor,id=monitor,mode=readline -no-acpi -boot c -usb \
+ -chardev pty,id=charserial0 \
+-- 
+2.5.3
+

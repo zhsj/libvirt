@@ -1,0 +1,37 @@
+From 7211ae6c2efef89d0c708abe54ca2c402f2a91af Mon Sep 17 00:00:00 2001
+Message-Id: <7211ae6c2efef89d0c708abe54ca2c402f2a91af@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Wed, 23 Sep 2015 15:03:14 +0200
+Subject: [PATCH] qemu: Refresh memory size only on fresh starts
+
+Qemu unfortunately doesn't update internal state right after migration
+and so the actual balloon size as returned by 'query-balloon' are
+invalid for a while after the CPUs are started after migration. If we'd
+refresh our internal state at this point we would report invalid current
+memory size until the next balloon event would arrive.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1242940
+(cherry picked from commit d7a0386e229176ec67531aac1412b8a98914da8e)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_process.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/qemu/qemu_process.c b/src/qemu/qemu_process.c
+index 301b9bf..ed01bf4 100644
+--- a/src/qemu/qemu_process.c
++++ b/src/qemu/qemu_process.c
+@@ -5049,7 +5049,8 @@ int qemuProcessStart(virConnectPtr conn,
+     /* Since CPUs were not started yet, the balloon could not return the memory
+      * to the host and thus cur_balloon needs to be updated so that GetXMLdesc
+      * and friends return the correct size in case they can't grab the job */
+-    if (qemuProcessRefreshBalloonState(driver, vm, asyncJob) < 0)
++    if (!migrateFrom && !snapshot &&
++        qemuProcessRefreshBalloonState(driver, vm, asyncJob) < 0)
+         goto cleanup;
+ 
+     VIR_DEBUG("Detecting actual memory size for video device");
+-- 
+2.5.3
+

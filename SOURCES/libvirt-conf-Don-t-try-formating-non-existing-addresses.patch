@@ -1,0 +1,138 @@
+From 82e798b603e50a2177f485294cb984590627c504 Mon Sep 17 00:00:00 2001
+Message-Id: <82e798b603e50a2177f485294cb984590627c504@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Tue, 11 Aug 2015 13:13:13 -0400
+Subject: [PATCH] conf: Don't try formating non-existing addresses
+
+Commit a6f9af8292b6 added checking for address colisions between
+starting and ending addresses of forwarding addresses, but forgot that
+there might be no addresses set at all.
+
+This fixes an error in the original patch for:
+
+  https://bugzilla.redhat.com/show_bug.cgi?id=985653
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 1f24c1494a85d663fa36047922a7974a292a46a7)
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/conf/network_conf.c                            | 23 ++++++++++++++++---
+ .../nat-network-forward-nat-no-address.xml         | 25 +++++++++++++++++++++
+ .../nat-network-forward-nat-no-address.xml         | 26 ++++++++++++++++++++++
+ tests/networkxml2xmltest.c                         |  1 +
+ 4 files changed, 72 insertions(+), 3 deletions(-)
+ create mode 100644 tests/networkxml2xmlin/nat-network-forward-nat-no-address.xml
+ create mode 100644 tests/networkxml2xmlout/nat-network-forward-nat-no-address.xml
+
+diff --git a/src/conf/network_conf.c b/src/conf/network_conf.c
+index b03c2fd..e765c65 100644
+--- a/src/conf/network_conf.c
++++ b/src/conf/network_conf.c
+@@ -1729,9 +1729,26 @@ virNetworkForwardNatDefParseXML(const char *networkName,
+         goto cleanup;
+     }
+ 
+-    /* verify that start <= end */
+-    if (virSocketAddrGetRange(&def->addr.start, &def->addr.end, NULL, 0) < 0)
+-        goto cleanup;
++    if (addrStart && addrEnd) {
++        /* verify that start <= end */
++        if (virSocketAddrGetRange(&def->addr.start, &def->addr.end, NULL, 0) < 0)
++            goto cleanup;
++    } else {
++        if (addrStart) {
++            virReportError(VIR_ERR_XML_ERROR,
++                           _("Only start address '%s' specified in <nat> in "
++                             "<forward> in network '%s'"),
++                           addrStart, networkName);
++            goto cleanup;
++        }
++        if (addrEnd) {
++            virReportError(VIR_ERR_XML_ERROR,
++                           _("Only end address '%s' specified in <nat> in "
++                             "<forward> in network '%s'"),
++                           addrEnd, networkName);
++            goto cleanup;
++        }
++    }
+ 
+     /* ports for SNAT and MASQUERADE */
+     nNatPorts = virXPathNodeSet("./port", ctxt, &natPortNodes);
+diff --git a/tests/networkxml2xmlin/nat-network-forward-nat-no-address.xml b/tests/networkxml2xmlin/nat-network-forward-nat-no-address.xml
+new file mode 100644
+index 0000000..97a6452
+--- /dev/null
++++ b/tests/networkxml2xmlin/nat-network-forward-nat-no-address.xml
+@@ -0,0 +1,25 @@
++<network>
++  <name>default</name>
++  <uuid>81ff0d90-c91e-6742-64da-4a736edb9a9b</uuid>
++  <bridge name="virbr0"/>
++  <forward mode="nat" dev="eth1">
++    <nat>
++      <port start='60000' end='65432'/>
++    </nat>
++  </forward>
++  <ip address="192.168.122.1" netmask="255.255.255.0">
++    <dhcp>
++      <range start="192.168.122.2" end="192.168.122.254"/>
++      <host mac="00:16:3e:77:e2:ed" name="a.example.com" ip="192.168.122.10"/>
++      <host mac="00:16:3e:3e:a9:1a" name="b.example.com" ip="192.168.122.11"/>
++    </dhcp>
++  </ip>
++  <ip family="ipv4" address="192.168.123.1" netmask="255.255.255.0">
++  </ip>
++  <ip family="ipv6" address="2001:db8:ac10:fe01::1" prefix="64">
++  </ip>
++  <ip family="ipv6" address="2001:db8:ac10:fd01::1" prefix="64">
++  </ip>
++  <ip family="ipv4" address="10.24.10.1">
++  </ip>
++</network>
+diff --git a/tests/networkxml2xmlout/nat-network-forward-nat-no-address.xml b/tests/networkxml2xmlout/nat-network-forward-nat-no-address.xml
+new file mode 100644
+index 0000000..f19e34d
+--- /dev/null
++++ b/tests/networkxml2xmlout/nat-network-forward-nat-no-address.xml
+@@ -0,0 +1,26 @@
++<network>
++  <name>default</name>
++  <uuid>81ff0d90-c91e-6742-64da-4a736edb9a9b</uuid>
++  <forward dev='eth1' mode='nat'>
++    <nat>
++      <port start='60000' end='65432'/>
++    </nat>
++    <interface dev='eth1'/>
++  </forward>
++  <bridge name='virbr0' stp='on' delay='0'/>
++  <ip address='192.168.122.1' netmask='255.255.255.0'>
++    <dhcp>
++      <range start='192.168.122.2' end='192.168.122.254'/>
++      <host mac='00:16:3e:77:e2:ed' name='a.example.com' ip='192.168.122.10'/>
++      <host mac='00:16:3e:3e:a9:1a' name='b.example.com' ip='192.168.122.11'/>
++    </dhcp>
++  </ip>
++  <ip family='ipv4' address='192.168.123.1' netmask='255.255.255.0'>
++  </ip>
++  <ip family='ipv6' address='2001:db8:ac10:fe01::1' prefix='64'>
++  </ip>
++  <ip family='ipv6' address='2001:db8:ac10:fd01::1' prefix='64'>
++  </ip>
++  <ip family='ipv4' address='10.24.10.1'>
++  </ip>
++</network>
+diff --git a/tests/networkxml2xmltest.c b/tests/networkxml2xmltest.c
+index 290336e..8d60aa8 100644
+--- a/tests/networkxml2xmltest.c
++++ b/tests/networkxml2xmltest.c
+@@ -99,6 +99,7 @@ mymain(void)
+     DO_TEST("nat-network-dns-forward-plain");
+     DO_TEST("nat-network-dns-forwarders");
+     DO_TEST("nat-network-forward-nat-address");
++    DO_TEST("nat-network-forward-nat-no-address");
+     DO_TEST("8021Qbh-net");
+     DO_TEST("direct-net");
+     DO_TEST("host-bridge-net");
+-- 
+2.5.0
+

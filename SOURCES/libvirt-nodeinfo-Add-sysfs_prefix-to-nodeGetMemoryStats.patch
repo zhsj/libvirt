@@ -1,0 +1,138 @@
+From 69397bf8901e911a4e288bba84896a18b2604dd1 Mon Sep 17 00:00:00 2001
+Message-Id: <69397bf8901e911a4e288bba84896a18b2604dd1@dist-git>
+From: John Ferlan <jferlan@redhat.com>
+Date: Wed, 5 Aug 2015 18:18:14 +0200
+Subject: [PATCH] nodeinfo: Add sysfs_prefix to nodeGetMemoryStats
+
+Add the sysfs_prefix argument to the call to allow for setting the
+path for tests to something other than SYSFS_SYSTEM_PATH.
+
+(cherry picked from commit c71f0654fc8ed9e69b75b24eac83a3369e4e64b3)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/bhyve/bhyve_driver.c   | 2 +-
+ src/lxc/lxc_driver.c       | 2 +-
+ src/nodeinfo.c             | 6 ++++--
+ src/nodeinfo.h             | 3 ++-
+ src/openvz/openvz_driver.c | 2 +-
+ src/qemu/qemu_driver.c     | 2 +-
+ src/uml/uml_driver.c       | 2 +-
+ 7 files changed, 11 insertions(+), 8 deletions(-)
+
+diff --git a/src/bhyve/bhyve_driver.c b/src/bhyve/bhyve_driver.c
+index ba411a0..85b7c8f 100644
+--- a/src/bhyve/bhyve_driver.c
++++ b/src/bhyve/bhyve_driver.c
+@@ -1121,7 +1121,7 @@ bhyveNodeGetMemoryStats(virConnectPtr conn,
+     if (virNodeGetMemoryStatsEnsureACL(conn) < 0)
+         return -1;
+ 
+-    return nodeGetMemoryStats(cellNum, params, nparams, flags);
++    return nodeGetMemoryStats(NULL, cellNum, params, nparams, flags);
+ }
+ 
+ static int
+diff --git a/src/lxc/lxc_driver.c b/src/lxc/lxc_driver.c
+index 1206074..d8d5119 100644
+--- a/src/lxc/lxc_driver.c
++++ b/src/lxc/lxc_driver.c
+@@ -5484,7 +5484,7 @@ lxcNodeGetMemoryStats(virConnectPtr conn,
+     if (virNodeGetMemoryStatsEnsureACL(conn) < 0)
+         return -1;
+ 
+-    return nodeGetMemoryStats(cellNum, params, nparams, flags);
++    return nodeGetMemoryStats(NULL, cellNum, params, nparams, flags);
+ }
+ 
+ 
+diff --git a/src/nodeinfo.c b/src/nodeinfo.c
+index a71d05e..ca9cb3a 100644
+--- a/src/nodeinfo.c
++++ b/src/nodeinfo.c
+@@ -1141,7 +1141,8 @@ int nodeGetCPUStats(int cpuNum ATTRIBUTE_UNUSED,
+ #endif
+ }
+ 
+-int nodeGetMemoryStats(int cellNum ATTRIBUTE_UNUSED,
++int nodeGetMemoryStats(const char *sysfs_prefix ATTRIBUTE_UNUSED,
++                       int cellNum ATTRIBUTE_UNUSED,
+                        virNodeMemoryStatsPtr params ATTRIBUTE_UNUSED,
+                        int *nparams ATTRIBUTE_UNUSED,
+                        unsigned int flags)
+@@ -1151,6 +1152,7 @@ int nodeGetMemoryStats(int cellNum ATTRIBUTE_UNUSED,
+ #ifdef __linux__
+     {
+         int ret;
++        const char *prefix = sysfs_prefix ? sysfs_prefix : SYSFS_SYSTEM_PATH;
+         char *meminfo_path = NULL;
+         FILE *meminfo;
+         int max_node;
+@@ -1170,7 +1172,7 @@ int nodeGetMemoryStats(int cellNum ATTRIBUTE_UNUSED,
+             }
+ 
+             if (virAsprintf(&meminfo_path, "%s/node/node%d/meminfo",
+-                            SYSFS_SYSTEM_PATH, cellNum) < 0)
++                            prefix, cellNum) < 0)
+                 return -1;
+         }
+         meminfo = fopen(meminfo_path, "r");
+diff --git a/src/nodeinfo.h b/src/nodeinfo.h
+index b28aaab..4f983c2 100644
+--- a/src/nodeinfo.h
++++ b/src/nodeinfo.h
+@@ -33,7 +33,8 @@ int nodeGetCPUStats(int cpuNum,
+                     virNodeCPUStatsPtr params,
+                     int *nparams,
+                     unsigned int flags);
+-int nodeGetMemoryStats(int cellNum,
++int nodeGetMemoryStats(const char *sysfs_prefix,
++                       int cellNum,
+                        virNodeMemoryStatsPtr params,
+                        int *nparams,
+                        unsigned int flags);
+diff --git a/src/openvz/openvz_driver.c b/src/openvz/openvz_driver.c
+index 280b998..fc8db7e 100644
+--- a/src/openvz/openvz_driver.c
++++ b/src/openvz/openvz_driver.c
+@@ -2177,7 +2177,7 @@ openvzNodeGetMemoryStats(virConnectPtr conn ATTRIBUTE_UNUSED,
+                          int *nparams,
+                          unsigned int flags)
+ {
+-    return nodeGetMemoryStats(cellNum, params, nparams, flags);
++    return nodeGetMemoryStats(NULL, cellNum, params, nparams, flags);
+ }
+ 
+ 
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index 17593b9..6b715bf 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -18519,7 +18519,7 @@ qemuNodeGetMemoryStats(virConnectPtr conn,
+     if (virNodeGetMemoryStatsEnsureACL(conn) < 0)
+         return -1;
+ 
+-    return nodeGetMemoryStats(cellNum, params, nparams, flags);
++    return nodeGetMemoryStats(NULL, cellNum, params, nparams, flags);
+ }
+ 
+ 
+diff --git a/src/uml/uml_driver.c b/src/uml/uml_driver.c
+index 8606616..c3c5fa7 100644
+--- a/src/uml/uml_driver.c
++++ b/src/uml/uml_driver.c
+@@ -2810,7 +2810,7 @@ umlNodeGetMemoryStats(virConnectPtr conn,
+     if (virNodeGetMemoryStatsEnsureACL(conn) < 0)
+         return -1;
+ 
+-    return nodeGetMemoryStats(cellNum, params, nparams, flags);
++    return nodeGetMemoryStats(NULL, cellNum, params, nparams, flags);
+ }
+ 
+ 
+-- 
+2.5.0
+

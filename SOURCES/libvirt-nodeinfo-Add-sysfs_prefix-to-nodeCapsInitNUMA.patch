@@ -1,0 +1,270 @@
+From 2260b45485085ceacb2d07554165289b275b816b Mon Sep 17 00:00:00 2001
+Message-Id: <2260b45485085ceacb2d07554165289b275b816b@dist-git>
+From: John Ferlan <jferlan@redhat.com>
+Date: Wed, 5 Aug 2015 18:18:13 +0200
+Subject: [PATCH] nodeinfo: Add sysfs_prefix to nodeCapsInitNUMA
+
+Add the sysfs_prefix argument to the call to allow for setting the
+path for tests to something other than SYSFS_CPU_PATH which is a
+derivative of SYSFS_SYSTEM_PATH
+
+Use cpupath for nodeCapsInitNUMAFake and remove SYSFS_CPU_PATH
+
+(cherry picked from commit b97b30480d0fc529a9ea27b1c8b3cb0b120ea1e3)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/lxc/lxc_conf.c           |  2 +-
+ src/nodeinfo.c               | 35 +++++++++++++++++++++++------------
+ src/nodeinfo.h               |  2 +-
+ src/openvz/openvz_conf.c     |  2 +-
+ src/phyp/phyp_driver.c       |  2 +-
+ src/qemu/qemu_capabilities.c |  2 +-
+ src/uml/uml_conf.c           |  2 +-
+ src/vbox/vbox_common.c       |  2 +-
+ src/vmware/vmware_conf.c     |  2 +-
+ src/vz/vz_driver.c           |  2 +-
+ 10 files changed, 32 insertions(+), 21 deletions(-)
+
+diff --git a/src/lxc/lxc_conf.c b/src/lxc/lxc_conf.c
+index c393cb5..b689b92 100644
+--- a/src/lxc/lxc_conf.c
++++ b/src/lxc/lxc_conf.c
+@@ -77,7 +77,7 @@ virCapsPtr virLXCDriverCapsInit(virLXCDriverPtr driver)
+      * unexpected failures. We don't want to break the lxc
+      * driver in this scenario, so log errors & carry on
+      */
+-    if (nodeCapsInitNUMA(caps) < 0) {
++    if (nodeCapsInitNUMA(NULL, caps) < 0) {
+         virCapabilitiesFreeNUMAInfo(caps);
+         VIR_WARN("Failed to query host NUMA topology, disabling NUMA capabilities");
+     }
+diff --git a/src/nodeinfo.c b/src/nodeinfo.c
+index 2d715fd..a71d05e 100644
+--- a/src/nodeinfo.c
++++ b/src/nodeinfo.c
+@@ -283,7 +283,6 @@ freebsdNodeGetMemoryStats(virNodeMemoryStatsPtr params,
+ #ifdef __linux__
+ # define CPUINFO_PATH "/proc/cpuinfo"
+ # define SYSFS_SYSTEM_PATH "/sys/devices/system"
+-# define SYSFS_CPU_PATH SYSFS_SYSTEM_PATH"/cpu"
+ # define PROCSTAT_PATH "/proc/stat"
+ # define MEMINFO_PATH "/proc/meminfo"
+ # define SYSFS_MEMORY_SHARED_PATH "/sys/kernel/mm/ksm"
+@@ -1660,7 +1659,9 @@ nodeGetCPUMap(const char *sysfs_prefix,
+ }
+ 
+ static int
+-nodeCapsInitNUMAFake(virCapsPtr caps ATTRIBUTE_UNUSED)
++nodeCapsInitNUMAFake(const char *prefix,
++                     const char *cpupath ATTRIBUTE_UNUSED,
++                     virCapsPtr caps ATTRIBUTE_UNUSED)
+ {
+     virNodeInfo nodeinfo;
+     virCapsHostNUMACellCPUPtr cpus;
+@@ -1669,7 +1670,7 @@ nodeCapsInitNUMAFake(virCapsPtr caps ATTRIBUTE_UNUSED)
+     int id, cid;
+     int onlinecpus ATTRIBUTE_UNUSED;
+ 
+-    if (nodeGetInfo(NULL, &nodeinfo) < 0)
++    if (nodeGetInfo(prefix, &nodeinfo) < 0)
+         return -1;
+ 
+     ncpus = VIR_NODEINFO_MAXCPUS(nodeinfo);
+@@ -1683,7 +1684,7 @@ nodeCapsInitNUMAFake(virCapsPtr caps ATTRIBUTE_UNUSED)
+         for (c = 0; c < nodeinfo.cores; c++) {
+             for (t = 0; t < nodeinfo.threads; t++) {
+ #ifdef __linux__
+-                if (virNodeGetCpuValue(SYSFS_CPU_PATH, id, "online", 1)) {
++                if (virNodeGetCpuValue(cpupath, id, "online", 1)) {
+ #endif
+                     cpus[cid].id = id;
+                     cpus[cid].socket_id = s;
+@@ -1810,26 +1811,27 @@ nodeGetMemoryFake(unsigned long long *mem,
+ 
+ /* returns 1 on success, 0 if the detection failed and -1 on hard error */
+ static int
+-virNodeCapsFillCPUInfo(int cpu_id ATTRIBUTE_UNUSED,
++virNodeCapsFillCPUInfo(const char *cpupath ATTRIBUTE_UNUSED,
++                       int cpu_id ATTRIBUTE_UNUSED,
+                        virCapsHostNUMACellCPUPtr cpu ATTRIBUTE_UNUSED)
+ {
+ #ifdef __linux__
+     int tmp;
+     cpu->id = cpu_id;
+ 
+-    if ((tmp = virNodeGetCpuValue(SYSFS_CPU_PATH, cpu_id,
++    if ((tmp = virNodeGetCpuValue(cpupath, cpu_id,
+                                   "topology/physical_package_id", -1)) < 0)
+         return 0;
+ 
+     cpu->socket_id = tmp;
+ 
+-    if ((tmp = virNodeGetCpuValue(SYSFS_CPU_PATH, cpu_id,
++    if ((tmp = virNodeGetCpuValue(cpupath, cpu_id,
+                                   "topology/core_id", -1)) < 0)
+         return 0;
+ 
+     cpu->core_id = tmp;
+ 
+-    if (!(cpu->siblings = virNodeGetSiblingsList(SYSFS_CPU_PATH, cpu_id)))
++    if (!(cpu->siblings = virNodeGetSiblingsList(cpupath, cpu_id)))
+         return -1;
+ 
+     return 0;
+@@ -1917,8 +1919,11 @@ virNodeCapsGetPagesInfo(int node,
+ }
+ 
+ int
+-nodeCapsInitNUMA(virCapsPtr caps)
++nodeCapsInitNUMA(const char *sysfs_prefix,
++                 virCapsPtr caps)
+ {
++    const char *prefix = sysfs_prefix ? sysfs_prefix : SYSFS_SYSTEM_PATH;
++    char *cpupath;
+     int n;
+     unsigned long long memory;
+     virCapsHostNUMACellCPUPtr cpus = NULL;
+@@ -1933,8 +1938,13 @@ nodeCapsInitNUMA(virCapsPtr caps)
+     bool topology_failed = false;
+     int max_node;
+ 
+-    if (!virNumaIsAvailable())
+-        return nodeCapsInitNUMAFake(caps);
++    if (virAsprintf(&cpupath, "%s/cpu", prefix) < 0)
++        return -1;
++
++    if (!virNumaIsAvailable()) {
++        ret = nodeCapsInitNUMAFake(prefix, cpupath, caps);
++        goto cleanup;
++    }
+ 
+     if ((max_node = virNumaGetMaxNode()) < 0)
+         goto cleanup;
+@@ -1955,7 +1965,7 @@ nodeCapsInitNUMA(virCapsPtr caps)
+ 
+         for (i = 0; i < virBitmapSize(cpumap); i++) {
+             if (virBitmapIsBitSet(cpumap, i)) {
+-                if (virNodeCapsFillCPUInfo(i, cpus + cpu++) < 0) {
++                if (virNodeCapsFillCPUInfo(cpupath, i, cpus + cpu++) < 0) {
+                     topology_failed = true;
+                     virResetLastError();
+                 }
+@@ -1995,6 +2005,7 @@ nodeCapsInitNUMA(virCapsPtr caps)
+     VIR_FREE(cpus);
+     VIR_FREE(siblings);
+     VIR_FREE(pageinfo);
++    VIR_FREE(cpupath);
+     return ret;
+ }
+ 
+diff --git a/src/nodeinfo.h b/src/nodeinfo.h
+index ec53769..b28aaab 100644
+--- a/src/nodeinfo.h
++++ b/src/nodeinfo.h
+@@ -27,7 +27,7 @@
+ # include "capabilities.h"
+ 
+ int nodeGetInfo(const char *sysfs_prefix, virNodeInfoPtr nodeinfo);
+-int nodeCapsInitNUMA(virCapsPtr caps);
++int nodeCapsInitNUMA(const char *sysfs_prefix, virCapsPtr caps);
+ 
+ int nodeGetCPUStats(int cpuNum,
+                     virNodeCPUStatsPtr params,
+diff --git a/src/openvz/openvz_conf.c b/src/openvz/openvz_conf.c
+index a4c5c31..db0a9a7 100644
+--- a/src/openvz/openvz_conf.c
++++ b/src/openvz/openvz_conf.c
+@@ -175,7 +175,7 @@ virCapsPtr openvzCapsInit(void)
+                                    false, false)) == NULL)
+         goto no_memory;
+ 
+-    if (nodeCapsInitNUMA(caps) < 0)
++    if (nodeCapsInitNUMA(NULL, caps) < 0)
+         goto no_memory;
+ 
+     if ((guest = virCapabilitiesAddGuest(caps,
+diff --git a/src/phyp/phyp_driver.c b/src/phyp/phyp_driver.c
+index ec0fde3..54dec70 100644
+--- a/src/phyp/phyp_driver.c
++++ b/src/phyp/phyp_driver.c
+@@ -335,7 +335,7 @@ phypCapsInit(void)
+      * unexpected failures. We don't want to break the QEMU
+      * driver in this scenario, so log errors & carry on
+      */
+-    if (nodeCapsInitNUMA(caps) < 0) {
++    if (nodeCapsInitNUMA(NULL, caps) < 0) {
+         virCapabilitiesFreeNUMAInfo(caps);
+         VIR_WARN
+             ("Failed to query host NUMA topology, disabling NUMA capabilities");
+diff --git a/src/qemu/qemu_capabilities.c b/src/qemu/qemu_capabilities.c
+index 39954bc..be5384f 100644
+--- a/src/qemu/qemu_capabilities.c
++++ b/src/qemu/qemu_capabilities.c
+@@ -1024,7 +1024,7 @@ virCapsPtr virQEMUCapsInit(virQEMUCapsCachePtr cache)
+      * unexpected failures. We don't want to break the QEMU
+      * driver in this scenario, so log errors & carry on
+      */
+-    if (nodeCapsInitNUMA(caps) < 0) {
++    if (nodeCapsInitNUMA(NULL, caps) < 0) {
+         virCapabilitiesFreeNUMAInfo(caps);
+         VIR_WARN("Failed to query host NUMA topology, disabling NUMA capabilities");
+     }
+diff --git a/src/uml/uml_conf.c b/src/uml/uml_conf.c
+index 86fbecc..90deb2a 100644
+--- a/src/uml/uml_conf.c
++++ b/src/uml/uml_conf.c
+@@ -65,7 +65,7 @@ virCapsPtr umlCapsInit(void)
+      * unexpected failures. We don't want to break the QEMU
+      * driver in this scenario, so log errors & carry on
+      */
+-    if (nodeCapsInitNUMA(caps) < 0) {
++    if (nodeCapsInitNUMA(NULL, caps) < 0) {
+         virCapabilitiesFreeNUMAInfo(caps);
+         VIR_WARN("Failed to query host NUMA topology, disabling NUMA capabilities");
+     }
+diff --git a/src/vbox/vbox_common.c b/src/vbox/vbox_common.c
+index 5615df5..91a61f8 100644
+--- a/src/vbox/vbox_common.c
++++ b/src/vbox/vbox_common.c
+@@ -318,7 +318,7 @@ static virCapsPtr vboxCapsInit(void)
+                                    false, false)) == NULL)
+         goto no_memory;
+ 
+-    if (nodeCapsInitNUMA(caps) < 0)
++    if (nodeCapsInitNUMA(NULL, caps) < 0)
+         goto no_memory;
+ 
+     if ((guest = virCapabilitiesAddGuest(caps,
+diff --git a/src/vmware/vmware_conf.c b/src/vmware/vmware_conf.c
+index 5b249f8..21cf333 100644
+--- a/src/vmware/vmware_conf.c
++++ b/src/vmware/vmware_conf.c
+@@ -68,7 +68,7 @@ vmwareCapsInit(void)
+                                    false, false)) == NULL)
+         goto error;
+ 
+-    if (nodeCapsInitNUMA(caps) < 0)
++    if (nodeCapsInitNUMA(NULL, caps) < 0)
+         goto error;
+ 
+     /* i686 guests are always supported */
+diff --git a/src/vz/vz_driver.c b/src/vz/vz_driver.c
+index 61d0d62..06d9d03 100644
+--- a/src/vz/vz_driver.c
++++ b/src/vz/vz_driver.c
+@@ -91,7 +91,7 @@ vzBuildCapabilities(void)
+                                    false, false)) == NULL)
+         return NULL;
+ 
+-    if (nodeCapsInitNUMA(caps) < 0)
++    if (nodeCapsInitNUMA(NULL, caps) < 0)
+         goto error;
+ 
+     if ((guest = virCapabilitiesAddGuest(caps, VIR_DOMAIN_OSTYPE_HVM,
+-- 
+2.5.0
+

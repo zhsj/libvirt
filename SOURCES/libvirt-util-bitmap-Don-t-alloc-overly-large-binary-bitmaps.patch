@@ -1,0 +1,47 @@
+From 56f8f0b1c608f6ae3488658d6c1367e8fc933e52 Mon Sep 17 00:00:00 2001
+Message-Id: <56f8f0b1c608f6ae3488658d6c1367e8fc933e52@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Wed, 8 Jul 2015 11:06:59 +0200
+Subject: [PATCH] util: bitmap: Don't alloc overly large binary bitmaps
+
+Optimize the virBitmap to array-of-char bitmap conversion by skipping
+trailing zero bytes.
+
+This also fixes a regression when requesting iothread information from a
+live VM since after commit 825df8c3158cfaf5f398418471f10f4ff3c3515a the
+bitmap returned from virProcessGetAffinity is too big to be formatted
+properly via RPC. A user would get the following error:
+
+error: Unable to get domain IOThreads information
+error: Unable to encode message payload
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1238589
+(cherry picked from commit e8c5f61e91025f244bb022b1774a3fc6484625f8)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/util/virbitmap.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/src/util/virbitmap.c b/src/util/virbitmap.c
+index 9abc807..4d270a9 100644
+--- a/src/util/virbitmap.c
++++ b/src/util/virbitmap.c
+@@ -498,9 +498,12 @@ virBitmapPtr virBitmapNewData(void *data, int len)
+  */
+ int virBitmapToData(virBitmapPtr bitmap, unsigned char **data, int *dataLen)
+ {
+-    int len;
++    ssize_t len;
+ 
+-    len = (bitmap->max_bit + CHAR_BIT - 1) / CHAR_BIT;
++    if ((len = virBitmapLastSetBit(bitmap)) < 0)
++        len = 1;
++    else
++        len = (len + CHAR_BIT) / CHAR_BIT;
+ 
+     if (VIR_ALLOC_N(*data, len) < 0)
+         return -1;
+-- 
+2.4.5
+

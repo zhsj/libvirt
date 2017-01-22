@@ -1,0 +1,56 @@
+From 02482db69537daa5a1235db00ece500fd7e1844d Mon Sep 17 00:00:00 2001
+Message-Id: <02482db69537daa5a1235db00ece500fd7e1844d@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Thu, 12 Nov 2015 08:40:45 +0100
+Subject: [PATCH] qemu: Explain mlock limit size more in detail
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1280420
+
+Based on Alex's explanation [1] in the recent discussion let's update
+the comment explaining the memory lock limit calculation.
+
+[1]
+http://www.redhat.com/archives/libvir-list/2015-November/msg00329.html
+
+(cherry picked from commit 63ed05d2410bfb9179b26bc3422ea5f9b546d7b3)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_domain.c | 21 ++++++++++++++++++---
+ 1 file changed, 18 insertions(+), 3 deletions(-)
+
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index fd4449d..be3dcf6 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -3445,9 +3445,24 @@ qemuDomainGetMlockLimitBytes(virDomainDefPtr def)
+         goto done;
+     }
+ 
+-    /* VFIO requires all of the guest's memory to be locked resident, plus some
+-     * amount for IO space. Alex Williamson suggested adding 1GiB for IO space
+-     * just to be safe (some finer tuning might be nice, though). */
++    /* For device passthrough using VFIO the guest memory and MMIO memory
++     * regions need to be locked persistent in order to allow DMA.
++     *
++     * Currently the below limit is based on assumptions about the x86 platform.
++     *
++     * The chosen value of 1GiB below originates from x86 systems where it was
++     * used as space reserved for the MMIO region for the whole system.
++     *
++     * On x86_64 systems the MMIO regions of the IOMMU mapped devices don't
++     * count towards the locked memory limit since the memory is owned by the
++     * device. Emulated devices though do count, but the regions are usually
++     * small. Although it's not guaranteed that the limit will be enough for all
++     * configurations it didn't pose a problem for now.
++     *
++     * http://www.redhat.com/archives/libvir-list/2015-November/msg00329.html
++     *
++     * Note that this may not be valid for all platforms.
++     */
+     memKB = virDomainDefGetMemoryActual(def) + 1024 * 1024;
+ 
+  done:
+-- 
+2.6.3
+

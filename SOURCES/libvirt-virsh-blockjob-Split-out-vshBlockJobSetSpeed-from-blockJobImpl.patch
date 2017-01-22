@@ -1,0 +1,91 @@
+From d810a5a1890c7e0593fe914a4e5252963c758b69 Mon Sep 17 00:00:00 2001
+Message-Id: <d810a5a1890c7e0593fe914a4e5252963c758b69@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Tue, 21 Jul 2015 16:18:25 +0200
+Subject: [PATCH] virsh: blockjob: Split out vshBlockJobSetSpeed from
+ blockJobImpl
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1227551
+https://bugzilla.redhat.com/show_bug.cgi?id=1197592
+
+(cherry picked from commit 42c9c6fcfcff88b6a8cc1261db46fb90e0fe7264)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ tools/virsh-domain.c | 31 ++++++++++++++++++++++---------
+ 1 file changed, 22 insertions(+), 9 deletions(-)
+
+diff --git a/tools/virsh-domain.c b/tools/virsh-domain.c
+index 9a7cb84..fcb3121 100644
+--- a/tools/virsh-domain.c
++++ b/tools/virsh-domain.c
+@@ -1666,7 +1666,6 @@ cmdBlkiotune(vshControl * ctl, const vshCmd * cmd)
+ 
+ typedef enum {
+     VSH_CMD_BLOCK_JOB_ABORT,
+-    VSH_CMD_BLOCK_JOB_SPEED,
+     VSH_CMD_BLOCK_JOB_PULL,
+     VSH_CMD_BLOCK_JOB_COMMIT,
+ } vshCmdBlockJobMode;
+@@ -1701,10 +1700,6 @@ blockJobImpl(vshControl *ctl, const vshCmd *cmd,
+         if (virDomainBlockJobAbort(dom, path, flags) < 0)
+             goto cleanup;
+         break;
+-    case VSH_CMD_BLOCK_JOB_SPEED:
+-        if (virDomainBlockJobSetSpeed(dom, path, bandwidth, 0) < 0)
+-            goto cleanup;
+-        break;
+     case VSH_CMD_BLOCK_JOB_PULL:
+         if (vshCommandOptStringReq(ctl, cmd, "base", &base) < 0)
+             goto cleanup;
+@@ -2537,6 +2532,24 @@ vshBlockJobInfo(vshControl *ctl,
+ 
+ 
+ static bool
++vshBlockJobSetSpeed(vshControl *ctl,
++                    const vshCmd *cmd,
++                    virDomainPtr dom,
++                    const char *path)
++{
++    unsigned long bandwidth;
++
++    if (vshCommandOptULWrap(ctl, cmd, "bandwidth", &bandwidth) < 0)
++        return false;
++
++    if (virDomainBlockJobSetSpeed(dom, path, bandwidth, 0) < 0)
++        return false;
++
++    return true;
++}
++
++
++static bool
+ cmdBlockJob(vshControl *ctl, const vshCmd *cmd)
+ {
+     bool ret = false;
+@@ -2568,10 +2581,7 @@ cmdBlockJob(vshControl *ctl, const vshCmd *cmd)
+ 
+     if (abortMode || pivot || async)
+         return blockJobImpl(ctl, cmd, VSH_CMD_BLOCK_JOB_ABORT, NULL);
+-    if (bandwidth)
+-        return blockJobImpl(ctl, cmd, VSH_CMD_BLOCK_JOB_SPEED, NULL);
+ 
+-    /* Everything below here is for --info mode */
+     if (!(dom = vshCommandOptDomain(ctl, cmd, NULL)))
+         goto cleanup;
+ 
+@@ -2579,7 +2589,10 @@ cmdBlockJob(vshControl *ctl, const vshCmd *cmd)
+     if (vshCommandOptStringReq(ctl, cmd, "path", &path) < 0)
+         goto cleanup;
+ 
+-    ret = vshBlockJobInfo(ctl, dom, path, raw, bytes);
++    if (bandwidth)
++        ret = vshBlockJobSetSpeed(ctl, cmd, dom, path);
++    else
++        ret = vshBlockJobInfo(ctl, dom, path, raw, bytes);
+ 
+  cleanup:
+     if (dom)
+-- 
+2.5.0
+

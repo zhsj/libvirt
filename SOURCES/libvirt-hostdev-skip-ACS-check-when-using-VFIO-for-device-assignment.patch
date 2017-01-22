@@ -1,0 +1,53 @@
+From 5bbe76ba6427b8c4ab500b1404275c298dd1abb4 Mon Sep 17 00:00:00 2001
+Message-Id: <5bbe76ba6427b8c4ab500b1404275c298dd1abb4@dist-git>
+From: Laine Stump <laine@laine.org>
+Date: Wed, 2 Sep 2015 15:55:24 -0400
+Subject: [PATCH] hostdev: skip ACS check when using VFIO for device assignment
+
+The ACS checks are meaningless when using the more modern VFIO driver
+for device assignment since VFIO has its own more complete and exact
+checks, but I didn't realize that when I added support for VFIO. This
+patch eliminates the ACS check when preparing PCI devices for
+assignment if VFIO is being used.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1256486
+
+(cherry picked from commit 108d591b1144bc6cb5d1199f6fc23ee972b76e86)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/util/virhostdev.c | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/src/util/virhostdev.c b/src/util/virhostdev.c
+index 529753c..0bc5120 100644
+--- a/src/util/virhostdev.c
++++ b/src/util/virhostdev.c
+@@ -1,6 +1,6 @@
+ /* virhostdev.c: hostdev management
+  *
+- * Copyright (C) 2006-2007, 2009-2013 Red Hat, Inc.
++ * Copyright (C) 2006-2007, 2009-2015 Red Hat, Inc.
+  * Copyright (C) 2006 Daniel P. Berrange
+  * Copyright (C) 2014 SUSE LINUX Products GmbH, Nuernberg, Germany.
+  *
+@@ -230,7 +230,6 @@ virHostdevGetPCIHostDeviceList(virDomainHostdevDefPtr *hostdevs, int nhostdevs)
+             virObjectUnref(list);
+             return NULL;
+         }
+-
+         if (virPCIDeviceListAdd(list, dev) < 0) {
+             virPCIDeviceFree(dev);
+             virObjectUnref(list);
+@@ -579,7 +578,7 @@ virHostdevPreparePCIDevices(virHostdevManagerPtr hostdev_mgr,
+         struct virHostdevIsPCINodeDeviceUsedData data = {hostdev_mgr, dom_name,
+                                                          usesVfio};
+ 
+-        if (!virPCIDeviceIsAssignable(dev, strict_acs_check)) {
++        if (!usesVfio && !virPCIDeviceIsAssignable(dev, strict_acs_check)) {
+             virReportError(VIR_ERR_OPERATION_INVALID,
+                            _("PCI device %s is not assignable"),
+                            virPCIDeviceGetName(dev));
+-- 
+2.5.1
+

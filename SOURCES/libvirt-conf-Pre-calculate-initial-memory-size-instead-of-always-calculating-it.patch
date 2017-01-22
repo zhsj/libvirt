@@ -1,0 +1,200 @@
+From 26895224315526096a1a0e3adf36ef1fadc17727 Mon Sep 17 00:00:00 2001
+Message-Id: <26895224315526096a1a0e3adf36ef1fadc17727@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Tue, 22 Sep 2015 16:59:44 +0200
+Subject: [PATCH] conf: Pre-calculate initial memory size instead of always
+ calculating it
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1252685
+
+Add 'initial_memory' member to struct virDomainMemtune so that the
+memory size can be pre-calculated once instead of inferring it always
+again and again.
+
+Separating of the fields will also allow finer granularity of decisions
+in later patches where it will allow to keep the old initial memory
+value in cases where we are handling incomming migration from older
+versions that did not always update the size from NUMA as the code did
+previously.
+
+The change also requires modification of the qemu memory alignment
+function since at the point where we are modifying the size of NUMA
+nodes the total size needs to be recalculated too.
+
+The refactoring done in this patch also fixes a crash in the hyperv
+driver that did not properly initialize def->numa and thus
+virDomainNumaGetMemorySize(def->numa) crashed.
+
+In summary this patch should have no functional impact at this point.
+
+(cherry picked from commit 403e86067d5cb3a6fd8583cb5b08121151bd4d9f)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/conf/domain_conf.c   | 52 +++++++++++++++++++++++++++++-------------------
+ src/conf/domain_conf.h   |  3 +++
+ src/libvirt_private.syms |  1 +
+ src/qemu/qemu_domain.c   | 15 +++++++++-----
+ 4 files changed, 46 insertions(+), 25 deletions(-)
+
+diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
+index b28daa6..3625310 100644
+--- a/src/conf/domain_conf.c
++++ b/src/conf/domain_conf.c
+@@ -3642,6 +3642,15 @@ virDomainDefRemoveDuplicateMetadata(virDomainDefPtr def)
+ static int
+ virDomainDefPostParseMemory(virDomainDefPtr def)
+ {
++    size_t i;
++
++    if ((def->mem.initial_memory = virDomainNumaGetMemorySize(def->numa)) == 0) {
++        def->mem.initial_memory = def->mem.total_memory;
++
++        for (i = 0; i < def->nmems; i++)
++            def->mem.initial_memory -= def->mems[i]->size;
++    }
++
+     if (virDomainDefGetMemoryInitial(def) == 0) {
+         virReportError(VIR_ERR_XML_ERROR, "%s",
+                        _("Memory size must be specified via <memory> or in the "
+@@ -7665,19 +7674,7 @@ virDomainDefHasMemoryHotplug(const virDomainDef *def)
+ unsigned long long
+ virDomainDefGetMemoryInitial(virDomainDefPtr def)
+ {
+-    unsigned long long ret;
+-    size_t i;
+-
+-    /* return NUMA memory size total in case numa is enabled */
+-    if ((ret = virDomainNumaGetMemorySize(def->numa)) > 0) {
+-        return ret;
+-    } else {
+-        ret = def->mem.total_memory;
+-        for (i = 0; i < def->nmems; i++)
+-            ret -= def->mems[i]->size;
+-    }
+-
+-    return def->mem.total_memory;
++    return def->mem.initial_memory;
+ }
+ 
+ 
+@@ -7686,13 +7683,30 @@ virDomainDefGetMemoryInitial(virDomainDefPtr def)
+  * @def: domain definition
+  * @size: size to set
+  *
+- * Sets the total memory size in @def.
++ * Sets the total memory size in @def. This function should be used only by
++ * hypervisors that don't support memory hotplug.
+  */
+ void
+ virDomainDefSetMemoryTotal(virDomainDefPtr def,
+                            unsigned long long size)
+ {
+     def->mem.total_memory = size;
++    def->mem.initial_memory = size;
++}
++
++
++/**
++ * virDomainDefSetMemoryInitial:
++ * @def: domain definition
++ * @size: size to set
++ *
++ * Sets the initial memory size (without memory modules) in @def.
++ */
++void
++virDomainDefSetMemoryInitial(virDomainDefPtr def,
++                             unsigned long long size)
++{
++    def->mem.initial_memory = size;
+ }
+ 
+ 
+@@ -7710,12 +7724,10 @@ virDomainDefGetMemoryActual(virDomainDefPtr def)
+     unsigned long long ret;
+     size_t i;
+ 
+-    if ((ret = virDomainNumaGetMemorySize(def->numa)) > 0) {
+-        for (i = 0; i < def->nmems; i++)
+-            ret += def->mems[i]->size;
+-    } else {
+-        ret = def->mem.total_memory;
+-    }
++    ret = def->mem.initial_memory;
++
++    for (i = 0; i < def->nmems; i++)
++        ret += def->mems[i]->size;
+ 
+     return ret;
+ }
+diff --git a/src/conf/domain_conf.h b/src/conf/domain_conf.h
+index 8099450..61bf963 100644
+--- a/src/conf/domain_conf.h
++++ b/src/conf/domain_conf.h
+@@ -2109,6 +2109,8 @@ struct _virDomainMemtune {
+     /* total memory size including memory modules in kibibytes, this field
+      * should be accessed only via accessors */
+     unsigned long long total_memory;
++    /* initial memory size in kibibytes = total_memory excluding memory modules*/
++    unsigned long long initial_memory;
+     unsigned long long cur_balloon; /* in kibibytes, capped at ulong thanks
+                                        to virDomainGetInfo */
+ 
+@@ -2288,6 +2290,7 @@ struct _virDomainDef {
+ 
+ unsigned long long virDomainDefGetMemoryInitial(virDomainDefPtr def);
+ void virDomainDefSetMemoryTotal(virDomainDefPtr def, unsigned long long size);
++void virDomainDefSetMemoryInitial(virDomainDefPtr def, unsigned long long size);
+ unsigned long long virDomainDefGetMemoryActual(virDomainDefPtr def);
+ bool virDomainDefHasMemoryHotplug(const virDomainDef *def);
+ 
+diff --git a/src/libvirt_private.syms b/src/libvirt_private.syms
+index b1b59b2..16ae24f 100644
+--- a/src/libvirt_private.syms
++++ b/src/libvirt_private.syms
+@@ -225,6 +225,7 @@ virDomainDefParseFile;
+ virDomainDefParseNode;
+ virDomainDefParseString;
+ virDomainDefPostParse;
++virDomainDefSetMemoryInitial;
+ virDomainDefSetMemoryTotal;
+ virDomainDeleteConfig;
+ virDomainDeviceAddressIsValid;
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index 67c2bb0..77f3d6a 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -3171,6 +3171,7 @@ qemuDomainGetMemorySizeAlignment(virDomainDefPtr def ATTRIBUTE_UNUSED)
+ int
+ qemuDomainAlignMemorySizes(virDomainDefPtr def)
+ {
++    unsigned long long initialmem = 0;
+     unsigned long long mem;
+     unsigned long long align = qemuDomainGetMemorySizeAlignment(def);
+     size_t ncells = virDomainNumaGetNodeCount(def->numa);
+@@ -3178,13 +3179,17 @@ qemuDomainAlignMemorySizes(virDomainDefPtr def)
+ 
+     /* align NUMA cell sizes if relevant */
+     for (i = 0; i < ncells; i++) {
+-        mem = virDomainNumaGetNodeMemorySize(def->numa, i);
+-        virDomainNumaSetNodeMemorySize(def->numa, i, VIR_ROUND_UP(mem, align));
++        mem = VIR_ROUND_UP(virDomainNumaGetNodeMemorySize(def->numa, i), align);
++        initialmem += mem;
++        virDomainNumaSetNodeMemorySize(def->numa, i, mem);
+     }
+ 
+-    /* align initial memory size */
+-    mem = virDomainDefGetMemoryInitial(def);
+-    virDomainDefSetMemoryTotal(def, VIR_ROUND_UP(mem, align));
++    /* align initial memory size, if NUMA is present calculate it as total of
++     * individual aligned NUMA node sizes */
++    if (initialmem == 0)
++        initialmem = VIR_ROUND_UP(virDomainDefGetMemoryInitial(def), align);
++
++    virDomainDefSetMemoryInitial(def, initialmem);
+ 
+     def->mem.max_memory = VIR_ROUND_UP(def->mem.max_memory, align);
+ 
+-- 
+2.5.3
+

@@ -1,0 +1,68 @@
+From 27dbf10245342d3547a969b9b69e95fee96932e0 Mon Sep 17 00:00:00 2001
+Message-Id: <27dbf10245342d3547a969b9b69e95fee96932e0@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Fri, 20 Nov 2015 13:29:13 +0100
+Subject: [PATCH] qemu: Use qemuDomainRequiresMlock() when attaching PCI
+ hostdev
+
+The function is used everywhere else to check whether the locked
+memory limit should be set / updated, and it should be used here
+as well.
+
+Moreover, qemuDomainGetMlockLimitBytes() expects the hostdev to
+have already been added to the domain definition, but we only do
+that at the end of qemuDomainAttachHostPCIDevice(). Work around
+the issue by adding the hostdev before adjusting the locked memory
+limit and removing it immediately afterwards.
+
+(cherry picked from commit 79b8c97e995d2e8bc04fb9a3972e1875fad01e6d)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1283924
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_hotplug.c | 23 ++++++++++++++++-------
+ 1 file changed, 16 insertions(+), 7 deletions(-)
+
+diff --git a/src/qemu/qemu_hotplug.c b/src/qemu/qemu_hotplug.c
+index 785423a..003b614 100644
+--- a/src/qemu/qemu_hotplug.c
++++ b/src/qemu/qemu_hotplug.c
+@@ -1277,17 +1277,26 @@ qemuDomainAttachHostPCIDevice(virQEMUDriverPtr driver,
+                              "supported by this version of qemu"));
+             goto error;
+         }
++        break;
+ 
+-        /* setup memory locking limits, that are necessary for VFIO */
++    default:
++        break;
++    }
++
++    /* Temporarily add the hostdev to the domain definition. This is needed
++     * because qemuDomainRequiresMlock() and qemuDomainGetMlockLimitBytes()
++     * require the hostdev to be already part of the domain definition, but
++     * other functions like qemuAssignDeviceHostdevAlias() used below expect
++     * it *not* to be there. A better way to handle this would be nice */
++    vm->def->hostdevs[vm->def->nhostdevs++] = hostdev;
++    if (qemuDomainRequiresMlock(vm->def)) {
+         if (virProcessSetMaxMemLock(vm->pid,
+-                                    qemuDomainGetMlockLimitBytes(vm->def)) < 0)
++                                    qemuDomainGetMlockLimitBytes(vm->def)) < 0) {
++            vm->def->hostdevs[--(vm->def->nhostdevs)] = NULL;
+             goto error;
+-
+-        break;
+-
+-    default:
+-        break;
++        }
+     }
++    vm->def->hostdevs[--(vm->def->nhostdevs)] = NULL;
+ 
+     if (qemuSetupHostdevCGroup(vm, hostdev) < 0)
+         goto error;
+-- 
+2.6.3
+

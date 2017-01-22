@@ -1,0 +1,386 @@
+From 524df098e7b82ea193e9f81b1244fae5cff0a937 Mon Sep 17 00:00:00 2001
+Message-Id: <524df098e7b82ea193e9f81b1244fae5cff0a937@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Tue, 22 Sep 2015 16:59:43 +0200
+Subject: [PATCH] conf: Rename max_balloon to total_memory
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1252685
+
+The name of the variable was misleading. Rename it and it's setting
+accessor before other fixes.
+
+(cherry picked from commit 8059a99025d15b12e62a294b7b6797e4c618eff8)
+
+Conflicts:
+	src/libxl/libxl_driver.c - libxlAddDom0 is missing in RHEL
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/conf/domain_conf.c     | 18 +++++++++---------
+ src/conf/domain_conf.h     |  7 ++++---
+ src/hyperv/hyperv_driver.c |  2 +-
+ src/libvirt_private.syms   |  2 +-
+ src/libxl/libxl_driver.c   |  2 +-
+ src/lxc/lxc_driver.c       |  2 +-
+ src/lxc/lxc_native.c       |  4 ++--
+ src/phyp/phyp_driver.c     |  2 +-
+ src/qemu/qemu_command.c    |  4 ++--
+ src/qemu/qemu_domain.c     |  2 +-
+ src/qemu/qemu_driver.c     |  2 +-
+ src/test/test_driver.c     |  2 +-
+ src/uml/uml_driver.c       |  2 +-
+ src/vbox/vbox_common.c     |  4 ++--
+ src/vmx/vmx.c              |  2 +-
+ src/vz/vz_sdk.c            |  2 +-
+ src/xen/xm_internal.c      |  2 +-
+ src/xenapi/xenapi_driver.c |  2 +-
+ src/xenconfig/xen_common.c |  2 +-
+ src/xenconfig/xen_sxpr.c   |  2 +-
+ 20 files changed, 34 insertions(+), 33 deletions(-)
+
+diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
+index 1e32557..b28daa6 100644
+--- a/src/conf/domain_conf.c
++++ b/src/conf/domain_conf.c
+@@ -7672,27 +7672,27 @@ virDomainDefGetMemoryInitial(virDomainDefPtr def)
+     if ((ret = virDomainNumaGetMemorySize(def->numa)) > 0) {
+         return ret;
+     } else {
+-        ret = def->mem.max_balloon;
++        ret = def->mem.total_memory;
+         for (i = 0; i < def->nmems; i++)
+             ret -= def->mems[i]->size;
+     }
+ 
+-    return def->mem.max_balloon;
++    return def->mem.total_memory;
+ }
+ 
+ 
+ /**
+- * virDomainDefSetMemoryInitial:
++ * virDomainDefSetMemoryTotal:
+  * @def: domain definition
+  * @size: size to set
+  *
+- * Sets the initial memory size in @def.
++ * Sets the total memory size in @def.
+  */
+ void
+-virDomainDefSetMemoryInitial(virDomainDefPtr def,
+-                             unsigned long long size)
++virDomainDefSetMemoryTotal(virDomainDefPtr def,
++                           unsigned long long size)
+ {
+-    def->mem.max_balloon = size;
++    def->mem.total_memory = size;
+ }
+ 
+ 
+@@ -7714,7 +7714,7 @@ virDomainDefGetMemoryActual(virDomainDefPtr def)
+         for (i = 0; i < def->nmems; i++)
+             ret += def->mems[i]->size;
+     } else {
+-        ret = def->mem.max_balloon;
++        ret = def->mem.total_memory;
+     }
+ 
+     return ret;
+@@ -14611,7 +14611,7 @@ virDomainDefParseXML(xmlDocPtr xml,
+ 
+     /* Extract domain memory */
+     if (virDomainParseMemory("./memory[1]", NULL, ctxt,
+-                             &def->mem.max_balloon, false, true) < 0)
++                             &def->mem.total_memory, false, true) < 0)
+         goto error;
+ 
+     if (virDomainParseMemory("./currentMemory[1]", NULL, ctxt,
+diff --git a/src/conf/domain_conf.h b/src/conf/domain_conf.h
+index bac64b3..8099450 100644
+--- a/src/conf/domain_conf.h
++++ b/src/conf/domain_conf.h
+@@ -2106,8 +2106,9 @@ typedef struct _virDomainMemtune virDomainMemtune;
+ typedef virDomainMemtune *virDomainMemtunePtr;
+ 
+ struct _virDomainMemtune {
+-    unsigned long long max_balloon; /* in kibibytes, capped at ulong thanks
+-                                       to virDomainGetMaxMemory */
++    /* total memory size including memory modules in kibibytes, this field
++     * should be accessed only via accessors */
++    unsigned long long total_memory;
+     unsigned long long cur_balloon; /* in kibibytes, capped at ulong thanks
+                                        to virDomainGetInfo */
+ 
+@@ -2286,7 +2287,7 @@ struct _virDomainDef {
+ };
+ 
+ unsigned long long virDomainDefGetMemoryInitial(virDomainDefPtr def);
+-void virDomainDefSetMemoryInitial(virDomainDefPtr def, unsigned long long size);
++void virDomainDefSetMemoryTotal(virDomainDefPtr def, unsigned long long size);
+ unsigned long long virDomainDefGetMemoryActual(virDomainDefPtr def);
+ bool virDomainDefHasMemoryHotplug(const virDomainDef *def);
+ 
+diff --git a/src/hyperv/hyperv_driver.c b/src/hyperv/hyperv_driver.c
+index b539541..1958bbe 100644
+--- a/src/hyperv/hyperv_driver.c
++++ b/src/hyperv/hyperv_driver.c
+@@ -870,7 +870,7 @@ hypervDomainGetXMLDesc(virDomainPtr domain, unsigned int flags)
+     if (VIR_STRDUP(def->description, virtualSystemSettingData->data->Notes) < 0)
+         goto cleanup;
+ 
+-    virDomainDefSetMemoryInitial(def, memorySettingData->data->Limit * 1024); /* megabyte to kilobyte */
++    virDomainDefSetMemoryTotal(def, memorySettingData->data->Limit * 1024); /* megabyte to kilobyte */
+     def->mem.cur_balloon = memorySettingData->data->VirtualQuantity * 1024; /* megabyte to kilobyte */
+ 
+     def->vcpus = processorSettingData->data->VirtualQuantity;
+diff --git a/src/libvirt_private.syms b/src/libvirt_private.syms
+index 335f8d0..b1b59b2 100644
+--- a/src/libvirt_private.syms
++++ b/src/libvirt_private.syms
+@@ -225,7 +225,7 @@ virDomainDefParseFile;
+ virDomainDefParseNode;
+ virDomainDefParseString;
+ virDomainDefPostParse;
+-virDomainDefSetMemoryInitial;
++virDomainDefSetMemoryTotal;
+ virDomainDeleteConfig;
+ virDomainDeviceAddressIsValid;
+ virDomainDeviceAddressTypeToString;
+diff --git a/src/libxl/libxl_driver.c b/src/libxl/libxl_driver.c
+index 149ef70..f48bcf4 100644
+--- a/src/libxl/libxl_driver.c
++++ b/src/libxl/libxl_driver.c
+@@ -1413,7 +1413,7 @@ libxlDomainSetMemoryFlags(virDomainPtr dom, unsigned long newmem,
+         if (flags & VIR_DOMAIN_MEM_CONFIG) {
+             /* Help clang 2.8 decipher the logic flow.  */
+             sa_assert(persistentDef);
+-            virDomainDefSetMemoryInitial(persistentDef, newmem);
++            virDomainDefSetMemoryTotal(persistentDef, newmem);
+             if (persistentDef->mem.cur_balloon > newmem)
+                 persistentDef->mem.cur_balloon = newmem;
+             ret = virDomainSaveConfig(cfg->configDir, persistentDef);
+diff --git a/src/lxc/lxc_driver.c b/src/lxc/lxc_driver.c
+index 79f92c3..9a6e44e 100644
+--- a/src/lxc/lxc_driver.c
++++ b/src/lxc/lxc_driver.c
+@@ -734,7 +734,7 @@ static int lxcDomainSetMemoryFlags(virDomainPtr dom, unsigned long newmem,
+         }
+ 
+         if (flags & VIR_DOMAIN_AFFECT_CONFIG) {
+-            virDomainDefSetMemoryInitial(persistentDef, newmem);
++            virDomainDefSetMemoryTotal(persistentDef, newmem);
+             if (persistentDef->mem.cur_balloon > newmem)
+                 persistentDef->mem.cur_balloon = newmem;
+             if (virDomainSaveConfig(cfg->configDir, persistentDef) < 0)
+diff --git a/src/lxc/lxc_native.c b/src/lxc/lxc_native.c
+index 6faa701..2f95597 100644
+--- a/src/lxc/lxc_native.c
++++ b/src/lxc/lxc_native.c
+@@ -770,7 +770,7 @@ lxcSetMemTune(virDomainDefPtr def, virConfPtr properties)
+         if (lxcConvertSize(value->str, &size) < 0)
+             return -1;
+         size = size / 1024;
+-        virDomainDefSetMemoryInitial(def, size);
++        virDomainDefSetMemoryTotal(def, size);
+         def->mem.hard_limit = virMemoryLimitTruncate(size);
+     }
+ 
+@@ -1010,7 +1010,7 @@ lxcParseConfigString(const char *config)
+     }
+ 
+     vmdef->id = -1;
+-    virDomainDefSetMemoryInitial(vmdef, 64 * 1024);
++    virDomainDefSetMemoryTotal(vmdef, 64 * 1024);
+ 
+     vmdef->onReboot = VIR_DOMAIN_LIFECYCLE_RESTART;
+     vmdef->onCrash = VIR_DOMAIN_LIFECYCLE_CRASH_DESTROY;
+diff --git a/src/phyp/phyp_driver.c b/src/phyp/phyp_driver.c
+index 54dec70..2912fc4 100644
+--- a/src/phyp/phyp_driver.c
++++ b/src/phyp/phyp_driver.c
+@@ -3281,7 +3281,7 @@ phypDomainGetXMLDesc(virDomainPtr dom, unsigned int flags)
+         goto err;
+     }
+ 
+-    virDomainDefSetMemoryInitial(&def, memory);
++    virDomainDefSetMemoryTotal(&def, memory);
+ 
+     if ((def.mem.cur_balloon =
+          phypGetLparMem(dom->conn, managed_system, dom->id, 1)) == 0) {
+diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
+index ade75e3..3fd695b 100644
+--- a/src/qemu/qemu_command.c
++++ b/src/qemu/qemu_command.c
+@@ -12724,7 +12724,7 @@ qemuParseCommandLine(virCapsPtr qemuCaps,
+ 
+     def->id = -1;
+     def->mem.cur_balloon = 64 * 1024;
+-    virDomainDefSetMemoryInitial(def, def->mem.cur_balloon);
++    virDomainDefSetMemoryTotal(def, def->mem.cur_balloon);
+     def->maxvcpus = 1;
+     def->vcpus = 1;
+     def->clock.offset = VIR_DOMAIN_CLOCK_OFFSET_UTC;
+@@ -12930,7 +12930,7 @@ qemuParseCommandLine(virCapsPtr qemuCaps,
+                                _("cannot parse memory level '%s'"), val);
+                 goto error;
+             }
+-            virDomainDefSetMemoryInitial(def, mem * 1024);
++            virDomainDefSetMemoryTotal(def, mem * 1024);
+             def->mem.cur_balloon = mem * 1024;
+         } else if (STREQ(arg, "-smp")) {
+             WANT_VALUE();
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index 15cdf7b..67c2bb0 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -3184,7 +3184,7 @@ qemuDomainAlignMemorySizes(virDomainDefPtr def)
+ 
+     /* align initial memory size */
+     mem = virDomainDefGetMemoryInitial(def);
+-    virDomainDefSetMemoryInitial(def, VIR_ROUND_UP(mem, align));
++    virDomainDefSetMemoryTotal(def, VIR_ROUND_UP(mem, align));
+ 
+     def->mem.max_memory = VIR_ROUND_UP(def->mem.max_memory, align);
+ 
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index f15b14a..e77e548 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -2370,7 +2370,7 @@ static int qemuDomainSetMemoryFlags(virDomainPtr dom, unsigned long newmem,
+                 goto endjob;
+             }
+ 
+-            virDomainDefSetMemoryInitial(persistentDef, newmem);
++            virDomainDefSetMemoryTotal(persistentDef, newmem);
+ 
+             if (persistentDef->mem.cur_balloon > newmem)
+                 persistentDef->mem.cur_balloon = newmem;
+diff --git a/src/test/test_driver.c b/src/test/test_driver.c
+index d38006f..9dcfe11 100644
+--- a/src/test/test_driver.c
++++ b/src/test/test_driver.c
+@@ -2256,7 +2256,7 @@ static int testDomainSetMaxMemory(virDomainPtr domain,
+         return -1;
+ 
+     /* XXX validate not over host memory wrt to other domains */
+-    virDomainDefSetMemoryInitial(privdom->def, memory);
++    virDomainDefSetMemoryTotal(privdom->def, memory);
+ 
+     virDomainObjEndAPI(&privdom);
+     return 0;
+diff --git a/src/uml/uml_driver.c b/src/uml/uml_driver.c
+index c3c5fa7..2b61f73 100644
+--- a/src/uml/uml_driver.c
++++ b/src/uml/uml_driver.c
+@@ -1828,7 +1828,7 @@ static int umlDomainSetMaxMemory(virDomainPtr dom, unsigned long newmax)
+         goto cleanup;
+     }
+ 
+-    virDomainDefSetMemoryInitial(vm->def, newmax);
++    virDomainDefSetMemoryTotal(vm->def, newmax);
+     ret = 0;
+ 
+  cleanup:
+diff --git a/src/vbox/vbox_common.c b/src/vbox/vbox_common.c
+index 91a61f8..3e6ed7a 100644
+--- a/src/vbox/vbox_common.c
++++ b/src/vbox/vbox_common.c
+@@ -3898,7 +3898,7 @@ static char *vboxDomainGetXMLDesc(virDomainPtr dom, unsigned int flags)
+      * reading and while dumping xml
+      */
+     /* def->mem.max_balloon = maxMemorySize * 1024; */
+-    virDomainDefSetMemoryInitial(def, memorySize * 1024);
++    virDomainDefSetMemoryTotal(def, memorySize * 1024);
+ 
+     gVBoxAPI.UIMachine.GetCPUCount(machine, &CPUCount);
+     def->maxvcpus = def->vcpus = CPUCount;
+@@ -6051,7 +6051,7 @@ static char *vboxDomainSnapshotGetXMLDesc(virDomainSnapshotPtr snapshot,
+          * the notation here seems to be inconsistent while
+          * reading and while dumping xml
+          */
+-        virDomainDefSetMemoryInitial(def->dom, memorySize * 1024);
++        virDomainDefSetMemoryTotal(def->dom, memorySize * 1024);
+         def->dom->os.type = VIR_DOMAIN_OSTYPE_HVM;
+         def->dom->os.arch = virArchFromHost();
+         gVBoxAPI.UIMachine.GetCPUCount(machine, &CPUCount);
+diff --git a/src/vmx/vmx.c b/src/vmx/vmx.c
+index 9ba5848..84f71f7 100644
+--- a/src/vmx/vmx.c
++++ b/src/vmx/vmx.c
+@@ -1379,7 +1379,7 @@ virVMXParseConfig(virVMXContext *ctx,
+         goto cleanup;
+     }
+ 
+-    virDomainDefSetMemoryInitial(def, memsize * 1024); /* Scale from megabytes to kilobytes */
++    virDomainDefSetMemoryTotal(def, memsize * 1024); /* Scale from megabytes to kilobytes */
+ 
+     /* vmx:sched.mem.max -> def:mem.cur_balloon */
+     if (virVMXGetConfigLong(conf, "sched.mem.max", &sched_mem_max, memsize,
+diff --git a/src/vz/vz_sdk.c b/src/vz/vz_sdk.c
+index a584940..61a0897 100644
+--- a/src/vz/vz_sdk.c
++++ b/src/vz/vz_sdk.c
+@@ -1300,7 +1300,7 @@ prlsdkLoadDomain(vzConnPtr privconn,
+     /* get RAM parameters */
+     pret = PrlVmCfg_GetRamSize(sdkdom, &ram);
+     prlsdkCheckRetGoto(pret, error);
+-    virDomainDefSetMemoryInitial(def, ram << 10); /* RAM size obtained in Mbytes,
++    virDomainDefSetMemoryTotal(def, ram << 10); /* RAM size obtained in Mbytes,
+                                                      convert to Kbytes */
+     def->mem.cur_balloon = ram << 10;
+ 
+diff --git a/src/xen/xm_internal.c b/src/xen/xm_internal.c
+index 59b1cd4..baa7815 100644
+--- a/src/xen/xm_internal.c
++++ b/src/xen/xm_internal.c
+@@ -606,7 +606,7 @@ xenXMDomainSetMaxMemory(virConnectPtr conn,
+     if (entry->def->mem.cur_balloon > memory)
+         entry->def->mem.cur_balloon = memory;
+ 
+-    virDomainDefSetMemoryInitial(entry->def, memory);
++    virDomainDefSetMemoryTotal(entry->def, memory);
+     /* If this fails, should we try to undo our changes to the
+      * in-memory representation of the config file. I say not!
+      */
+diff --git a/src/xenapi/xenapi_driver.c b/src/xenapi/xenapi_driver.c
+index 11f6e91..3045c5a 100644
+--- a/src/xenapi/xenapi_driver.c
++++ b/src/xenapi/xenapi_driver.c
+@@ -1492,7 +1492,7 @@ xenapiDomainGetXMLDesc(virDomainPtr dom, unsigned int flags)
+         VIR_FREE(val);
+     }
+     memory = xenapiDomainGetMaxMemory(dom);
+-    virDomainDefSetMemoryInitial(defPtr, memory);
++    virDomainDefSetMemoryTotal(defPtr, memory);
+     if (xen_vm_get_memory_dynamic_max(session, &dynamic_mem, vm)) {
+         defPtr->mem.cur_balloon = (unsigned long) (dynamic_mem / 1024);
+     } else {
+diff --git a/src/xenconfig/xen_common.c b/src/xenconfig/xen_common.c
+index 0dfe60e..0890c73 100644
+--- a/src/xenconfig/xen_common.c
++++ b/src/xenconfig/xen_common.c
+@@ -316,7 +316,7 @@ xenParseMem(virConfPtr conf, virDomainDefPtr def)
+         return -1;
+ 
+     def->mem.cur_balloon *= 1024;
+-    virDomainDefSetMemoryInitial(def, memory * 1024);
++    virDomainDefSetMemoryTotal(def, memory * 1024);
+ 
+     return 0;
+ }
+diff --git a/src/xenconfig/xen_sxpr.c b/src/xenconfig/xen_sxpr.c
+index 05e938a..66f67b5 100644
+--- a/src/xenconfig/xen_sxpr.c
++++ b/src/xenconfig/xen_sxpr.c
+@@ -1154,7 +1154,7 @@ xenParseSxpr(const struct sexpr *root,
+         }
+     }
+ 
+-    virDomainDefSetMemoryInitial(def, (sexpr_u64(root, "domain/maxmem") << 10));
++    virDomainDefSetMemoryTotal(def, (sexpr_u64(root, "domain/maxmem") << 10));
+     def->mem.cur_balloon = (sexpr_u64(root, "domain/memory") << 10);
+ 
+     if (def->mem.cur_balloon > virDomainDefGetMemoryActual(def))
+-- 
+2.5.3
+

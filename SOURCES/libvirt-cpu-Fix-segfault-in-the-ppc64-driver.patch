@@ -1,0 +1,36 @@
+From 7306403f40cb6bf780db655dbd66867dad989df7 Mon Sep 17 00:00:00 2001
+Message-Id: <7306403f40cb6bf780db655dbd66867dad989df7@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Tue, 11 Aug 2015 18:46:54 +0200
+Subject: [PATCH] cpu: Fix segfault in the ppc64 driver
+
+Commit adb865d introduced some changes in ppc64DriverNodeData()
+that cause libvirtd to crash on startup unless this patch is
+applied as well.
+
+(cherry picked from commit 133c25c81c9ef79053d8d67a1e897846f9d7adb5)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1250977
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/cpu/cpu_ppc64.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/cpu/cpu_ppc64.c b/src/cpu/cpu_ppc64.c
+index 33fec8b..85aa5bc 100644
+--- a/src/cpu/cpu_ppc64.c
++++ b/src/cpu/cpu_ppc64.c
+@@ -628,7 +628,7 @@ ppc64DriverNodeData(virArch arch)
+     if (VIR_ALLOC(nodeData) < 0)
+         goto error;
+ 
+-    if (VIR_ALLOC(data) < 0)
++    if (VIR_ALLOC(nodeData->data.ppc64) < 0)
+         goto error;
+ 
+     data = nodeData->data.ppc64;
+-- 
+2.5.0
+

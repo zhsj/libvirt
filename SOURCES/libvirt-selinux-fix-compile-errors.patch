@@ -1,0 +1,48 @@
+From b6cd6d4baa1d07833321e06d0faff41a44b061a9 Mon Sep 17 00:00:00 2001
+Message-Id: <b6cd6d4baa1d07833321e06d0faff41a44b061a9@dist-git>
+From: =?UTF-8?q?Guido=20G=C3=BCnther?= <agx@sigxcpu.org>
+Date: Thu, 3 Sep 2015 15:44:53 +0200
+Subject: [PATCH] selinux: fix compile errors
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1146886
+
+Remove unused variable, tag unused parameter and adjust return type.
+
+introduced by 3f48345f7ec0c44b8ce2371cab454d2118f830b4
+
+CC     security/libvirt_security_manager_la-security_selinux.lo
+security/security_selinux.c: In function 'virSecuritySELinuxDomainSetDirLabel':
+security/security_selinux.c:2520:5: error: return makes pointer from integer without a cast [-Werror]
+security/security_selinux.c:2514:9: error: unused variable 'ret' [-Werror=unused-variable]
+security/security_selinux.c:2509:59: error: unused parameter 'mgr' [-Werror=unused-parameter]
+
+(cherry picked from commit 4d4c90dfd5475c100c6fd3fb705011e0d90d793e)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/security/security_selinux.c | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/src/security/security_selinux.c b/src/security/security_selinux.c
+index d4bfee7..d2e5aa2 100644
+--- a/src/security/security_selinux.c
++++ b/src/security/security_selinux.c
+@@ -2505,13 +2505,12 @@ virSecuritySELinuxGetSecurityMountOptions(virSecurityManagerPtr mgr,
+     return opts;
+ }
+ 
+-static char *
+-virSecuritySELinuxDomainSetDirLabel(virSecurityManagerPtr mgr,
++static int
++virSecuritySELinuxDomainSetDirLabel(virSecurityManagerPtr mgr ATTRIBUTE_UNUSED,
+                                     virDomainDefPtr def,
+                                     const char *path)
+ {
+     virSecurityLabelDefPtr seclabel;
+-    int ret = -1;
+ 
+     seclabel = virDomainDefGetSecurityLabelDef(def, SECURITY_SELINUX_NAME);
+     if (!seclabel || !seclabel->relabel)
+-- 
+2.5.1
+

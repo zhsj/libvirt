@@ -1,0 +1,64 @@
+From 1bf327f3bea0116dabef57a58fb9127d7e3b0de5 Mon Sep 17 00:00:00 2001
+Message-Id: <1bf327f3bea0116dabef57a58fb9127d7e3b0de5@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Fri, 2 Oct 2015 12:08:26 +0200
+Subject: [PATCH] qemu: Wait until destination QEMU consumes all migration data
+
+Even though QEMU on the source host reports completed migration and thus
+we move to the Finish phase, QEMU on the destination host may still be
+processing migration data. Thus before we can start guest CPUs on the
+destination, we have to wait for a completed migration event.
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1265902
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+(cherry picked from commit be5347bb7223cab0a9f0713ed9c4bf5738a7e0ea)
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+
+Conflicts:
+	src/qemu/qemu_migration.c - missing qemuMigrationFinish
+        refactoring
+---
+ src/qemu/qemu_migration.c | 26 ++++++++++++++++++++++++++
+ 1 file changed, 26 insertions(+)
+
+diff --git a/src/qemu/qemu_migration.c b/src/qemu/qemu_migration.c
+index 83614f5..d3e024e 100644
+--- a/src/qemu/qemu_migration.c
++++ b/src/qemu/qemu_migration.c
+@@ -5710,6 +5710,32 @@ qemuMigrationFinish(virQEMUDriverPtr driver,
+             event = NULL;
+         }
+ 
++        /* We need to wait for QEMU to process all data sent by the source
++         * before starting guest CPUs.
++         */
++        if (!(flags & VIR_MIGRATE_OFFLINE) &&
++            virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_MIGRATION_EVENT)) {
++            int rv;
++            VIR_DEBUG("Waiting for migration to complete");
++            while ((rv = qemuMigrationCompleted(driver, vm,
++                                                QEMU_ASYNC_JOB_MIGRATION_IN,
++                                                NULL, 0)) != 1) {
++                if (rv < 0 || virDomainObjWait(vm) < 0) {
++                    /* There's not much we can do for v2 protocol since the
++                     * original domain on the source host is already gone.
++                     */
++                    if (v3proto) {
++                        qemuProcessStop(driver, vm, VIR_DOMAIN_SHUTOFF_FAILED,
++                                        VIR_QEMU_PROCESS_STOP_MIGRATED);
++                        virDomainAuditStop(vm, "failed");
++                        goto endjob;
++                    } else {
++                        break;
++                    }
++                }
++            }
++        }
++
+         if (!(flags & VIR_MIGRATE_PAUSED) && !(flags & VIR_MIGRATE_OFFLINE)) {
+             /* run 'cont' on the destination, which allows migration on qemu
+              * >= 0.10.6 to work properly.  This isn't strictly necessary on
+-- 
+2.6.1
+

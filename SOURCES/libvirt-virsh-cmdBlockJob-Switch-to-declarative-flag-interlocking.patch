@@ -1,0 +1,73 @@
+From ebf10bb20ed32487ff69411967084050fe825322 Mon Sep 17 00:00:00 2001
+Message-Id: <ebf10bb20ed32487ff69411967084050fe825322@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Tue, 21 Jul 2015 16:18:24 +0200
+Subject: [PATCH] virsh: cmdBlockJob: Switch to declarative flag interlocking
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1227551
+https://bugzilla.redhat.com/show_bug.cgi?id=1197592
+
+Use the VSH_EXCLUSIVE_OPTIONS_VAR to interlock incompatible options.
+Since a variable named 'abort' would conflict with older compilers use
+VSH_EXCLUSIVE_OPTIONS for the --abort option.
+
+(cherry picked from commit 2f12cb93557744e3d0fad9b40cffaaba7ce22ba7)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ tools/virsh-domain.c | 33 +++++++++++++++++++--------------
+ 1 file changed, 19 insertions(+), 14 deletions(-)
+
+diff --git a/tools/virsh-domain.c b/tools/virsh-domain.c
+index 7a18204..9a7cb84 100644
+--- a/tools/virsh-domain.c
++++ b/tools/virsh-domain.c
+@@ -2542,26 +2542,31 @@ cmdBlockJob(vshControl *ctl, const vshCmd *cmd)
+     bool ret = false;
+     bool raw = vshCommandOptBool(cmd, "raw");
+     bool bytes = vshCommandOptBool(cmd, "bytes");
+-    bool abortMode = (vshCommandOptBool(cmd, "abort") ||
+-                      vshCommandOptBool(cmd, "async") ||
+-                      vshCommandOptBool(cmd, "pivot"));
+-    bool infoMode = vshCommandOptBool(cmd, "info") || raw;
++    bool abortMode = vshCommandOptBool(cmd, "abort");
++    bool pivot = vshCommandOptBool(cmd, "pivot");
++    bool async = vshCommandOptBool(cmd, "async");
++    bool info = vshCommandOptBool(cmd, "info");
+     bool bandwidth = vshCommandOptBool(cmd, "bandwidth");
+     virDomainPtr dom = NULL;
+     const char *path;
+ 
+-    if (abortMode + infoMode + bandwidth > 1) {
+-        vshError(ctl, "%s",
+-                 _("conflict between abort, info, and bandwidth modes"));
+-        return false;
+-    }
++    VSH_EXCLUSIVE_OPTIONS("raw", "abort");
++    VSH_EXCLUSIVE_OPTIONS_VAR(raw, pivot);
++    VSH_EXCLUSIVE_OPTIONS_VAR(raw, async);
++    VSH_EXCLUSIVE_OPTIONS_VAR(raw, bandwidth);
++
++    VSH_EXCLUSIVE_OPTIONS("info", "abort");
++    VSH_EXCLUSIVE_OPTIONS_VAR(info, pivot);
++    VSH_EXCLUSIVE_OPTIONS_VAR(info, async);
++    VSH_EXCLUSIVE_OPTIONS_VAR(info, bandwidth);
++
++    VSH_EXCLUSIVE_OPTIONS("bytes", "abort");
++    VSH_EXCLUSIVE_OPTIONS_VAR(bytes, pivot);
++    VSH_EXCLUSIVE_OPTIONS_VAR(bytes, async);
+     /* XXX also support --bytes with bandwidth mode */
+-    if (bytes && (abortMode || bandwidth)) {
+-        vshError(ctl, "%s", _("--bytes requires info mode"));
+-        return false;
+-    }
++    VSH_EXCLUSIVE_OPTIONS_VAR(bytes, bandwidth);
+ 
+-    if (abortMode)
++    if (abortMode || pivot || async)
+         return blockJobImpl(ctl, cmd, VSH_CMD_BLOCK_JOB_ABORT, NULL);
+     if (bandwidth)
+         return blockJobImpl(ctl, cmd, VSH_CMD_BLOCK_JOB_SPEED, NULL);
+-- 
+2.5.0
+

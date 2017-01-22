@@ -1,0 +1,695 @@
+From 62c256e02e63007860ca1fb4ef0d6d1121091e55 Mon Sep 17 00:00:00 2001
+Message-Id: <62c256e02e63007860ca1fb4ef0d6d1121091e55@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Mon, 10 Aug 2015 13:55:19 +0200
+Subject: [PATCH] rpc: Remove keepalive_required option
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1247087
+
+Since its introduction in 2011 (particularly in commit f4324e329275),
+the option doesn't work.  It just effectively disables all incoming
+connections.  That's because the client private data that contain the
+'keepalive_supported' boolean, are initialized to zeroes so the bool is
+false and the only other place where the bool is used is when checking
+whether the client supports keepalive.  Thus, according to the server,
+no client supports keepalive.
+
+Removing this instead of fixing it is better because a) apparently
+nobody ever tried it since 2011 (4 years without one month) and b) we
+cannot know whether the client supports keepalive until we get a ping or
+pong keepalive packet.  And that won't happen until after we dispatched
+the ConnectOpen call.
+
+Another two reasons would be c) the keepalive_required was tracked on
+the server level, but keepalive_supported was in private data of the
+client as well as the check that was made in the remote layer, thus
+making all other instances of virNetServer miss this feature unless they
+all implemented it for themselves and d) we can always add it back in
+case there is a request and a use-case for it.
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit a8743c39389b76897811f60dcd8485cd51d76f02)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ daemon/libvirtd-config.c                           |   4 -
+ daemon/libvirtd-config.h                           |   2 -
+ daemon/libvirtd.c                                  |   2 -
+ daemon/libvirtd.conf                               |   9 +-
+ daemon/libvirtd.h                                  |   1 -
+ daemon/remote.c                                    |   8 +-
+ daemon/test_libvirtd.aug.in                        |   2 +-
+ src/libvirt_remote.syms                            |   1 -
+ src/locking/lock_daemon.c                          |   2 +-
+ src/lxc/lxc_controller.c                           |   2 +-
+ src/rpc/virnetserver.c                             |  25 +----
+ src/rpc/virnetserver.h                             |   3 -
+ tests/libvirtdconftest.c                           |   4 +-
+ .../input-data-no-keepalive-required.json          | 124 +++++++++++++++++++++
+ .../virnetdaemondata/output-data-admin-nomdns.json |   2 -
+ .../virnetdaemondata/output-data-anon-clients.json |   1 -
+ .../output-data-initial-nomdns.json                |   1 -
+ tests/virnetdaemondata/output-data-initial.json    |   1 -
+ .../output-data-no-keepalive-required.json         | 124 +++++++++++++++++++++
+ tests/virnetdaemontest.c                           |   2 +-
+ 20 files changed, 262 insertions(+), 58 deletions(-)
+ create mode 100644 tests/virnetdaemondata/input-data-no-keepalive-required.json
+ create mode 100644 tests/virnetdaemondata/output-data-no-keepalive-required.json
+
+diff --git a/daemon/libvirtd-config.c b/daemon/libvirtd-config.c
+index 10dcc42..c31c8b2 100644
+--- a/daemon/libvirtd-config.c
++++ b/daemon/libvirtd-config.c
+@@ -292,7 +292,6 @@ daemonConfigNew(bool privileged ATTRIBUTE_UNUSED)
+ 
+     data->keepalive_interval = 5;
+     data->keepalive_count = 5;
+-    data->keepalive_required = 0;
+ 
+     data->admin_min_workers = 5;
+     data->admin_max_workers = 20;
+@@ -302,7 +301,6 @@ daemonConfigNew(bool privileged ATTRIBUTE_UNUSED)
+ 
+     data->admin_keepalive_interval = 5;
+     data->admin_keepalive_count = 5;
+-    data->admin_keepalive_required = 0;
+ 
+     localhost = virGetHostname();
+     if (localhost == NULL) {
+@@ -471,11 +469,9 @@ daemonConfigLoadOptions(struct daemonConfig *data,
+ 
+     GET_CONF_INT(conf, filename, keepalive_interval);
+     GET_CONF_UINT(conf, filename, keepalive_count);
+-    GET_CONF_UINT(conf, filename, keepalive_required);
+ 
+     GET_CONF_INT(conf, filename, admin_keepalive_interval);
+     GET_CONF_UINT(conf, filename, admin_keepalive_count);
+-    GET_CONF_UINT(conf, filename, admin_keepalive_required);
+ 
+     return 0;
+ 
+diff --git a/daemon/libvirtd-config.h b/daemon/libvirtd-config.h
+index 9cdae1a..3e1971d 100644
+--- a/daemon/libvirtd-config.h
++++ b/daemon/libvirtd-config.h
+@@ -81,7 +81,6 @@ struct daemonConfig {
+ 
+     int keepalive_interval;
+     unsigned int keepalive_count;
+-    int keepalive_required;
+ 
+     int admin_min_workers;
+     int admin_max_workers;
+@@ -91,7 +90,6 @@ struct daemonConfig {
+ 
+     int admin_keepalive_interval;
+     unsigned int admin_keepalive_count;
+-    int admin_keepalive_required;
+ };
+ 
+ 
+diff --git a/daemon/libvirtd.c b/daemon/libvirtd.c
+index 654e7f4..2c27970 100644
+--- a/daemon/libvirtd.c
++++ b/daemon/libvirtd.c
+@@ -1389,7 +1389,6 @@ int main(int argc, char **argv) {
+                                 config->max_anonymous_clients,
+                                 config->keepalive_interval,
+                                 config->keepalive_count,
+-                                !!config->keepalive_required,
+                                 config->mdns_adv ? config->mdns_name : NULL,
+                                 remoteClientInitHook,
+                                 NULL,
+@@ -1464,7 +1463,6 @@ int main(int argc, char **argv) {
+                                    0,
+                                    config->admin_keepalive_interval,
+                                    config->admin_keepalive_count,
+-                                   !!config->admin_keepalive_required,
+                                    NULL,
+                                    remoteAdmClientInitHook,
+                                    NULL,
+diff --git a/daemon/libvirtd.conf b/daemon/libvirtd.conf
+index ac06cdd..514e6e4 100644
+--- a/daemon/libvirtd.conf
++++ b/daemon/libvirtd.conf
+@@ -440,14 +440,15 @@
+ #
+ #keepalive_interval = 5
+ #keepalive_count = 5
++
+ #
+-# If set to 1, libvirtd will refuse to talk to clients that do not
+-# support keepalive protocol.  Defaults to 0.
++# These configuration options are no longer used.  There is no way to
++# restrict such clients from connecting since they first need to
++# connect in order to ask for keepalive.
+ #
+ #keepalive_required = 1
++#admin_keepalive_required = 1
+ 
+ # Keepalive settings for the admin interface
+ #admin_keepalive_interval = 5
+ #admin_keepalive_count = 5
+-#
+-#admin_keepalive_required = 1
+diff --git a/daemon/libvirtd.h b/daemon/libvirtd.h
+index 8c1a904..efd4823 100644
+--- a/daemon/libvirtd.h
++++ b/daemon/libvirtd.h
+@@ -72,7 +72,6 @@ struct daemonClientPrivate {
+     virConnectPtr conn;
+ 
+     daemonClientStreamPtr streams;
+-    bool keepalive_supported;
+ };
+ 
+ /* Separate private data for admin connection */
+diff --git a/daemon/remote.c b/daemon/remote.c
+index e9e2dca..3a3eb09 100644
+--- a/daemon/remote.c
++++ b/daemon/remote.c
+@@ -1290,7 +1290,7 @@ void *remoteClientInitHook(virNetServerClientPtr client,
+ /*----- Functions. -----*/
+ 
+ static int
+-remoteDispatchConnectOpen(virNetServerPtr server,
++remoteDispatchConnectOpen(virNetServerPtr server ATTRIBUTE_UNUSED,
+                           virNetServerClientPtr client,
+                           virNetMessagePtr msg ATTRIBUTE_UNUSED,
+                           virNetMessageErrorPtr rerr,
+@@ -1309,12 +1309,6 @@ remoteDispatchConnectOpen(virNetServerPtr server,
+         goto cleanup;
+     }
+ 
+-    if (virNetServerKeepAliveRequired(server) && !priv->keepalive_supported) {
+-        virReportError(VIR_ERR_OPERATION_FAILED, "%s",
+-                       _("keepalive support is required to connect"));
+-        goto cleanup;
+-    }
+-
+     name = args->name ? *args->name : NULL;
+ 
+     /* If this connection arrived on a readonly socket, force
+diff --git a/daemon/test_libvirtd.aug.in b/daemon/test_libvirtd.aug.in
+index 4921cbf..b0cb7eb 100644
+--- a/daemon/test_libvirtd.aug.in
++++ b/daemon/test_libvirtd.aug.in
+@@ -58,6 +58,6 @@ module Test_libvirtd =
+         { "keepalive_interval" = "5" }
+         { "keepalive_count" = "5" }
+         { "keepalive_required" = "1" }
++        { "admin_keepalive_required" = "1" }
+         { "admin_keepalive_interval" = "5" }
+         { "admin_keepalive_count" = "5" }
+-        { "admin_keepalive_required" = "1" }
+diff --git a/src/libvirt_remote.syms b/src/libvirt_remote.syms
+index 6bfdcfa..90a453c 100644
+--- a/src/libvirt_remote.syms
++++ b/src/libvirt_remote.syms
+@@ -101,7 +101,6 @@ virNetServerAddProgram;
+ virNetServerAddService;
+ virNetServerClose;
+ virNetServerHasClients;
+-virNetServerKeepAliveRequired;
+ virNetServerNew;
+ virNetServerNewPostExecRestart;
+ virNetServerPreExecRestart;
+diff --git a/src/locking/lock_daemon.c b/src/locking/lock_daemon.c
+index ecbe03a..c035024 100644
+--- a/src/locking/lock_daemon.c
++++ b/src/locking/lock_daemon.c
+@@ -151,7 +151,7 @@ virLockDaemonNew(virLockDaemonConfigPtr config, bool privileged)
+ 
+     if (!(lockd->srv = virNetServerNew(1, 1, 0, config->max_clients,
+                                        config->max_clients, -1, 0,
+-                                       false, NULL,
++                                       NULL,
+                                        virLockDaemonClientNew,
+                                        virLockDaemonClientPreExecRestart,
+                                        virLockDaemonClientFree,
+diff --git a/src/lxc/lxc_controller.c b/src/lxc/lxc_controller.c
+index 27e2e3a..06ffee4 100644
+--- a/src/lxc/lxc_controller.c
++++ b/src/lxc/lxc_controller.c
+@@ -910,7 +910,7 @@ static int virLXCControllerSetupServer(virLXCControllerPtr ctrl)
+         return -1;
+ 
+     if (!(srv = virNetServerNew(0, 0, 0, 1,
+-                                0, -1, 0, false,
++                                0, -1, 0,
+                                 NULL,
+                                 virLXCControllerClientPrivateNew,
+                                 NULL,
+diff --git a/src/rpc/virnetserver.c b/src/rpc/virnetserver.c
+index 60a9714..80b5588 100644
+--- a/src/rpc/virnetserver.c
++++ b/src/rpc/virnetserver.c
+@@ -69,7 +69,6 @@ struct _virNetServer {
+ 
+     int keepaliveInterval;
+     unsigned int keepaliveCount;
+-    bool keepaliveRequired;
+ 
+ #ifdef WITH_GNUTLS
+     virNetTLSContextPtr tls;
+@@ -312,7 +311,6 @@ virNetServerPtr virNetServerNew(size_t min_workers,
+                                 size_t max_anonymous_clients,
+                                 int keepaliveInterval,
+                                 unsigned int keepaliveCount,
+-                                bool keepaliveRequired,
+                                 const char *mdnsGroupName,
+                                 virNetServerClientPrivNew clientPrivNew,
+                                 virNetServerClientPrivPreExecRestart clientPrivPreExecRestart,
+@@ -338,7 +336,6 @@ virNetServerPtr virNetServerNew(size_t min_workers,
+     srv->nclients_unauth_max = max_anonymous_clients;
+     srv->keepaliveInterval = keepaliveInterval;
+     srv->keepaliveCount = keepaliveCount;
+-    srv->keepaliveRequired = keepaliveRequired;
+     srv->clientPrivNew = clientPrivNew;
+     srv->clientPrivPreExecRestart = clientPrivPreExecRestart;
+     srv->clientPrivFree = clientPrivFree;
+@@ -380,7 +377,6 @@ virNetServerPtr virNetServerNewPostExecRestart(virJSONValuePtr object,
+     unsigned int max_anonymous_clients;
+     unsigned int keepaliveInterval;
+     unsigned int keepaliveCount;
+-    bool keepaliveRequired;
+     const char *mdnsGroupName = NULL;
+ 
+     if (virJSONValueObjectGetNumberUint(object, "min_workers", &min_workers) < 0) {
+@@ -423,11 +419,6 @@ virNetServerPtr virNetServerNewPostExecRestart(virJSONValuePtr object,
+                        _("Missing keepaliveCount data in JSON document"));
+         goto error;
+     }
+-    if (virJSONValueObjectGetBoolean(object, "keepaliveRequired", &keepaliveRequired) < 0) {
+-        virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+-                       _("Missing keepaliveRequired data in JSON document"));
+-        goto error;
+-    }
+ 
+     if (virJSONValueObjectHasKey(object, "mdnsGroupName") &&
+         (!(mdnsGroupName = virJSONValueObjectGetString(object, "mdnsGroupName")))) {
+@@ -440,7 +431,7 @@ virNetServerPtr virNetServerNewPostExecRestart(virJSONValuePtr object,
+                                 priority_workers, max_clients,
+                                 max_anonymous_clients,
+                                 keepaliveInterval, keepaliveCount,
+-                                keepaliveRequired, mdnsGroupName,
++                                mdnsGroupName,
+                                 clientPrivNew, clientPrivPreExecRestart,
+                                 clientPrivFree, clientPrivOpaque)))
+         goto error;
+@@ -573,11 +564,6 @@ virJSONValuePtr virNetServerPreExecRestart(virNetServerPtr srv)
+                        _("Cannot set keepaliveCount data in JSON document"));
+         goto error;
+     }
+-    if (virJSONValueObjectAppendBoolean(object, "keepaliveRequired", srv->keepaliveRequired) < 0) {
+-        virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+-                       _("Cannot set keepaliveRequired data in JSON document"));
+-        goto error;
+-    }
+ 
+     if (srv->mdnsGroupName &&
+         virJSONValueObjectAppendString(object, "mdnsGroupName", srv->mdnsGroupName) < 0) {
+@@ -786,15 +772,6 @@ void virNetServerClose(virNetServerPtr srv)
+     virObjectUnlock(srv);
+ }
+ 
+-bool virNetServerKeepAliveRequired(virNetServerPtr srv)
+-{
+-    bool required;
+-    virObjectLock(srv);
+-    required = srv->keepaliveRequired;
+-    virObjectUnlock(srv);
+-    return required;
+-}
+-
+ static inline size_t
+ virNetServerTrackPendingAuthLocked(virNetServerPtr srv)
+ {
+diff --git a/src/rpc/virnetserver.h b/src/rpc/virnetserver.h
+index 0e16e8f..89d8db9 100644
+--- a/src/rpc/virnetserver.h
++++ b/src/rpc/virnetserver.h
+@@ -41,7 +41,6 @@ virNetServerPtr virNetServerNew(size_t min_workers,
+                                 size_t max_anonymous_clients,
+                                 int keepaliveInterval,
+                                 unsigned int keepaliveCount,
+-                                bool keepaliveRequired,
+                                 const char *mdnsGroupName,
+                                 virNetServerClientPrivNew clientPrivNew,
+                                 virNetServerClientPrivPreExecRestart clientPrivPreExecRestart,
+@@ -74,8 +73,6 @@ int virNetServerSetTLSContext(virNetServerPtr srv,
+                               virNetTLSContextPtr tls);
+ # endif
+ 
+-bool virNetServerKeepAliveRequired(virNetServerPtr srv);
+-
+ size_t virNetServerTrackPendingAuth(virNetServerPtr srv);
+ size_t virNetServerTrackCompletedAuth(virNetServerPtr srv);
+ 
+diff --git a/tests/libvirtdconftest.c b/tests/libvirtdconftest.c
+index d589d51..61d861d 100644
+--- a/tests/libvirtdconftest.c
++++ b/tests/libvirtdconftest.c
+@@ -227,7 +227,9 @@ mymain(void)
+     for (i = 0; params[i] != 0; i++) {
+         const struct testCorruptData data = { params, filedata, filename, i };
+         /* Skip now ignored config param */
+-        if (STRPREFIX(filedata + params[i], "log_buffer_size"))
++        if (STRPREFIX(filedata + params[i], "log_buffer_size") ||
++            STRPREFIX(filedata + params[i], "keepalive_required") ||
++            STRPREFIX(filedata + params[i], "admin_keepalive_required"))
+             continue;
+         if (virtTestRun("Test corruption", testCorrupt, &data) < 0)
+             ret = -1;
+diff --git a/tests/virnetdaemondata/input-data-no-keepalive-required.json b/tests/virnetdaemondata/input-data-no-keepalive-required.json
+new file mode 100644
+index 0000000..b5e4dc8
+--- /dev/null
++++ b/tests/virnetdaemondata/input-data-no-keepalive-required.json
+@@ -0,0 +1,124 @@
++{
++    "servers": [
++	{
++	    "min_workers": 10,
++	    "max_workers": 50,
++	    "priority_workers": 5,
++	    "max_clients": 100,
++	    "keepaliveInterval": 120,
++	    "keepaliveCount": 5,
++	    "services": [
++		{
++		    "auth": 0,
++		    "readonly": true,
++		    "nrequests_client_max": 2,
++		    "socks": [
++			{
++			    "fd": 100,
++			    "errfd": -1,
++			    "pid": 0,
++			    "isClient": false
++			}
++		    ]
++		},
++		{
++		    "auth": 2,
++		    "readonly": false,
++		    "nrequests_client_max": 5,
++		    "socks": [
++			{
++			    "fd": 101,
++			    "errfd": -1,
++			    "pid": 0,
++			    "isClient": false
++			}
++		    ]
++		}
++	    ],
++	    "clients": [
++		{
++		    "auth": 1,
++		    "readonly": true,
++		    "nrequests_max": 15,
++		    "sock": {
++			"fd": 102,
++			"errfd": -1,
++			"pid": -1,
++			"isClient": true
++		    }
++		},
++		{
++		    "auth": 2,
++		    "readonly": true,
++		    "nrequests_max": 66,
++		    "sock": {
++			"fd": 103,
++			"errfd": -1,
++			"pid": -1,
++			"isClient": true
++		    }
++		}
++	    ]
++	},
++	{
++	    "min_workers": 2,
++	    "max_workers": 50,
++	    "priority_workers": 5,
++	    "max_clients": 100,
++	    "keepaliveInterval": 120,
++	    "keepaliveCount": 5,
++	    "services": [
++		{
++		    "auth": 0,
++		    "readonly": true,
++		    "nrequests_client_max": 2,
++		    "socks": [
++			{
++			    "fd": 100,
++			    "errfd": -1,
++			    "pid": 0,
++			    "isClient": false
++			}
++		    ]
++		},
++		{
++		    "auth": 2,
++		    "readonly": false,
++		    "nrequests_client_max": 5,
++		    "socks": [
++			{
++			    "fd": 101,
++			    "errfd": -1,
++			    "pid": 0,
++			    "isClient": false
++			}
++		    ]
++		}
++	    ],
++	    "clients": [
++		{
++		    "auth": 1,
++		    "readonly": true,
++		    "nrequests_max": 15,
++		    "sock": {
++			"fd": 102,
++			"errfd": -1,
++			"pid": -1,
++			"isClient": true
++		    }
++		},
++		{
++		    "auth": 2,
++		    "readonly": true,
++		    "nrequests_max": 66,
++		    "sock": {
++			"fd": 103,
++			"errfd": -1,
++			"pid": -1,
++			"isClient": true
++		    }
++		}
++	    ]
++	}
++    ]
++}
+diff --git a/tests/virnetdaemondata/output-data-admin-nomdns.json b/tests/virnetdaemondata/output-data-admin-nomdns.json
+index 5df71a0..a814aeb 100644
+--- a/tests/virnetdaemondata/output-data-admin-nomdns.json
++++ b/tests/virnetdaemondata/output-data-admin-nomdns.json
+@@ -8,7 +8,6 @@
+             "max_anonymous_clients": 100,
+             "keepaliveInterval": 120,
+             "keepaliveCount": 5,
+-            "keepaliveRequired": true,
+             "services": [
+                 {
+                     "auth": 0,
+@@ -70,7 +69,6 @@
+             "max_anonymous_clients": 100,
+             "keepaliveInterval": 120,
+             "keepaliveCount": 5,
+-            "keepaliveRequired": true,
+             "services": [
+                 {
+                     "auth": 0,
+diff --git a/tests/virnetdaemondata/output-data-anon-clients.json b/tests/virnetdaemondata/output-data-anon-clients.json
+index 4e43326..05fc0ae 100644
+--- a/tests/virnetdaemondata/output-data-anon-clients.json
++++ b/tests/virnetdaemondata/output-data-anon-clients.json
+@@ -8,7 +8,6 @@
+             "max_anonymous_clients": 10,
+             "keepaliveInterval": 120,
+             "keepaliveCount": 5,
+-            "keepaliveRequired": true,
+             "services": [
+                 {
+                     "auth": 0,
+diff --git a/tests/virnetdaemondata/output-data-initial-nomdns.json b/tests/virnetdaemondata/output-data-initial-nomdns.json
+index bef54bf..400e47b 100644
+--- a/tests/virnetdaemondata/output-data-initial-nomdns.json
++++ b/tests/virnetdaemondata/output-data-initial-nomdns.json
+@@ -8,7 +8,6 @@
+             "max_anonymous_clients": 100,
+             "keepaliveInterval": 120,
+             "keepaliveCount": 5,
+-            "keepaliveRequired": true,
+             "services": [
+                 {
+                     "auth": 0,
+diff --git a/tests/virnetdaemondata/output-data-initial.json b/tests/virnetdaemondata/output-data-initial.json
+index 9afa791..e875cff 100644
+--- a/tests/virnetdaemondata/output-data-initial.json
++++ b/tests/virnetdaemondata/output-data-initial.json
+@@ -8,7 +8,6 @@
+             "max_anonymous_clients": 100,
+             "keepaliveInterval": 120,
+             "keepaliveCount": 5,
+-            "keepaliveRequired": true,
+             "mdnsGroupName": "libvirtTest",
+             "services": [
+                 {
+diff --git a/tests/virnetdaemondata/output-data-no-keepalive-required.json b/tests/virnetdaemondata/output-data-no-keepalive-required.json
+new file mode 100644
+index 0000000..b5e4dc8
+--- /dev/null
++++ b/tests/virnetdaemondata/output-data-no-keepalive-required.json
+@@ -0,0 +1,124 @@
++{
++    "servers": [
++	{
++	    "min_workers": 10,
++	    "max_workers": 50,
++	    "priority_workers": 5,
++	    "max_clients": 100,
++	    "keepaliveInterval": 120,
++	    "keepaliveCount": 5,
++	    "services": [
++		{
++		    "auth": 0,
++		    "readonly": true,
++		    "nrequests_client_max": 2,
++		    "socks": [
++			{
++			    "fd": 100,
++			    "errfd": -1,
++			    "pid": 0,
++			    "isClient": false
++			}
++		    ]
++		},
++		{
++		    "auth": 2,
++		    "readonly": false,
++		    "nrequests_client_max": 5,
++		    "socks": [
++			{
++			    "fd": 101,
++			    "errfd": -1,
++			    "pid": 0,
++			    "isClient": false
++			}
++		    ]
++		}
++	    ],
++	    "clients": [
++		{
++		    "auth": 1,
++		    "readonly": true,
++		    "nrequests_max": 15,
++		    "sock": {
++			"fd": 102,
++			"errfd": -1,
++			"pid": -1,
++			"isClient": true
++		    }
++		},
++		{
++		    "auth": 2,
++		    "readonly": true,
++		    "nrequests_max": 66,
++		    "sock": {
++			"fd": 103,
++			"errfd": -1,
++			"pid": -1,
++			"isClient": true
++		    }
++		}
++	    ]
++	},
++	{
++	    "min_workers": 2,
++	    "max_workers": 50,
++	    "priority_workers": 5,
++	    "max_clients": 100,
++	    "keepaliveInterval": 120,
++	    "keepaliveCount": 5,
++	    "services": [
++		{
++		    "auth": 0,
++		    "readonly": true,
++		    "nrequests_client_max": 2,
++		    "socks": [
++			{
++			    "fd": 100,
++			    "errfd": -1,
++			    "pid": 0,
++			    "isClient": false
++			}
++		    ]
++		},
++		{
++		    "auth": 2,
++		    "readonly": false,
++		    "nrequests_client_max": 5,
++		    "socks": [
++			{
++			    "fd": 101,
++			    "errfd": -1,
++			    "pid": 0,
++			    "isClient": false
++			}
++		    ]
++		}
++	    ],
++	    "clients": [
++		{
++		    "auth": 1,
++		    "readonly": true,
++		    "nrequests_max": 15,
++		    "sock": {
++			"fd": 102,
++			"errfd": -1,
++			"pid": -1,
++			"isClient": true
++		    }
++		},
++		{
++		    "auth": 2,
++		    "readonly": true,
++		    "nrequests_max": 66,
++		    "sock": {
++			"fd": 103,
++			"errfd": -1,
++			"pid": -1,
++			"isClient": true
++		    }
++		}
++	    ]
++	}
++    ]
++}
+diff --git a/tests/virnetdaemontest.c b/tests/virnetdaemontest.c
+index ef45018..fb8a6c0 100644
+--- a/tests/virnetdaemontest.c
++++ b/tests/virnetdaemontest.c
+@@ -50,7 +50,7 @@ testCreateServer(const char *host, int family)
+     }
+ 
+     if (!(srv = virNetServerNew(10, 50, 5, 100, 10,
+-                                120, 5, true,
++                                120, 5,
+                                 mdns_group,
+                                 NULL,
+                                 NULL,
+-- 
+2.5.0
+

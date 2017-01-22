@@ -1,0 +1,136 @@
+From ed413584e982b24442ab860874e307f50d7fdb10 Mon Sep 17 00:00:00 2001
+Message-Id: <ed413584e982b24442ab860874e307f50d7fdb10@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Thu, 12 Nov 2015 08:40:42 +0100
+Subject: [PATCH] qemu: Extract logic to determine the mlock limit size for
+ VFIO
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1280420
+
+New function qemuDomainGetMlockLimitBytes will now handle the
+calculation so that it unifies the logic to one place and allows later
+reuse.
+
+(cherry picked from commit fbc58cfcaeffdd4a350cf6abd67da6006f01b148)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_command.c | 18 ++----------------
+ src/qemu/qemu_domain.c  | 27 +++++++++++++++++++++++++++
+ src/qemu/qemu_domain.h  |  2 ++
+ src/qemu/qemu_hotplug.c | 17 ++---------------
+ 4 files changed, 33 insertions(+), 31 deletions(-)
+
+diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
+index 9c80e0c..7f8a31b 100644
+--- a/src/qemu/qemu_command.c
++++ b/src/qemu/qemu_command.c
+@@ -11146,22 +11146,8 @@ qemuBuildCommandLine(virConnectPtr conn,
+             goto error;
+     }
+ 
+-    if (mlock) {
+-        unsigned long long memKB;
+-
+-        /* VFIO requires all of the guest's memory to be
+-         * locked resident, plus some amount for IO
+-         * space. Alex Williamson suggested adding 1GiB for IO
+-         * space just to be safe (some finer tuning might be
+-         * nice, though).
+-         */
+-        if (virMemoryLimitIsSet(def->mem.hard_limit))
+-            memKB = def->mem.hard_limit;
+-        else
+-            memKB = virDomainDefGetMemoryActual(def) + 1024 * 1024;
+-
+-        virCommandSetMaxMemLock(cmd, memKB * 1024);
+-    }
++    if (mlock)
++        virCommandSetMaxMemLock(cmd, qemuDomainGetMlockLimitBytes(def));
+ 
+     if (virQEMUCapsGet(qemuCaps, QEMU_CAPS_MSG_TIMESTAMP) &&
+         cfg->logTimestamp)
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index 1528cfd..944817d 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -3422,3 +3422,30 @@ qemuDomainUpdateCurrentMemorySize(virQEMUDriverPtr driver,
+ 
+     return 0;
+ }
++
++
++/**
++ * qemuDomainGetMlockLimitBytes:
++ *
++ * @def: domain definition
++ *
++ * Returns the size of the memory in bytes that needs to be set as
++ * RLIMIT_MEMLOCK for purpose of VFIO device passthrough.
++ * If a mem.hard_limit is set, then that value is preferred; otherwise, the
++ * value returned may depend upon the architecture or devices present.
++ */
++unsigned long long
++qemuDomainGetMlockLimitBytes(virDomainDefPtr def)
++{
++    unsigned long long memKB;
++
++    /* VFIO requires all of the guest's memory to be locked resident, plus some
++     * amount for IO space. Alex Williamson suggested adding 1GiB for IO space
++     * just to be safe (some finer tuning might be nice, though). */
++    if (virMemoryLimitIsSet(def->mem.hard_limit))
++        memKB = def->mem.hard_limit;
++    else
++        memKB = virDomainDefGetMemoryActual(def) + 1024 * 1024;
++
++    return memKB << 10;
++}
+diff --git a/src/qemu/qemu_domain.h b/src/qemu/qemu_domain.h
+index e283b58..54e7cd9 100644
+--- a/src/qemu/qemu_domain.h
++++ b/src/qemu/qemu_domain.h
+@@ -475,4 +475,6 @@ bool qemuDomainMachineIsS390CCW(const virDomainDef *def);
+ int qemuDomainUpdateCurrentMemorySize(virQEMUDriverPtr driver,
+                                       virDomainObjPtr vm);
+ 
++unsigned long long qemuDomainGetMlockLimitBytes(virDomainDefPtr def);
++
+ #endif /* __QEMU_DOMAIN_H__ */
+diff --git a/src/qemu/qemu_hotplug.c b/src/qemu/qemu_hotplug.c
+index bd96abf..d96f572 100644
+--- a/src/qemu/qemu_hotplug.c
++++ b/src/qemu/qemu_hotplug.c
+@@ -1254,7 +1254,6 @@ qemuDomainAttachHostPCIDevice(virQEMUDriverPtr driver,
+     bool teardowncgroup = false;
+     bool teardownlabel = false;
+     int backend;
+-    unsigned long long memKB;
+     virQEMUDriverConfigPtr cfg = virQEMUDriverGetConfig(driver);
+     unsigned int flags = 0;
+ 
+@@ -1279,20 +1278,8 @@ qemuDomainAttachHostPCIDevice(virQEMUDriverPtr driver,
+             goto error;
+         }
+ 
+-        /* VFIO requires all of the guest's memory to be locked
+-         * resident (plus an additional 1GiB to cover IO space). During
+-         * hotplug, the guest's memory may already be locked, but it
+-         * doesn't hurt to "change" the limit to the same value.
+-         * NB: the domain's memory tuning parameters are stored as
+-         * Kibibytes, but virProcessSetMaxMemLock expects the value in
+-         * bytes.
+-         */
+-        if (virMemoryLimitIsSet(vm->def->mem.hard_limit))
+-            memKB = vm->def->mem.hard_limit;
+-        else
+-            memKB = virDomainDefGetMemoryActual(vm->def) + (1024 * 1024);
+-
+-        virProcessSetMaxMemLock(vm->pid, memKB * 1024);
++        /* setup memory locking limits, that are necessary for VFIO */
++        virProcessSetMaxMemLock(vm->pid, qemuDomainGetMlockLimitBytes(vm->def));
+         break;
+ 
+     default:
+-- 
+2.6.3
+

@@ -1,0 +1,101 @@
+From c144a563ea6f31e82026009dc03ba8f1b5caba84 Mon Sep 17 00:00:00 2001
+Message-Id: <c144a563ea6f31e82026009dc03ba8f1b5caba84@dist-git>
+From: John Ferlan <jferlan@redhat.com>
+Date: Thu, 17 Sep 2015 11:47:21 +0200
+Subject: [PATCH] virfile: Check for existence of dir in virFileDeleteTree
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1146886
+
+Commit id 'f1f68ca33' added code to remove the directory paths for
+auto-generated sockets, but that code could be called before the
+paths were created resulting in generating error messages from
+virFileDeleteTree indicating that the file doesn't exist.
+
+Rather than "enforce" all callers to make the non-NULL and existence
+checks, modify the virFileDeleteTree API to silently ignore NULL on
+input and non-existent directory trees.
+
+(cherry picked from commit b421a70811b15a2d1853ee7e47069fdef83f7f22)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_process.c | 6 ++----
+ src/util/virfile.c      | 8 ++++++--
+ tests/virhostdevtest.c  | 2 +-
+ tests/virscsitest.c     | 2 +-
+ 4 files changed, 10 insertions(+), 8 deletions(-)
+
+diff --git a/src/qemu/qemu_process.c b/src/qemu/qemu_process.c
+index ee1d6b2..301b9bf 100644
+--- a/src/qemu/qemu_process.c
++++ b/src/qemu/qemu_process.c
+@@ -5272,14 +5272,12 @@ void qemuProcessStop(virQEMUDriverPtr driver,
+ 
+     ignore_value(virAsprintf(&tmppath, "%s/domain-%s",
+                              cfg->libDir, vm->def->name));
+-    if (tmppath)
+-        virFileDeleteTree(tmppath);
++    virFileDeleteTree(tmppath);
+     VIR_FREE(tmppath);
+ 
+     ignore_value(virAsprintf(&tmppath, "%s/domain-%s",
+                              cfg->channelTargetDir, vm->def->name));
+-    if (tmppath)
+-        virFileDeleteTree(tmppath);
++    virFileDeleteTree(tmppath);
+     VIR_FREE(tmppath);
+ 
+     ignore_value(virDomainChrDefForeach(vm->def,
+diff --git a/src/util/virfile.c b/src/util/virfile.c
+index 7c6e72c..53d4639 100644
+--- a/src/util/virfile.c
++++ b/src/util/virfile.c
+@@ -909,13 +909,17 @@ int virFileNBDDeviceAssociate(const char *file,
+  */
+ int virFileDeleteTree(const char *dir)
+ {
+-    DIR *dh = opendir(dir);
++    DIR *dh;
+     struct dirent *de;
+     char *filepath = NULL;
+     int ret = -1;
+     int direrr;
+ 
+-    if (!dh) {
++    /* Silently return 0 if passed NULL or directory doesn't exist */
++    if (!dir || !virFileExists(dir))
++        return 0;
++
++    if (!(dh = opendir(dir))) {
+         virReportSystemError(errno, _("Cannot open dir '%s'"),
+                              dir);
+         return -1;
+diff --git a/tests/virhostdevtest.c b/tests/virhostdevtest.c
+index 1e93819..065b825 100644
+--- a/tests/virhostdevtest.c
++++ b/tests/virhostdevtest.c
+@@ -65,7 +65,7 @@ myCleanup(void)
+     }
+ 
+     if (mgr) {
+-        if (mgr->stateDir && !getenv("LIBVIRT_SKIP_CLEANUP"))
++        if (!getenv("LIBVIRT_SKIP_CLEANUP"))
+             virFileDeleteTree(mgr->stateDir);
+ 
+         virObjectUnref(mgr->activePCIHostdevs);
+diff --git a/tests/virscsitest.c b/tests/virscsitest.c
+index a86ca28..88286f1 100644
+--- a/tests/virscsitest.c
++++ b/tests/virscsitest.c
+@@ -241,7 +241,7 @@ mymain(void)
+         ret = -1;
+ 
+  cleanup:
+-    if (tmpdir && getenv("LIBVIRT_SKIP_CLEANUP") == NULL)
++    if (getenv("LIBVIRT_SKIP_CLEANUP") == NULL)
+         virFileDeleteTree(tmpdir);
+     VIR_FREE(virscsi_prefix);
+     return ret;
+-- 
+2.5.3
+

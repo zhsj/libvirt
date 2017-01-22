@@ -1,0 +1,43 @@
+From bb648b91212e2f43ef408e7be7212c60d02203ce Mon Sep 17 00:00:00 2001
+Message-Id: <bb648b91212e2f43ef408e7be7212c60d02203ce@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Mon, 14 Sep 2015 10:15:27 +0200
+Subject: [PATCH] qemu: Allow others to browse /var/lib/libvirt/qemu
+
+Commit f1f68ca33433 tried fixing running multiple domains under various
+users, but if the user can't browse the directory, it's hard for the
+qemu running under that user to create the monitor socket.
+
+The permissions need to be fixed in two places in the spec file due to
+support for both installations with and without driver modules.
+
+Creating a directory with '$(MKDIR_P) -m' shouldn't fail even on systems
+where autoconf needs to fallback to 'install-sh -d'.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1146886
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit f05f005c8b0ec8a53bb7fd6da65f4ac08afac858)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ libvirt.spec.in | 4 ++--
+ src/Makefile.am | 2 +-
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/Makefile.am b/src/Makefile.am
+index 62b8fd6..8c202a5 100644
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -2777,7 +2777,7 @@ if WITH_SANLOCK
+ 	$(MKDIR_P) "$(DESTDIR)$(localstatedir)/lib/libvirt/sanlock"
+ endif WITH_SANLOCK
+ if WITH_QEMU
+-	$(MKDIR_P) "$(DESTDIR)$(localstatedir)/lib/libvirt/qemu"
++	$(MKDIR_P) -m 0751 "$(DESTDIR)$(localstatedir)/lib/libvirt/qemu"
+ 	$(MKDIR_P) "$(DESTDIR)$(localstatedir)/run/libvirt/qemu"
+ 	$(MKDIR_P) "$(DESTDIR)$(localstatedir)/cache/libvirt/qemu"
+ 	$(MKDIR_P) "$(DESTDIR)$(localstatedir)/log/libvirt/qemu"
+-- 
+2.5.2
+

@@ -1,0 +1,58 @@
+From 9dcd200a892eb8880baff291e42a630252c15a3d Mon Sep 17 00:00:00 2001
+Message-Id: <9dcd200a892eb8880baff291e42a630252c15a3d@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Tue, 11 Aug 2015 17:16:02 +0200
+Subject: [PATCH] cpu: Use ppc64Compute() to implement ppc64DriverCompare()
+
+This ensures comparison of two CPU definitions will be consistent
+regardless of the fact that it is performed using cpuCompare() or
+cpuGuestData(). The x86 driver uses the same exact code.
+
+(cherry picked from commit d574094d309eee5fdfcea3de4f06aed154975d83)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1250977
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/cpu/cpu_ppc64.c | 22 ++++++++++++++--------
+ 1 file changed, 14 insertions(+), 8 deletions(-)
+
+diff --git a/src/cpu/cpu_ppc64.c b/src/cpu/cpu_ppc64.c
+index 0769956..efac739 100644
+--- a/src/cpu/cpu_ppc64.c
++++ b/src/cpu/cpu_ppc64.c
+@@ -438,16 +438,22 @@ ppc64DriverCompare(virCPUDefPtr host,
+                    virCPUDefPtr cpu,
+                    bool failIncompatible)
+ {
+-    if ((cpu->arch == VIR_ARCH_NONE || host->arch == cpu->arch) &&
+-        STREQ(host->model, cpu->model))
+-        return VIR_CPU_COMPARE_IDENTICAL;
++    virCPUCompareResult ret;
++    char *message = NULL;
+ 
+-    if (failIncompatible) {
+-        virReportError(VIR_ERR_CPU_INCOMPATIBLE, NULL);
+-        return VIR_CPU_COMPARE_ERROR;
+-    } else {
+-        return VIR_CPU_COMPARE_INCOMPATIBLE;
++    ret = ppc64Compute(host, cpu, NULL, &message);
++
++    if (failIncompatible && ret == VIR_CPU_COMPARE_INCOMPATIBLE) {
++        ret = VIR_CPU_COMPARE_ERROR;
++        if (message) {
++            virReportError(VIR_ERR_CPU_INCOMPATIBLE, "%s", message);
++        } else {
++            virReportError(VIR_ERR_CPU_INCOMPATIBLE, NULL);
++        }
+     }
++    VIR_FREE(message);
++
++    return ret;
+ }
+ 
+ static int
+-- 
+2.5.0
+

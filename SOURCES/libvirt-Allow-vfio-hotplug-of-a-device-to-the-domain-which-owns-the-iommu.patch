@@ -1,0 +1,138 @@
+From ceeaf62ea52df6cfacac8c1653ff9f7585ef0392 Mon Sep 17 00:00:00 2001
+Message-Id: <ceeaf62ea52df6cfacac8c1653ff9f7585ef0392@dist-git>
+From: Shivaprasad G Bhat <shivaprasadbhat@gmail.com>
+Date: Wed, 2 Sep 2015 15:55:23 -0400
+Subject: [PATCH] Allow vfio hotplug of a device to the domain which owns the
+ iommu
+
+The commit 7e72de4 didn't consider the hotplug scenarios. The patch addresses
+the hotplug case whereby if atleast one of the pci function is owned by a
+guest, the hotplug of other functions/devices in the same iommu group to the
+same guest goes through successfully.
+
+Prerequisite for the fix for:
+
+  https://bugzilla.redhat.com/show_bug.cgi?id=1256486
+
+Signed-off-by: Shivaprasad G Bhat <sbhat@linux.vnet.ibm.com>
+(cherry picked from commit e3810db34f1acb74dfcfd69219930e23a30284f6)
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/util/virhostdev.c | 34 +++++++++++++++++++++++++++-------
+ 1 file changed, 27 insertions(+), 7 deletions(-)
+
+diff --git a/src/util/virhostdev.c b/src/util/virhostdev.c
+index 809caed..529753c 100644
+--- a/src/util/virhostdev.c
++++ b/src/util/virhostdev.c
+@@ -54,23 +54,35 @@ static virClassPtr virHostdevManagerClass;
+ static void virHostdevManagerDispose(void *obj);
+ static virHostdevManagerPtr virHostdevManagerNew(void);
+ 
++struct virHostdevIsPCINodeDeviceUsedData {
++    virHostdevManagerPtr hostdev_mgr;
++    const char *domainName;
++    const bool usesVfio;
++};
++
+ static int virHostdevIsPCINodeDeviceUsed(virPCIDeviceAddressPtr devAddr, void *opaque)
+ {
+     virPCIDevicePtr other;
+     int ret = -1;
+     virPCIDevicePtr pci = NULL;
+-    virHostdevManagerPtr hostdev_mgr = opaque;
++    struct virHostdevIsPCINodeDeviceUsedData *helperData = opaque;
+ 
+     if (!(pci = virPCIDeviceNew(devAddr->domain, devAddr->bus,
+                                 devAddr->slot, devAddr->function)))
+         goto cleanup;
+ 
+-    other = virPCIDeviceListFind(hostdev_mgr->activePCIHostdevs, pci);
++    other = virPCIDeviceListFind(helperData->hostdev_mgr->activePCIHostdevs,
++                                 pci);
+     if (other) {
+         const char *other_drvname = NULL;
+         const char *other_domname = NULL;
+         virPCIDeviceGetUsedBy(other, &other_drvname, &other_domname);
+ 
++        if (helperData->usesVfio &&
++            (other_domname && helperData->domainName) &&
++            (STREQ(other_domname, helperData->domainName)))
++            goto iommu_owner;
++
+         if (other_drvname && other_domname)
+             virReportError(VIR_ERR_OPERATION_INVALID,
+                            _("PCI device %s is in use by "
+@@ -83,6 +95,7 @@ static int virHostdevIsPCINodeDeviceUsed(virPCIDeviceAddressPtr devAddr, void *o
+                            virPCIDeviceGetName(pci));
+         goto cleanup;
+     }
++ iommu_owner:
+     ret = 0;
+  cleanup:
+     virPCIDeviceFree(pci);
+@@ -562,6 +575,9 @@ virHostdevPreparePCIDevices(virHostdevManagerPtr hostdev_mgr,
+     for (i = 0; i < virPCIDeviceListCount(pcidevs); i++) {
+         virPCIDevicePtr dev = virPCIDeviceListGet(pcidevs, i);
+         bool strict_acs_check = !!(flags & VIR_HOSTDEV_STRICT_ACS_CHECK);
++        bool usesVfio = STREQ(virPCIDeviceGetStubDriver(dev), "vfio-pci");
++        struct virHostdevIsPCINodeDeviceUsedData data = {hostdev_mgr, dom_name,
++                                                         usesVfio};
+ 
+         if (!virPCIDeviceIsAssignable(dev, strict_acs_check)) {
+             virReportError(VIR_ERR_OPERATION_INVALID,
+@@ -579,12 +595,12 @@ virHostdevPreparePCIDevices(virHostdevManagerPtr hostdev_mgr,
+          * belonging to same iommu group can't be shared
+          * across guests.
+          */
+-        if (STREQ(virPCIDeviceGetStubDriver(dev), "vfio-pci")) {
++        if (usesVfio) {
+             if (virPCIDeviceAddressIOMMUGroupIterate(devAddr,
+                                                      virHostdevIsPCINodeDeviceUsed,
+-                                                     hostdev_mgr) < 0)
++                                                     &data) < 0)
+                 goto cleanup;
+-        } else if (virHostdevIsPCINodeDeviceUsed(devAddr, hostdev_mgr)) {
++        } else if (virHostdevIsPCINodeDeviceUsed(devAddr, &data)) {
+             goto cleanup;
+         }
+     }
+@@ -1544,6 +1560,8 @@ virHostdevPCINodeDeviceDetach(virHostdevManagerPtr hostdev_mgr,
+                               virPCIDevicePtr pci)
+ {
+     virPCIDeviceAddressPtr devAddr = NULL;
++    struct virHostdevIsPCINodeDeviceUsedData data = { hostdev_mgr, NULL,
++                                                     false };
+     int ret = -1;
+ 
+     virObjectLock(hostdev_mgr->activePCIHostdevs);
+@@ -1552,7 +1570,7 @@ virHostdevPCINodeDeviceDetach(virHostdevManagerPtr hostdev_mgr,
+     if (!(devAddr = virPCIDeviceGetAddress(pci)))
+         goto out;
+ 
+-    if (virHostdevIsPCINodeDeviceUsed(devAddr, hostdev_mgr))
++    if (virHostdevIsPCINodeDeviceUsed(devAddr, &data))
+         goto out;
+ 
+     if (virPCIDeviceDetach(pci, hostdev_mgr->activePCIHostdevs,
+@@ -1573,6 +1591,8 @@ virHostdevPCINodeDeviceReAttach(virHostdevManagerPtr hostdev_mgr,
+                                 virPCIDevicePtr pci)
+ {
+     virPCIDeviceAddressPtr devAddr = NULL;
++    struct virHostdevIsPCINodeDeviceUsedData data = {hostdev_mgr, NULL,
++                                                     false};
+     int ret = -1;
+ 
+     virObjectLock(hostdev_mgr->activePCIHostdevs);
+@@ -1581,7 +1601,7 @@ virHostdevPCINodeDeviceReAttach(virHostdevManagerPtr hostdev_mgr,
+     if (!(devAddr = virPCIDeviceGetAddress(pci)))
+         goto out;
+ 
+-    if (virHostdevIsPCINodeDeviceUsed(devAddr, hostdev_mgr))
++    if (virHostdevIsPCINodeDeviceUsed(devAddr, &data))
+         goto out;
+ 
+     virPCIDeviceReattachInit(pci);
+-- 
+2.5.1
+

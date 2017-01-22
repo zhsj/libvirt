@@ -1,0 +1,45 @@
+From e654ad03a40a7f908704ec28cb50c38267eb7bff Mon Sep 17 00:00:00 2001
+Message-Id: <e654ad03a40a7f908704ec28cb50c38267eb7bff@dist-git>
+From: John Ferlan <jferlan@redhat.com>
+Date: Tue, 18 Aug 2015 14:47:15 -0400
+Subject: [PATCH] qemu: Add check for invalid iothread_id in
+ qemuDomainChgIOThread
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1251886
+
+Since iothread_id == 0 is an invalid value for QEMU let's point
+that out specifically.  For the IOThreadDel code, the failure would
+have ended up being a failure to find the IOThread ID; however, for
+the IOThreadAdd code - an IOThread 0 was added and that isn't good.
+
+It seems during many reviews/edits to the code the check for
+iothread_id = 0 being invalid was lost - it could have originally
+been in the API code, but requested to be moved - I cannot remember.
+
+(cherry picked from commit 32c6b1908bbf8a1aa4a2692135e7d02a166a0317)
+Signed-off-by: John Ferlan <jferlan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_driver.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index 748f16a..ec61bb5 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -6152,6 +6152,12 @@ qemuDomainChgIOThread(virQEMUDriverPtr driver,
+     virDomainDefPtr persistentDef;
+     int ret = -1;
+ 
++    if (iothread_id == 0) {
++        virReportError(VIR_ERR_INVALID_ARG, "%s",
++                       _("invalid value of 0 for iothread_id"));
++        return -1;
++    }
++
+     cfg = virQEMUDriverGetConfig(driver);
+ 
+     priv = vm->privateData;
+-- 
+2.5.0
+

@@ -1,0 +1,400 @@
+From b65e25e3132c9b5b0942b138231440bc8d4dd873 Mon Sep 17 00:00:00 2001
+Message-Id: <b65e25e3132c9b5b0942b138231440bc8d4dd873@dist-git>
+From: Laine Stump <laine@laine.org>
+Date: Mon, 10 Aug 2015 13:43:38 -0400
+Subject: [PATCH] network: validate network NAT range
+
+This patch modifies virSocketAddrGetRange() to function properly when
+the containing network/prefix of the address range isn't known, for
+example in the case of the NAT range of a virtual network (since it is
+a range of addresses on the *host*, not within the network itself). We
+then take advantage of this new functionality to validate the NAT
+range of a virtual network.
+
+Extra test cases are also added to verify that virSocketAddrGetRange()
+works properly in both positive and negative cases when the network
+pointer is NULL.
+
+This is the *real* fix for:
+
+https://bugzilla.redhat.com/show_bug.cgi?id=985653
+
+Commits 1e334a and 48e8b9 had earlier been pushed as fixes for that
+bug, but I had neglected to read the report carefully, so instead of
+fixing validation for the NAT range, I had fixed validation for the
+DHCP range. sigh.
+
+(cherry picked from commit a6f9af8292b6462e509892b3a16acbcaaef61e4e)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/conf/network_conf.c  |   4 ++
+ src/util/virsocketaddr.c | 184 ++++++++++++++++++++++++-----------------------
+ tests/sockettest.c       |  46 +++++++++++-
+ 3 files changed, 144 insertions(+), 90 deletions(-)
+
+diff --git a/src/conf/network_conf.c b/src/conf/network_conf.c
+index 0ebb373..b03c2fd 100644
+--- a/src/conf/network_conf.c
++++ b/src/conf/network_conf.c
+@@ -1729,6 +1729,10 @@ virNetworkForwardNatDefParseXML(const char *networkName,
+         goto cleanup;
+     }
+ 
++    /* verify that start <= end */
++    if (virSocketAddrGetRange(&def->addr.start, &def->addr.end, NULL, 0) < 0)
++        goto cleanup;
++
+     /* ports for SNAT and MASQUERADE */
+     nNatPorts = virXPathNodeSet("./port", ctxt, &natPortNodes);
+     if (nNatPorts < 0) {
+diff --git a/src/util/virsocketaddr.c b/src/util/virsocketaddr.c
+index 81539b3..900aa5b 100644
+--- a/src/util/virsocketaddr.c
++++ b/src/util/virsocketaddr.c
+@@ -628,126 +628,136 @@ virSocketAddrGetRange(virSocketAddrPtr start, virSocketAddrPtr end,
+     virSocketAddr netmask;
+     char *startStr = NULL, *endStr = NULL, *netStr = NULL;
+ 
+-    if (start == NULL || end == NULL || network == NULL) {
++    if (start == NULL || end == NULL) {
+         virReportError(VIR_ERR_INTERNAL_ERROR,
+-                       _("NULL argument - %p %p %p"), start, end, network);
++                       _("NULL argument - %p %p"), start, end);
+         goto error;
+     }
+ 
+     startStr = virSocketAddrFormat(start);
+     endStr = virSocketAddrFormat(end);
+-    netStr = virSocketAddrFormat(network);
+-    if (!(startStr && endStr && netStr))
++    if (!startStr || !endStr)
+         goto error; /*error already reported */
+ 
+-    if (VIR_SOCKET_ADDR_FAMILY(start) != VIR_SOCKET_ADDR_FAMILY(end) ||
+-        VIR_SOCKET_ADDR_FAMILY(start) != VIR_SOCKET_ADDR_FAMILY(network)) {
++    if (VIR_SOCKET_ADDR_FAMILY(start) != VIR_SOCKET_ADDR_FAMILY(end)) {
+         virReportError(VIR_ERR_INTERNAL_ERROR,
+-                       _("mismatch of address family in "
+-                         "range %s - %s for network %s"),
+-                       startStr, endStr, netStr);
++                       _("mismatch of address family in range %s - %s"),
++                       startStr, endStr);
+         goto error;
+     }
+ 
+-    if (prefix < 0 ||
+-        virSocketAddrPrefixToNetmask(prefix, &netmask,
+-                                     VIR_SOCKET_ADDR_FAMILY(network)) < 0) {
+-        virReportError(VIR_ERR_INTERNAL_ERROR,
+-                       _("bad prefix %d for network %s when "
+-                         " checking range %s - %s"),
+-                       prefix, netStr, startStr, endStr);
+-        goto error;
+-    }
++    if (network) {
++        /* some checks can only be done if we have details of the
++         * network the range should be within
++         */
++        if (!(netStr = virSocketAddrFormat(network)))
++            goto error;
+ 
+-    /* both start and end of range need to be in the same network as
+-     * "network"
+-     */
+-    if (virSocketAddrCheckNetmask(start, network, &netmask) <= 0 ||
+-        virSocketAddrCheckNetmask(end, network, &netmask) <= 0) {
+-        virReportError(VIR_ERR_INTERNAL_ERROR,
+-                       _("range %s - %s is not entirely within "
+-                         "network %s/%d"),
+-                       startStr, endStr, netStr, prefix);
+-        goto error;
++        if (VIR_SOCKET_ADDR_FAMILY(start) != VIR_SOCKET_ADDR_FAMILY(network)) {
++            virReportError(VIR_ERR_INTERNAL_ERROR,
++                           _("mismatch of address family in "
++                             "range %s - %s for network %s"),
++                           startStr, endStr, netStr);
++            goto error;
++        }
++
++        if (prefix < 0 ||
++            virSocketAddrPrefixToNetmask(prefix, &netmask,
++                                         VIR_SOCKET_ADDR_FAMILY(network)) < 0) {
++            virReportError(VIR_ERR_INTERNAL_ERROR,
++                           _("bad prefix %d for network %s when "
++                             " checking range %s - %s"),
++                           prefix, netStr, startStr, endStr);
++            goto error;
++        }
++
++        /* both start and end of range need to be within network */
++        if (virSocketAddrCheckNetmask(start, network, &netmask) <= 0 ||
++            virSocketAddrCheckNetmask(end, network, &netmask) <= 0) {
++            virReportError(VIR_ERR_INTERNAL_ERROR,
++                           _("range %s - %s is not entirely within "
++                             "network %s/%d"),
++                           startStr, endStr, netStr, prefix);
++            goto error;
++        }
++
++        if (VIR_SOCKET_ADDR_IS_FAMILY(start, AF_INET)) {
++            virSocketAddr netaddr, broadcast;
++
++            if (virSocketAddrBroadcast(network, &netmask, &broadcast) < 0 ||
++                virSocketAddrMask(network, &netmask, &netaddr) < 0) {
++                virReportError(VIR_ERR_INTERNAL_ERROR,
++                               _("failed to construct broadcast or network "
++                                 "address for network %s/%d"),
++                               netStr, prefix);
++                goto error;
++            }
++
++            /* Don't allow the start of the range to be the network
++             * address (usually "...0") or the end of the range to be the
++             * broadcast address (usually "...255"). (the opposite also
++             * isn't allowed, but checking for that is implicit in all the
++             * other combined checks) (IPv6 doesn't have broadcast and
++             * network addresses, so this check is only done for IPv4)
++             */
++            if (virSocketAddrEqual(start, &netaddr)) {
++                virReportError(VIR_ERR_INTERNAL_ERROR,
++                               _("start of range %s - %s in network %s/%d "
++                                 "is the network address"),
++                               startStr, endStr, netStr, prefix);
++                goto error;
++            }
++
++            if (virSocketAddrEqual(end, &broadcast)) {
++                virReportError(VIR_ERR_INTERNAL_ERROR,
++                               _("end of range %s - %s in network %s/%d "
++                                 "is the broadcast address"),
++                               startStr, endStr, netStr, prefix);
++                goto error;
++            }
++        }
+     }
+ 
+     if (VIR_SOCKET_ADDR_IS_FAMILY(start, AF_INET)) {
+         virSocketAddrIPv4 t1, t2;
+-        virSocketAddr netaddr, broadcast;
+ 
+-        if (virSocketAddrBroadcast(network, &netmask, &broadcast) < 0 ||
+-            virSocketAddrMask(network, &netmask, &netaddr) < 0) {
+-            virReportError(VIR_ERR_INTERNAL_ERROR,
+-                           _("failed to construct broadcast or network "
+-                             "address for network %s/%d"),
+-                           netStr, prefix);
+-            goto error;
+-        }
+-
+-        /* Don't allow the start of the range to be the network
+-         * address (usually "...0") or the end of the range to be the
+-         * broadcast address (usually "...255"). (the opposite also
+-         * isn't allowed, but checking for that is implicit in all the
+-         * other combined checks) (IPv6 doesn't have broadcast and
+-         * network addresses, so this check is only done for IPv4)
+-         */
+-        if (virSocketAddrEqual(start, &netaddr)) {
+-            virReportError(VIR_ERR_INTERNAL_ERROR,
+-                           _("start of range %s - %s in network %s/%d "
+-                             "is the network address"),
+-                           startStr, endStr, netStr, prefix);
+-            goto error;
+-        }
+-
+-        if (virSocketAddrEqual(end, &broadcast)) {
+-            virReportError(VIR_ERR_INTERNAL_ERROR,
+-                           _("end of range %s - %s in network %s/%d "
+-                             "is the broadcast address"),
+-                           startStr, endStr, netStr, prefix);
+-            goto error;
+-        }
+-
+-        if ((virSocketAddrGetIPv4Addr(start, &t1) < 0) ||
+-            (virSocketAddrGetIPv4Addr(end, &t2) < 0)) {
++        if (virSocketAddrGetIPv4Addr(start, &t1) < 0 ||
++            virSocketAddrGetIPv4Addr(end, &t2) < 0) {
+             virReportError(VIR_ERR_INTERNAL_ERROR,
+                            _("failed to get IPv4 address "
+-                             "for start or end of range %s - %s "
+-                             "in network %s/%d"),
+-                           startStr, endStr, netStr, prefix);
++                             "for start or end of range %s - %s"),
++                           startStr, endStr);
+             goto error;
+         }
+ 
+-        /* legacy check that everything except the last two bytes are
+-         * the same
++        /* legacy check that everything except the last two bytes
++         * are the same
+          */
+         for (i = 0; i < 2; i++) {
+             if (t1[i] != t2[i]) {
+             virReportError(VIR_ERR_INTERNAL_ERROR,
+-                           _("range %s - %s is too large (> 65535) "
+-                             "in network %s/%d"),
+-                           startStr, endStr, netStr, prefix);
++                           _("range %s - %s is too large (> 65535)"),
++                           startStr, endStr);
+             goto error;
+             }
+         }
+         ret = (t2[2] - t1[2]) * 256 + (t2[3] - t1[3]);
+         if (ret < 0) {
+             virReportError(VIR_ERR_INTERNAL_ERROR,
+-                           _("range %s - %s is reversed "
+-                             "in network %s/%d"),
+-                           startStr, endStr, netStr, prefix);
++                           _("range %s - %s is reversed "),
++                           startStr, endStr);
+             goto error;
+         }
+         ret++;
+     } else if (VIR_SOCKET_ADDR_IS_FAMILY(start, AF_INET6)) {
+         virSocketAddrIPv6 t1, t2;
+ 
+-        if ((virSocketAddrGetIPv6Addr(start, &t1) < 0) ||
+-            (virSocketAddrGetIPv6Addr(end, &t2) < 0)) {
++        if (virSocketAddrGetIPv6Addr(start, &t1) < 0 ||
++            virSocketAddrGetIPv6Addr(end, &t2) < 0) {
+             virReportError(VIR_ERR_INTERNAL_ERROR,
+                            _("failed to get IPv6 address "
+-                             "for start or end of range %s - %s "
+-                             "in network %s/%d"),
+-                           startStr, endStr, netStr, prefix);
++                             "for start or end of range %s - %s"),
++                           startStr, endStr);
+             goto error;
+         }
+ 
+@@ -757,29 +767,27 @@ virSocketAddrGetRange(virSocketAddrPtr start, virSocketAddrPtr end,
+         for (i = 0; i < 7; i++) {
+             if (t1[i] != t2[i]) {
+                 virReportError(VIR_ERR_INTERNAL_ERROR,
+-                               _("range %s - %s is too large (> 65535) "
+-                                 "in network %s/%d"),
+-                               startStr, endStr, netStr, prefix);
++                               _("range %s - %s is too large (> 65535)"),
++                               startStr, endStr);
+                 goto error;
+             }
+         }
+         ret = t2[7] - t1[7];
+         if (ret < 0) {
+             virReportError(VIR_ERR_INTERNAL_ERROR,
+-                           _("range %s - %s start larger than end "
+-                             "in network %s/%d"),
+-                           startStr, endStr, netStr, prefix);
++                           _("range %s - %s start larger than end"),
++                           startStr, endStr);
+             goto error;
+         }
+         ret++;
+     } else {
+         virReportError(VIR_ERR_INTERNAL_ERROR,
+                        _("unsupported address family "
+-                         "for range %s - %s "
+-                         "in network %s/%d, must be ipv4 or ipv6"),
+-                       startStr, endStr, netStr, prefix);
++                         "for range %s - %s, must be ipv4 or ipv6"),
++                       startStr, endStr);
+         goto error;
+     }
++
+  cleanup:
+     VIR_FREE(startStr);
+     VIR_FREE(endStr);
+diff --git a/tests/sockettest.c b/tests/sockettest.c
+index 292edb6..8f46218 100644
+--- a/tests/sockettest.c
++++ b/tests/sockettest.c
+@@ -98,10 +98,11 @@ testRange(const char *saddrstr, const char *eaddrstr,
+         return -1;
+     if (virSocketAddrParse(&eaddr, eaddrstr, AF_UNSPEC) < 0)
+         return -1;
+-    if (virSocketAddrParse(&netaddr, netstr, AF_UNSPEC) < 0)
++    if (netstr && virSocketAddrParse(&netaddr, netstr, AF_UNSPEC) < 0)
+         return -1;
+ 
+-    int gotsize = virSocketAddrGetRange(&saddr, &eaddr, &netaddr, prefix);
++    int gotsize = virSocketAddrGetRange(&saddr, &eaddr,
++                                        netstr ? &netaddr : NULL, prefix);
+     VIR_DEBUG("Size want %d vs got %d", size, gotsize);
+     if (pass) {
+         /* fail if virSocketAddrGetRange returns failure, or unexpected size */
+@@ -311,6 +312,15 @@ mymain(void)
+             ret = -1;                                                   \
+     } while (0)
+ 
++#define DO_TEST_RANGE_SIMPLE(saddr, eaddr, size, pass)                  \
++    do {                                                                \
++        struct testRangeData data                                       \
++           = { saddr, eaddr, NULL, 0, size, pass };                     \
++        if (virtTestRun("Test range " saddr " -> " eaddr "size " #size, \
++                        testRangeHelper, &data) < 0)                    \
++            ret = -1;                                                   \
++    } while (0)
++
+ #define DO_TEST_NETMASK(addr1, addr2, netmask, pass)                    \
+     do {                                                                \
+         struct testNetmaskData data = { addr1, addr2, netmask, pass };  \
+@@ -373,23 +383,55 @@ mymain(void)
+     DO_TEST_PARSE_AND_FORMAT("::1", AF_UNIX, false);
+     DO_TEST_PARSE_AND_FORMAT("::ffff", AF_UNSPEC, true);
+ 
++    /* tests that specify a network that should contain the range */
+     DO_TEST_RANGE("192.168.122.1", "192.168.122.1", "192.168.122.1", 24, 1, true);
+     DO_TEST_RANGE("192.168.122.1", "192.168.122.20", "192.168.122.22", 24, 20, true);
++    /* start of range is "network address" */
+     DO_TEST_RANGE("192.168.122.0", "192.168.122.254", "192.168.122.1", 24, -1, false);
++    /* end of range is "broadcast address" */
+     DO_TEST_RANGE("192.168.122.1", "192.168.122.255", "192.168.122.1", 24, -1, false);
+     DO_TEST_RANGE("192.168.122.0", "192.168.122.255", "192.168.122.1", 16, 256, true);
++    /* range is reversed */
+     DO_TEST_RANGE("192.168.122.20", "192.168.122.1", "192.168.122.1", 24, -1, false);
++    /* start address outside network */
+     DO_TEST_RANGE("10.0.0.1", "192.168.122.20", "192.168.122.1", 24, -1, false);
++    /* end address outside network and range reversed */
+     DO_TEST_RANGE("192.168.122.20", "10.0.0.1", "192.168.122.1", 24, -1, false);
++    /* entire range outside network */
+     DO_TEST_RANGE("172.16.0.50", "172.16.0.254", "1.2.3.4", 8, -1, false);
++    /* end address outside network */
+     DO_TEST_RANGE("192.168.122.1", "192.168.123.20", "192.168.122.22", 24, -1, false);
+     DO_TEST_RANGE("192.168.122.1", "192.168.123.20", "192.168.122.22", 23, 276, true);
+ 
+     DO_TEST_RANGE("2000::1", "2000::1", "2000::1", 64, 1, true);
+     DO_TEST_RANGE("2000::1", "2000::2", "2000::1", 64, 2, true);
++    /* range reversed */
+     DO_TEST_RANGE("2000::2", "2000::1", "2000::1", 64, -1, false);
++    /* range too large (> 65536) */
+     DO_TEST_RANGE("2000::1", "9001::1", "2000::1", 64, -1, false);
+ 
++    /* tests that *don't* specify a containing network
++     * (so fewer things can be checked)
++     */
++    DO_TEST_RANGE_SIMPLE("192.168.122.1", "192.168.122.1", 1, true);
++    DO_TEST_RANGE_SIMPLE("192.168.122.1", "192.168.122.20", 20, true);
++    DO_TEST_RANGE_SIMPLE("192.168.122.0", "192.168.122.255", 256, true);
++    /* range is reversed */
++    DO_TEST_RANGE_SIMPLE("192.168.122.20", "192.168.122.1", -1, false);
++    /* range too large (> 65536) */
++    DO_TEST_RANGE_SIMPLE("10.0.0.1", "192.168.122.20", -1, false);
++    /* range reversed */
++    DO_TEST_RANGE_SIMPLE("192.168.122.20", "10.0.0.1", -1, false);
++    DO_TEST_RANGE_SIMPLE("172.16.0.50", "172.16.0.254", 205, true);
++    DO_TEST_RANGE_SIMPLE("192.168.122.1", "192.168.123.20", 276, true);
++
++    DO_TEST_RANGE_SIMPLE("2000::1", "2000::1", 1, true);
++    DO_TEST_RANGE_SIMPLE("2000::1", "2000::2", 2, true);
++    /* range reversed */
++    DO_TEST_RANGE_SIMPLE("2000::2", "2000::1", -1, false);
++    /* range too large (> 65536) */
++    DO_TEST_RANGE_SIMPLE("2000::1", "9001::1", -1, false);
++
+     DO_TEST_NETMASK("192.168.122.1", "192.168.122.2",
+                     "255.255.255.0", true);
+     DO_TEST_NETMASK("192.168.122.1", "192.168.122.4",
+-- 
+2.5.0
+

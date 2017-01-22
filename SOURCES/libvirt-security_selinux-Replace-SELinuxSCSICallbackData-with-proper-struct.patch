@@ -1,0 +1,72 @@
+From 51b7b21a435d66f4c33cbe0c29cc7e5ee7d498ae Mon Sep 17 00:00:00 2001
+Message-Id: <51b7b21a435d66f4c33cbe0c29cc7e5ee7d498ae@dist-git>
+From: Michal Privoznik <mprivozn@redhat.com>
+Date: Tue, 15 Sep 2015 11:51:22 +0200
+Subject: [PATCH] security_selinux: Replace SELinuxSCSICallbackData with proper
+ struct
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1124841
+
+We have plenty of callbacks in the driver. Some of these
+callbacks require more than one argument to be passed. For that
+we currently have a data type (struct) per each callback. Well,
+so far for only one - SELinuxSCSICallbackData. But lets turn it
+into more general name so it can be reused in other callbacks too
+instead of each one introducing a new, duplicate data type.
+
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+(cherry picked from commit 276c409163fb94b0c325900d6e2581eaa3e3ada6)
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/security/security_selinux.c | 15 +++++++++------
+ 1 file changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/src/security/security_selinux.c b/src/security/security_selinux.c
+index 46080bf..c6da6b0 100644
+--- a/src/security/security_selinux.c
++++ b/src/security/security_selinux.c
+@@ -68,15 +68,18 @@ struct _virSecuritySELinuxData {
+ #endif
+ };
+ 
+-#define SECURITY_SELINUX_VOID_DOI       "0"
+-#define SECURITY_SELINUX_NAME "selinux"
++/* Data structure to pass to various callbacks so we have everything we need */
++typedef struct _virSecuritySELinuxCallbackData virSecuritySELinuxCallbackData;
++typedef virSecuritySELinuxCallbackData *virSecuritySELinuxCallbackDataPtr;
+ 
+-/* Data structure to pass to *FileIterate so we have everything we need */
+-struct SELinuxSCSICallbackData {
++struct _virSecuritySELinuxCallbackData {
+     virSecurityManagerPtr mgr;
+     virDomainDefPtr def;
+ };
+ 
++#define SECURITY_SELINUX_VOID_DOI       "0"
++#define SECURITY_SELINUX_NAME "selinux"
++
+ static int
+ virSecuritySELinuxRestoreSecurityTPMFileLabelInt(virSecurityManagerPtr mgr,
+                                                  virDomainDefPtr def,
+@@ -1319,7 +1322,7 @@ virSecuritySELinuxSetSecuritySCSILabel(virSCSIDevicePtr dev,
+                                        const char *file, void *opaque)
+ {
+     virSecurityLabelDefPtr secdef;
+-    struct SELinuxSCSICallbackData *ptr = opaque;
++    virSecuritySELinuxCallbackDataPtr ptr = opaque;
+     virSecurityManagerPtr mgr = ptr->mgr;
+     virSecuritySELinuxDataPtr data = virSecurityManagerGetPrivateData(mgr);
+ 
+@@ -1400,7 +1403,7 @@ virSecuritySELinuxSetSecurityHostdevSubsysLabel(virSecurityManagerPtr mgr,
+ 
+     case VIR_DOMAIN_HOSTDEV_SUBSYS_TYPE_SCSI: {
+         virDomainHostdevSubsysSCSIHostPtr scsihostsrc = &scsisrc->u.host;
+-        struct SELinuxSCSICallbackData data = {.mgr = mgr, .def = def};
++        virSecuritySELinuxCallbackData data = {.mgr = mgr, .def = def};
+ 
+         virSCSIDevicePtr scsi =
+             virSCSIDeviceNew(NULL,
+-- 
+2.5.3
+

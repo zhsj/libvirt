@@ -1,0 +1,164 @@
+From 4085e9f2cbf097a62529f0afcc57f20194ac0036 Mon Sep 17 00:00:00 2001
+Message-Id: <4085e9f2cbf097a62529f0afcc57f20194ac0036@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Mon, 24 Aug 2015 13:04:52 +0200
+Subject: [PATCH] tests: Use qemuProcessPrepareMonitorChr in qemuxmlnstest
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1146886
+
+The output of that function was not tested until now.  In order to keep
+the paths in /tmp, the test driver config is "fixed" as well.
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit f1e927c4bfd3da9511fd54bd6070149af04b5ee5)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ .../qemuxmlns-qemu-ns-commandline-ns0.args            |  2 +-
+ .../qemuxmlns-qemu-ns-commandline-ns1.args            |  2 +-
+ .../qemuxmlnsdata/qemuxmlns-qemu-ns-commandline.args  |  2 +-
+ .../qemuxmlns-qemu-ns-domain-commandline-ns0.args     |  2 +-
+ .../qemuxmlns-qemu-ns-domain-commandline.args         |  2 +-
+ tests/qemuxmlnsdata/qemuxmlns-qemu-ns-domain-ns0.args |  2 +-
+ tests/qemuxmlnsdata/qemuxmlns-qemu-ns-domain.args     |  2 +-
+ tests/qemuxmlnstest.c                                 | 19 +++++++++++++------
+ 8 files changed, 20 insertions(+), 13 deletions(-)
+
+diff --git a/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-commandline-ns0.args b/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-commandline-ns0.args
+index ad16f43..dac8651 100644
+--- a/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-commandline-ns0.args
++++ b/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-commandline-ns0.args
+@@ -1,4 +1,4 @@
+ LC_ALL=C PATH=/bin HOME=/home/test USER=test LOGNAME=test QEMU_AUDIO_DRV=none \
+ /usr/bin/qemu -S -M pc -m 214 -smp 1 -nographic -monitor \
+-unix:/tmp/test-monitor,server,nowait -no-acpi -boot c -usb -hda \
++unix:/tmp/domain-QEMUGuest1/monitor.sock,server,nowait -no-acpi -boot c -usb -hda \
+ /dev/HostVG/QEMUGuest1 -net none -serial none -parallel none ARGUMENT
+diff --git a/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-commandline-ns1.args b/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-commandline-ns1.args
+index ad16f43..dac8651 100644
+--- a/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-commandline-ns1.args
++++ b/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-commandline-ns1.args
+@@ -1,4 +1,4 @@
+ LC_ALL=C PATH=/bin HOME=/home/test USER=test LOGNAME=test QEMU_AUDIO_DRV=none \
+ /usr/bin/qemu -S -M pc -m 214 -smp 1 -nographic -monitor \
+-unix:/tmp/test-monitor,server,nowait -no-acpi -boot c -usb -hda \
++unix:/tmp/domain-QEMUGuest1/monitor.sock,server,nowait -no-acpi -boot c -usb -hda \
+ /dev/HostVG/QEMUGuest1 -net none -serial none -parallel none ARGUMENT
+diff --git a/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-commandline.args b/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-commandline.args
+index ad16f43..dac8651 100644
+--- a/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-commandline.args
++++ b/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-commandline.args
+@@ -1,4 +1,4 @@
+ LC_ALL=C PATH=/bin HOME=/home/test USER=test LOGNAME=test QEMU_AUDIO_DRV=none \
+ /usr/bin/qemu -S -M pc -m 214 -smp 1 -nographic -monitor \
+-unix:/tmp/test-monitor,server,nowait -no-acpi -boot c -usb -hda \
++unix:/tmp/domain-QEMUGuest1/monitor.sock,server,nowait -no-acpi -boot c -usb -hda \
+ /dev/HostVG/QEMUGuest1 -net none -serial none -parallel none ARGUMENT
+diff --git a/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-domain-commandline-ns0.args b/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-domain-commandline-ns0.args
+index ad16f43..dac8651 100644
+--- a/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-domain-commandline-ns0.args
++++ b/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-domain-commandline-ns0.args
+@@ -1,4 +1,4 @@
+ LC_ALL=C PATH=/bin HOME=/home/test USER=test LOGNAME=test QEMU_AUDIO_DRV=none \
+ /usr/bin/qemu -S -M pc -m 214 -smp 1 -nographic -monitor \
+-unix:/tmp/test-monitor,server,nowait -no-acpi -boot c -usb -hda \
++unix:/tmp/domain-QEMUGuest1/monitor.sock,server,nowait -no-acpi -boot c -usb -hda \
+ /dev/HostVG/QEMUGuest1 -net none -serial none -parallel none ARGUMENT
+diff --git a/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-domain-commandline.args b/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-domain-commandline.args
+index ad16f43..dac8651 100644
+--- a/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-domain-commandline.args
++++ b/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-domain-commandline.args
+@@ -1,4 +1,4 @@
+ LC_ALL=C PATH=/bin HOME=/home/test USER=test LOGNAME=test QEMU_AUDIO_DRV=none \
+ /usr/bin/qemu -S -M pc -m 214 -smp 1 -nographic -monitor \
+-unix:/tmp/test-monitor,server,nowait -no-acpi -boot c -usb -hda \
++unix:/tmp/domain-QEMUGuest1/monitor.sock,server,nowait -no-acpi -boot c -usb -hda \
+ /dev/HostVG/QEMUGuest1 -net none -serial none -parallel none ARGUMENT
+diff --git a/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-domain-ns0.args b/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-domain-ns0.args
+index ad16f43..dac8651 100644
+--- a/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-domain-ns0.args
++++ b/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-domain-ns0.args
+@@ -1,4 +1,4 @@
+ LC_ALL=C PATH=/bin HOME=/home/test USER=test LOGNAME=test QEMU_AUDIO_DRV=none \
+ /usr/bin/qemu -S -M pc -m 214 -smp 1 -nographic -monitor \
+-unix:/tmp/test-monitor,server,nowait -no-acpi -boot c -usb -hda \
++unix:/tmp/domain-QEMUGuest1/monitor.sock,server,nowait -no-acpi -boot c -usb -hda \
+ /dev/HostVG/QEMUGuest1 -net none -serial none -parallel none ARGUMENT
+diff --git a/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-domain.args b/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-domain.args
+index 26038a0..ce2bf40 100644
+--- a/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-domain.args
++++ b/tests/qemuxmlnsdata/qemuxmlns-qemu-ns-domain.args
+@@ -1,4 +1,4 @@
+ LC_ALL=C PATH=/bin HOME=/home/test USER=test LOGNAME=test QEMU_AUDIO_DRV=none \
+ /usr/bin/qemu -S -M pc -m 214 -smp 1 -nographic -monitor \
+-unix:/tmp/test-monitor,server,nowait -no-acpi -boot c -usb -hda \
++unix:/tmp/domain-QEMUGuest1/monitor.sock,server,nowait -no-acpi -boot c -usb -hda \
+ /dev/HostVG/QEMUGuest1 -net none -serial none -parallel none
+diff --git a/tests/qemuxmlnstest.c b/tests/qemuxmlnstest.c
+index 8eaab8a..a68e762 100644
+--- a/tests/qemuxmlnstest.c
++++ b/tests/qemuxmlnstest.c
+@@ -16,6 +16,7 @@
+ # include "qemu/qemu_capabilities.h"
+ # include "qemu/qemu_command.h"
+ # include "qemu/qemu_domain.h"
++# include "qemu/qemu_process.h"
+ # include "datatypes.h"
+ # include "cpu/cpu_map.h"
+ # include "testutilsqemu.h"
+@@ -37,7 +38,7 @@ static int testCompareXMLToArgvFiles(const char *xml,
+     char *actualargv = NULL;
+     int ret = -1;
+     virDomainDefPtr vmdef = NULL;
+-    virDomainChrSourceDef monitor_chr;
++    virDomainChrSourceDefPtr monitor_chr = NULL;
+     virConnectPtr conn;
+     char *log = NULL;
+     char *emulator = NULL;
+@@ -77,10 +78,12 @@ static int testCompareXMLToArgvFiles(const char *xml,
+ 
+     vmdef->id = -1;
+ 
+-    memset(&monitor_chr, 0, sizeof(monitor_chr));
+-    monitor_chr.type = VIR_DOMAIN_CHR_TYPE_UNIX;
+-    monitor_chr.data.nix.path = (char *)"/tmp/test-monitor";
+-    monitor_chr.data.nix.listen = true;
++    if (VIR_ALLOC(monitor_chr) < 0)
++        goto fail;
++    if (qemuProcessPrepareMonitorChr(driver.config,
++                                     monitor_chr,
++                                     vmdef->name) < 0)
++        goto fail;
+ 
+     virQEMUCapsSetList(extraFlags,
+                        QEMU_CAPS_VNC_COLON,
+@@ -104,7 +107,7 @@ static int testCompareXMLToArgvFiles(const char *xml,
+         goto fail;
+ 
+     if (!(cmd = qemuBuildCommandLine(conn, &driver,
+-                                     vmdef, &monitor_chr, json, extraFlags,
++                                     vmdef, monitor_chr, json, extraFlags,
+                                      migrateFrom, migrateFd, NULL,
+                                      VIR_NETDEV_VPORT_PROFILE_OP_NO_OP,
+                                      &testCallbacks, false, false, NULL,
+@@ -142,6 +145,7 @@ static int testCompareXMLToArgvFiles(const char *xml,
+     ret = 0;
+ 
+  fail:
++    virDomainChrSourceDefFree(monitor_chr);
+     VIR_FREE(log);
+     VIR_FREE(emulator);
+     VIR_FREE(actualargv);
+@@ -199,6 +203,9 @@ mymain(void)
+ 
+     if (!(driver.config = virQEMUDriverConfigNew(false)))
+         return EXIT_FAILURE;
++    VIR_FREE(driver.config->libDir);
++    if (VIR_STRDUP_QUIET(driver.config->libDir, "/tmp") < 0)
++        return EXIT_FAILURE;
+     if ((driver.caps = testQemuCapsInit()) == NULL)
+         return EXIT_FAILURE;
+     if (!(driver.xmlopt = virQEMUDriverCreateXMLConf(&driver)))
+-- 
+2.5.1
+

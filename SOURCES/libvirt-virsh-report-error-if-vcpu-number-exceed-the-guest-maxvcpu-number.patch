@@ -1,0 +1,67 @@
+From ad9d07ce91c6c9aa2a40f744f5b0064da69e0871 Mon Sep 17 00:00:00 2001
+Message-Id: <ad9d07ce91c6c9aa2a40f744f5b0064da69e0871@dist-git>
+From: Luyao Huang <lhuang@redhat.com>
+Date: Thu, 16 Jul 2015 13:45:51 +0200
+Subject: [PATCH] virsh: report error if vcpu number exceed the guest maxvcpu
+ number
+
+Commit id '81dd81e' caused a regression when attempting to print a
+specific vcpuid that is out of the range of the maximum vcpus for
+the guest, such as:
+
+ $ virsh vcpupin $dom 1000
+ VCPU: CPU Affinity
+ ----------------------------------
+
+ $
+
+Rather than just recover the old message, let's adjust the message based
+on what would be displayed for a similar failure in the set path, such as:
+
+ $ virsh vcpupin $dom 1000
+ error: vcpu 1000 is out of range of persistent cpu count 2
+
+ $ virsh vcpupin $dom 1000 --live
+ error: vcpu 1000 is out of range of live cpu count 2
+
+ $
+
+Signed-off-by: Luyao Huang <lhuang@redhat.com>
+(cherry picked from commit 848ab685f74afae102e265108518095942ecb293)
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1160559
+
+Signed-off-by: Pavel Hrdina <phrdina@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ tools/virsh-domain.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/tools/virsh-domain.c b/tools/virsh-domain.c
+index 27d62e9..ac04ded 100644
+--- a/tools/virsh-domain.c
++++ b/tools/virsh-domain.c
+@@ -6497,6 +6497,20 @@ cmdVcpuPin(vshControl *ctl, const vshCmd *cmd)
+             goto cleanup;
+         }
+ 
++        if (got_vcpu && vcpu >= ncpus) {
++            if (flags & VIR_DOMAIN_AFFECT_LIVE ||
++                (flags & VIR_DOMAIN_AFFECT_CURRENT &&
++                 virDomainIsActive(dom) == 1))
++                vshError(ctl,
++                         _("vcpu %d is out of range of live cpu count %d"),
++                         vcpu, ncpus);
++            else
++                vshError(ctl,
++                         _("vcpu %d is out of range of persistent cpu count %d"),
++                         vcpu, ncpus);
++            goto cleanup;
++        }
++
+         cpumaplen = VIR_CPU_MAPLEN(maxcpu);
+         cpumap = vshMalloc(ctl, ncpus * cpumaplen);
+         if ((ncpus = virDomainGetVcpuPinInfo(dom, ncpus, cpumap,
+-- 
+2.5.0
+

@@ -1,0 +1,91 @@
+From 21dd3b6c09f3777e3859e74757372b59ebf4535e Mon Sep 17 00:00:00 2001
+Message-Id: <21dd3b6c09f3777e3859e74757372b59ebf4535e@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Tue, 11 Aug 2015 17:16:06 +0200
+Subject: [PATCH] cpu: Simplify ppc64 part of CPU map XML
+
+Use multiple PVRs per CPU model to reduce the number of models we
+need to keep track of.
+
+Remove specific CPU models (eg. POWER7+_v2.1): the corresponding
+generic CPU model (eg. POWER7) should be used instead to ensure
+the guest can be booted on any compatible host.
+
+Get rid of all the entries that did not match any of the CPU
+models supported by QEMU, like power8 and power8e.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1250977
+(cherry picked from commit d87359af5eb5b21848da1906f8e34f107bbea151)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1250977
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/cpu/cpu_map.xml | 39 +++------------------------------------
+ 1 file changed, 3 insertions(+), 36 deletions(-)
+
+diff --git a/src/cpu/cpu_map.xml b/src/cpu/cpu_map.xml
+index 50516e3..9474a1b 100644
+--- a/src/cpu/cpu_map.xml
++++ b/src/cpu/cpu_map.xml
+@@ -628,53 +628,20 @@
+     <vendor name='Freescale'/>
+ 
+     <!-- IBM-based CPU models -->
+-    <model name='POWER7'>
+-      <vendor name='IBM'/>
+-      <pvr value='0x003f0200'/>
+-    </model>
+-
+-    <model name='POWER7_v2.1'>
+-      <vendor name='IBM'/>
+-      <pvr value='0x003f0201'/>
+-    </model>
+-
+-    <model name='POWER7_v2.3'>
+-      <vendor name='IBM'/>
+-      <pvr value='0x003f0203'/>
+-    </model>
+-
+-    <model name='POWER7+_v2.1'>
+-      <vendor name='IBM'/>
+-      <pvr value='0x004a0201'/>
+-    </model>
+-
+-    <model name='POWER8_v1.0'>
+-      <vendor name='IBM'/>
+-      <pvr value='0x004b0100'/>
+-    </model>
+-
+-    <model name='power6'>
++    <model name='POWER6'>
+       <vendor name='IBM'/>
+       <pvr value='0x003e0000'/>
+     </model>
+ 
+-    <model name='power7'>
++    <model name='POWER7'>
+       <vendor name='IBM'/>
+       <pvr value='0x003f0000'/>
+-    </model>
+-
+-    <model name='power7+'>
+-      <vendor name='IBM'/>
+       <pvr value='0x004a0000'/>
+     </model>
+ 
+-    <model name='power8e'>
++    <model name='POWER8'>
+       <vendor name='IBM'/>
+       <pvr value='0x004b0000'/>
+-    </model>
+-
+-    <model name='power8'>
+-      <vendor name='IBM'/>
+       <pvr value='0x004d0000'/>
+     </model>
+ 
+-- 
+2.5.0
+

@@ -1,0 +1,79 @@
+From b70bc3fb7517fe18b7ef6d2c3801c3b217f977bb Mon Sep 17 00:00:00 2001
+Message-Id: <b70bc3fb7517fe18b7ef6d2c3801c3b217f977bb@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Thu, 2 Jul 2015 22:32:54 +0200
+Subject: [PATCH] qemu: Don't report false error from MigrateFinish
+
+virDomainMigrateFinish* APIs were unfortunately designed to return the
+pointer to the domain on destination and NULL on error. This looks OK in
+normal cases but the same API is also called when we know migration
+failed and thus we expect Finish to return NULL even if it actually did
+all it was supposed to do without any error. The call is defined to
+return nonnull domain pointer over RPC, which means returning NULL will
+always result in an error being send. If this was not in fact an error,
+the API itself wouldn't set anything to the thread local virError, which
+makes the RPC layer come up with it's own "Library function returned
+error but did not set virError" error.
+
+This is quite confusing and also hard to detect by the caller. This
+patch adds a special error code which can be used to check that Finish
+successfully aborted migration.
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+(cherry picked from commit 44c42b564dc61ddc8fdfc5b6ca4ca969bcffc7d8)
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1090093
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ include/libvirt/virterror.h | 1 +
+ src/qemu/qemu_migration.c   | 6 ++++++
+ src/util/virerror.c         | 3 +++
+ 3 files changed, 10 insertions(+)
+
+diff --git a/include/libvirt/virterror.h b/include/libvirt/virterror.h
+index 6325030..f716cb9 100644
+--- a/include/libvirt/virterror.h
++++ b/include/libvirt/virterror.h
+@@ -307,6 +307,7 @@ typedef enum {
+     VIR_ERR_CPU_INCOMPATIBLE = 91,      /* given CPU is incompatible with host
+                                            CPU*/
+     VIR_ERR_XML_INVALID_SCHEMA = 92,    /* XML document doesn't validate against schema */
++    VIR_ERR_MIGRATE_FINISH_OK = 93,     /* Finish API succeeded but it is expected to return NULL */
+ } virErrorNumber;
+ 
+ /**
+diff --git a/src/qemu/qemu_migration.c b/src/qemu/qemu_migration.c
+index 58874ee..a9cbada 100644
+--- a/src/qemu/qemu_migration.c
++++ b/src/qemu/qemu_migration.c
+@@ -5751,6 +5751,12 @@ qemuMigrationFinish(virQEMUDriverPtr driver,
+     }
+     virObjectUnref(caps);
+     virObjectUnref(cfg);
++
++    /* Set a special error if Finish is expected to return NULL as a result of
++     * successful call with retcode != 0
++     */
++    if (retcode != 0 && !dom && !virGetLastError())
++        virReportError(VIR_ERR_MIGRATE_FINISH_OK, NULL);
+     return dom;
+ }
+ 
+diff --git a/src/util/virerror.c b/src/util/virerror.c
+index 60b2e79..6dc05f4 100644
+--- a/src/util/virerror.c
++++ b/src/util/virerror.c
+@@ -1369,6 +1369,9 @@ virErrorMsg(virErrorNumber error, const char *info)
+             else
+                 errmsg = _("XML document failed to validate against schema: %s");
+             break;
++        case VIR_ERR_MIGRATE_FINISH_OK:
++            errmsg = _("migration successfully aborted");
++            break;
+     }
+     return errmsg;
+ }
+-- 
+2.4.5
+

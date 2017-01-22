@@ -1,0 +1,112 @@
+From 9480c80c70b43a9a81aebabb9bebfbfb3154cc81 Mon Sep 17 00:00:00 2001
+Message-Id: <9480c80c70b43a9a81aebabb9bebfbfb3154cc81@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Tue, 11 Aug 2015 17:15:59 +0200
+Subject: [PATCH] tests: Improve result handling in cpuTestGuestData()
+
+A test is considered successful if the obtained result matches
+the expected result: if that's not the case, whether because a
+test that was expected to succeed failed or because a test that
+was supposed to fail succeeded, then something's not right and
+we want the user to know about this.
+
+On the other hand, if a failure that's unrelated to the bits
+we're testing occurs, then the user should be notified even if
+the test was expected to fail.
+
+Use different values to tell these two situations apart.
+
+Fix a test case that was wrongly expected to fail as well.
+
+(cherry picked from commit e5ef51a4c02dd1b61673a6c9771a0cdc0fad343f)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1250977
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ tests/cputest.c | 32 ++++++++++++++++++++++++--------
+ 1 file changed, 24 insertions(+), 8 deletions(-)
+
+diff --git a/tests/cputest.c b/tests/cputest.c
+index 06b3f12..93f9d2e 100644
+--- a/tests/cputest.c
++++ b/tests/cputest.c
+@@ -247,7 +247,7 @@ static int
+ cpuTestGuestData(const void *arg)
+ {
+     const struct data *data = arg;
+-    int ret = -1;
++    int ret = -2;
+     virCPUDefPtr host = NULL;
+     virCPUDefPtr cpu = NULL;
+     virCPUDefPtr guest = NULL;
+@@ -262,8 +262,10 @@ cpuTestGuestData(const void *arg)
+ 
+     cmpResult = cpuGuestData(host, cpu, &guestData, NULL);
+     if (cmpResult == VIR_CPU_COMPARE_ERROR ||
+-        cmpResult == VIR_CPU_COMPARE_INCOMPATIBLE)
++        cmpResult == VIR_CPU_COMPARE_INCOMPATIBLE) {
++        ret = -1;
+         goto cleanup;
++    }
+ 
+     if (VIR_ALLOC(guest) < 0)
+         goto cleanup;
+@@ -274,10 +276,7 @@ cpuTestGuestData(const void *arg)
+     guest->fallback = cpu->fallback;
+     if (cpuDecode(guest, guestData, data->models,
+                   data->nmodels, data->preferred) < 0) {
+-        if (data->result < 0) {
+-            virResetLastError();
+-            ret = 0;
+-        }
++        ret = -1;
+         goto cleanup;
+     }
+ 
+@@ -294,7 +293,10 @@ cpuTestGuestData(const void *arg)
+     }
+     result = virBufferContentAndReset(&buf);
+ 
+-    ret = cpuTestCompareXML(data->arch, guest, result, false);
++    if (cpuTestCompareXML(data->arch, guest, result, false) < 0)
++        goto cleanup;
++
++    ret = 0;
+ 
+  cleanup:
+     VIR_FREE(result);
+@@ -302,6 +304,20 @@ cpuTestGuestData(const void *arg)
+     virCPUDefFree(host);
+     virCPUDefFree(cpu);
+     virCPUDefFree(guest);
++
++    if (ret == data->result) {
++        /* We got the result we expected, whether it was
++         * a success or a failure */
++        virResetLastError();
++        ret = 0;
++    } else {
++        VIR_TEST_VERBOSE("\nExpected result %d, got %d\n",
++                         data->result, ret);
++        /* Pad to line up with test name ... in virTestRun */
++        VIR_TEST_VERBOSE("%74s", "... ");
++        ret = -1;
++    }
++
+     return ret;
+ }
+ 
+@@ -646,7 +662,7 @@ mymain(void)
+                       NULL, "Haswell-noTSX", 0);
+ 
+     DO_TEST_GUESTDATA("ppc64", "host", "guest", ppc_models, NULL, 0);
+-    DO_TEST_GUESTDATA("ppc64", "host", "guest-nofallback", ppc_models, "POWER7_v2.1", -1);
++    DO_TEST_GUESTDATA("ppc64", "host", "guest-nofallback", ppc_models, "POWER7_v2.1", 0);
+ 
+     return ret == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+ }
+-- 
+2.5.0
+

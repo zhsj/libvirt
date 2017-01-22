@@ -1,0 +1,60 @@
+From 44e605079ad64ead62dc949c9cd81326f10d3711 Mon Sep 17 00:00:00 2001
+Message-Id: <44e605079ad64ead62dc949c9cd81326f10d3711@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Wed, 5 Aug 2015 18:18:21 +0200
+Subject: [PATCH] nodeinfo: Fix nodeGetCPUBitmap()'s fallback code path
+
+During the recent refactoring/cleanups, a bug has been introduced
+that caused all CPUs to be reported as online unless the sysfs
+cpu/present file was available.
+
+This commit fixes the fallback code path by building the directory
+path passed to virNodeGetCpuValue() correctly.
+
+(cherry picked from commit 2a6801892ac962d8176f764edde219ae00cb7f3a)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/nodeinfo.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/nodeinfo.c b/src/nodeinfo.c
+index c874fa6..105d7ab 100644
+--- a/src/nodeinfo.c
++++ b/src/nodeinfo.c
+@@ -1300,6 +1300,7 @@ nodeGetCPUBitmap(const char *sysfs_prefix ATTRIBUTE_UNUSED,
+ #ifdef __linux__
+     const char *prefix = sysfs_prefix ? sysfs_prefix : SYSFS_SYSTEM_PATH;
+     char *online_path = NULL;
++    char *cpudir = NULL;
+     virBitmapPtr cpumap;
+     int present;
+ 
+@@ -1317,8 +1318,12 @@ nodeGetCPUBitmap(const char *sysfs_prefix ATTRIBUTE_UNUSED,
+         cpumap = virBitmapNew(present);
+         if (!cpumap)
+             goto cleanup;
++
++        if (virAsprintf(&cpudir, "%s/cpu", prefix) < 0)
++            goto cleanup;
++
+         for (i = 0; i < present; i++) {
+-            int online = virNodeGetCpuValue(prefix, i, "online", 1);
++            int online = virNodeGetCpuValue(cpudir, i, "online", 1);
+             if (online < 0) {
+                 virBitmapFree(cpumap);
+                 cpumap = NULL;
+@@ -1332,6 +1337,7 @@ nodeGetCPUBitmap(const char *sysfs_prefix ATTRIBUTE_UNUSED,
+         *max_id = present;
+  cleanup:
+     VIR_FREE(online_path);
++    VIR_FREE(cpudir);
+     return cpumap;
+ #else
+     virReportError(VIR_ERR_NO_SUPPORT, "%s",
+-- 
+2.5.0
+

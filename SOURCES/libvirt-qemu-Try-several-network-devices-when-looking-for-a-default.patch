@@ -1,0 +1,94 @@
+From 37d9c7b752e9bda93e5f15e1ac97dcb614e6b978 Mon Sep 17 00:00:00 2001
+Message-Id: <37d9c7b752e9bda93e5f15e1ac97dcb614e6b978@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Fri, 11 Sep 2015 17:00:20 +0200
+Subject: [PATCH] qemu: Try several network devices when looking for a default
+
+Up until now, the default has been rtl8139, but no check was in
+place to make sure that device was actually available.
+
+Now we try rtl8139, e1000 and virtio-net in turn, checking for
+availability before using any of them: this means we have a much
+better chance for the guest to be able to boot.
+
+(cherry picked from commit 75036c69df7a64f97f3716396f34f78de027f38b)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1254044
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_domain.c | 26 +++++++++++++++++++++++---
+ 1 file changed, 23 insertions(+), 3 deletions(-)
+
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index 66d8e3a..e4a9c55 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -1174,7 +1174,8 @@ qemuDomainDefPostParse(virDomainDefPtr def,
+ }
+ 
+ static const char *
+-qemuDomainDefaultNetModel(const virDomainDef *def)
++qemuDomainDefaultNetModel(const virDomainDef *def,
++                          virQEMUCapsPtr qemuCaps)
+ {
+     if (ARCH_IS_S390(def->os.arch))
+         return "virtio";
+@@ -1192,6 +1193,18 @@ qemuDomainDefaultNetModel(const virDomainDef *def)
+         return "lan9118";
+     }
+ 
++    /* Try several network devices in turn; each of these devices is
++     * less likely be supported out-of-the-box by the guest operating
++     * system than the previous one */
++    if (virQEMUCapsGet(qemuCaps, QEMU_CAPS_DEVICE_RTL8139))
++        return "rtl8139";
++    else if (virQEMUCapsGet(qemuCaps, QEMU_CAPS_DEVICE_E1000))
++        return "e1000";
++    else if (virQEMUCapsGet(qemuCaps, QEMU_CAPS_DEVICE_VIRTIO_NET))
++        return "virtio";
++
++    /* We've had no luck detecting support for any network device,
++     * but we have to return something: might as well be rtl8139 */
+     return "rtl8139";
+ }
+ 
+@@ -1201,18 +1214,24 @@ qemuDomainDeviceDefPostParse(virDomainDeviceDefPtr dev,
+                              virCapsPtr caps ATTRIBUTE_UNUSED,
+                              void *opaque)
+ {
+-    int ret = -1;
+     virQEMUDriverPtr driver = opaque;
++    virQEMUCapsPtr qemuCaps = NULL;
+     virQEMUDriverConfigPtr cfg = NULL;
++    int ret = -1;
+ 
+     if (driver)
+         cfg = virQEMUDriverGetConfig(driver);
+ 
++    /* This condition is actually a (temporary) hack for test suite which
++     * does not create capabilities cache */
++    if (driver && driver->qemuCapsCache)
++        qemuCaps = virQEMUCapsCacheLookup(driver->qemuCapsCache, def->emulator);
++
+     if (dev->type == VIR_DOMAIN_DEVICE_NET &&
+         dev->data.net->type != VIR_DOMAIN_NET_TYPE_HOSTDEV &&
+         !dev->data.net->model) {
+         if (VIR_STRDUP(dev->data.net->model,
+-                       qemuDomainDefaultNetModel(def)) < 0)
++                       qemuDomainDefaultNetModel(def, qemuCaps)) < 0)
+             goto cleanup;
+     }
+ 
+@@ -1338,6 +1357,7 @@ qemuDomainDeviceDefPostParse(virDomainDeviceDefPtr dev,
+     ret = 0;
+ 
+  cleanup:
++    virObjectUnref(qemuCaps);
+     virObjectUnref(cfg);
+     return ret;
+ }
+-- 
+2.5.2
+

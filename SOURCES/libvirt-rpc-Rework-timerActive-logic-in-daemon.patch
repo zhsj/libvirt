@@ -1,0 +1,63 @@
+From c6ea8b7cb4d2b56f29b791a5f2ee492b4e2bc055 Mon Sep 17 00:00:00 2001
+Message-Id: <c6ea8b7cb4d2b56f29b791a5f2ee492b4e2bc055@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Wed, 15 Jul 2015 17:11:56 +0200
+Subject: [PATCH] rpc: Rework timerActive logic in daemon
+
+Daemon used false logic for determining whether there were any clients.
+When the timer was inactive, it was activated if at least one of the
+servers did not have clients.  So the bool was being flipped there and
+back all the time in case there was one client, for example.
+
+Initially introduced by fa1420736882.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1240283
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit b7ea58c262194037042284a14fb1608c9cf31884)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/rpc/virnetdaemon.c | 24 +++++++++---------------
+ 1 file changed, 9 insertions(+), 15 deletions(-)
+
+diff --git a/src/rpc/virnetdaemon.c b/src/rpc/virnetdaemon.c
+index 6b13282..910f266 100644
+--- a/src/rpc/virnetdaemon.c
++++ b/src/rpc/virnetdaemon.c
+@@ -682,23 +682,17 @@ virNetDaemonRun(virNetDaemonPtr dmn)
+          */
+         if (dmn->autoShutdownTimeout) {
+             if (timerActive) {
+-                for (i = 0; i < dmn->nservers; i++) {
+-                    if (virNetServerHasClients(dmn->servers[i])) {
+-                        VIR_DEBUG("Deactivating shutdown timer %d", timerid);
+-                        virEventUpdateTimeout(timerid, -1);
+-                        timerActive = false;
+-                        break;
+-                    }
++                if (virNetDaemonHasClients(dmn)) {
++                    VIR_DEBUG("Deactivating shutdown timer %d", timerid);
++                    virEventUpdateTimeout(timerid, -1);
++                    timerActive = false;
+                 }
+             } else {
+-                for (i = 0; i < dmn->nservers; i++) {
+-                    if (!virNetServerHasClients(dmn->servers[i])) {
+-                        VIR_DEBUG("Activating shutdown timer %d", timerid);
+-                        virEventUpdateTimeout(timerid,
+-                                              dmn->autoShutdownTimeout * 1000);
+-                        timerActive = true;
+-                        break;
+-                    }
++                if (!virNetDaemonHasClients(dmn)) {
++                    VIR_DEBUG("Activating shutdown timer %d", timerid);
++                    virEventUpdateTimeout(timerid,
++                                          dmn->autoShutdownTimeout * 1000);
++                    timerActive = true;
+                 }
+             }
+         }
+-- 
+2.5.0
+

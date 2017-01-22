@@ -1,0 +1,43 @@
+From 81421950fe905de097d4ac49f932a902937fb01b Mon Sep 17 00:00:00 2001
+Message-Id: <81421950fe905de097d4ac49f932a902937fb01b@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Fri, 20 Nov 2015 13:29:10 +0100
+Subject: [PATCH] qemu: hotplug: Reject VFIO hotplug if setting RLIMIT_MEMLOCK
+ fails
+
+Check the return value of virCommandSetMaxMemLock when hotplugging VFIO
+PCI hostdevs and reject the hotplug if the memory limit can't be set.
+
+(cherry picked from commit baf55e1fa41a6aa77a5373891d70947ef24acadd)
+
+The code touched by this commit is removed in a later commit,
+but including this in the backport gets rid of conflicts when
+doing so.
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1283924
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_hotplug.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/src/qemu/qemu_hotplug.c b/src/qemu/qemu_hotplug.c
+index 70aece4..785423a 100644
+--- a/src/qemu/qemu_hotplug.c
++++ b/src/qemu/qemu_hotplug.c
+@@ -1279,7 +1279,10 @@ qemuDomainAttachHostPCIDevice(virQEMUDriverPtr driver,
+         }
+ 
+         /* setup memory locking limits, that are necessary for VFIO */
+-        virProcessSetMaxMemLock(vm->pid, qemuDomainGetMlockLimitBytes(vm->def));
++        if (virProcessSetMaxMemLock(vm->pid,
++                                    qemuDomainGetMlockLimitBytes(vm->def)) < 0)
++            goto error;
++
+         break;
+ 
+     default:
+-- 
+2.6.3
+

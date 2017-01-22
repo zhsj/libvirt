@@ -1,0 +1,201 @@
+From c940f107b75694c3272ca98cb69b9d7df8cd2d0b Mon Sep 17 00:00:00 2001
+Message-Id: <c940f107b75694c3272ca98cb69b9d7df8cd2d0b@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Thu, 2 Jul 2015 14:21:27 +0200
+Subject: [PATCH] Introduce virHashAtomic
+
+This is a self-locking wrapper around virHashTable. Only a limited set
+of APIs are implemented now (the ones which are used in the following
+patch) as more can be added on demand.
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+(cherry picked from commit a7c22a1f2949e781aef4aa82afda407efd344f95)
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1090093
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/libvirt_private.syms |  3 ++
+ src/util/virhash.c       | 81 ++++++++++++++++++++++++++++++++++++++++++++++++
+ src/util/virhash.h       | 10 ++++++
+ 3 files changed, 94 insertions(+)
+
+diff --git a/src/libvirt_private.syms b/src/libvirt_private.syms
+index 720afdf..65168b1 100644
+--- a/src/libvirt_private.syms
++++ b/src/libvirt_private.syms
+@@ -1476,6 +1476,9 @@ virFirewallStartTransaction;
+ 
+ # util/virhash.h
+ virHashAddEntry;
++virHashAtomicNew;
++virHashAtomicSteal;
++virHashAtomicUpdate;
+ virHashCreate;
+ virHashEqual;
+ virHashForEach;
+diff --git a/src/util/virhash.c b/src/util/virhash.c
+index e3c1880..3cfcc69 100644
+--- a/src/util/virhash.c
++++ b/src/util/virhash.c
+@@ -31,6 +31,7 @@
+ #include "virhashcode.h"
+ #include "virrandom.h"
+ #include "virstring.h"
++#include "virobject.h"
+ 
+ #define VIR_FROM_THIS VIR_FROM_NONE
+ 
+@@ -76,6 +77,28 @@ struct _virHashTable {
+     virHashKeyFree keyFree;
+ };
+ 
++struct _virHashAtomic {
++    virObjectLockable parent;
++    virHashTablePtr hash;
++};
++
++static virClassPtr virHashAtomicClass;
++static void virHashAtomicDispose(void *obj);
++
++static int virHashAtomicOnceInit(void)
++{
++    virHashAtomicClass = virClassNew(virClassForObjectLockable(),
++                                     "virHashAtomic",
++                                     sizeof(virHashAtomic),
++                                     virHashAtomicDispose);
++    if (!virHashAtomicClass)
++        return -1;
++    else
++        return 0;
++}
++VIR_ONCE_GLOBAL_INIT(virHashAtomic)
++
++
+ static uint32_t virHashStrCode(const void *name, uint32_t seed)
+ {
+     return virHashCodeGen(name, strlen(name), seed);
+@@ -178,6 +201,36 @@ virHashTablePtr virHashCreate(ssize_t size, virHashDataFree dataFree)
+                              virHashStrFree);
+ }
+ 
++
++virHashAtomicPtr
++virHashAtomicNew(ssize_t size,
++                 virHashDataFree dataFree)
++{
++    virHashAtomicPtr hash;
++
++    if (virHashAtomicInitialize() < 0)
++        return NULL;
++
++    if (!(hash = virObjectLockableNew(virHashAtomicClass)))
++        return NULL;
++
++    if (!(hash->hash = virHashCreate(size, dataFree))) {
++        virObjectUnref(hash);
++        return NULL;
++    }
++    return hash;
++}
++
++
++static void
++virHashAtomicDispose(void *obj)
++{
++    virHashAtomicPtr hash = obj;
++
++    virHashFree(hash->hash);
++}
++
++
+ /**
+  * virHashGrow:
+  * @table: the hash table
+@@ -360,6 +413,21 @@ virHashUpdateEntry(virHashTablePtr table, const void *name,
+     return virHashAddOrUpdateEntry(table, name, userdata, true);
+ }
+ 
++int
++virHashAtomicUpdate(virHashAtomicPtr table,
++                    const void *name,
++                    void *userdata)
++{
++    int ret;
++
++    virObjectLock(table);
++    ret = virHashAddOrUpdateEntry(table->hash, name, userdata, true);
++    virObjectUnlock(table);
++
++    return ret;
++}
++
++
+ /**
+  * virHashLookup:
+  * @table: the hash table
+@@ -409,6 +477,19 @@ void *virHashSteal(virHashTablePtr table, const void *name)
+     return data;
+ }
+ 
++void *
++virHashAtomicSteal(virHashAtomicPtr table,
++                   const void *name)
++{
++    void *data;
++
++    virObjectLock(table);
++    data = virHashSteal(table->hash, name);
++    virObjectUnlock(table);
++
++    return data;
++}
++
+ 
+ /**
+  * virHashSize:
+diff --git a/src/util/virhash.h b/src/util/virhash.h
+index a137137..50b9a04 100644
+--- a/src/util/virhash.h
++++ b/src/util/virhash.h
+@@ -21,6 +21,9 @@
+ typedef struct _virHashTable virHashTable;
+ typedef virHashTable *virHashTablePtr;
+ 
++typedef struct _virHashAtomic virHashAtomic;
++typedef virHashAtomic *virHashAtomicPtr;
++
+ /*
+  * function types:
+  */
+@@ -101,6 +104,8 @@ typedef void (*virHashKeyFree)(void *name);
+  */
+ virHashTablePtr virHashCreate(ssize_t size,
+                               virHashDataFree dataFree);
++virHashAtomicPtr virHashAtomicNew(ssize_t size,
++                                  virHashDataFree dataFree);
+ virHashTablePtr virHashCreateFull(ssize_t size,
+                                   virHashDataFree dataFree,
+                                   virHashKeyCode keyCode,
+@@ -119,6 +124,9 @@ int virHashAddEntry(virHashTablePtr table,
+ int virHashUpdateEntry(virHashTablePtr table,
+                        const void *name,
+                        void *userdata);
++int virHashAtomicUpdate(virHashAtomicPtr table,
++                        const void *name,
++                        void *userdata);
+ 
+ /*
+  * Remove an entry from the hash table.
+@@ -140,6 +148,8 @@ void *virHashLookup(const virHashTable *table, const void *name);
+  * Retrieve & remove the userdata.
+  */
+ void *virHashSteal(virHashTablePtr table, const void *name);
++void *virHashAtomicSteal(virHashAtomicPtr table,
++                         const void *name);
+ 
+ /*
+  * Get the hash table's key/value pairs and have them optionally sorted.
+-- 
+2.4.5
+

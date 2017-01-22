@@ -1,0 +1,55 @@
+From 60e7b3d9a02801ac76478abccec00809b6764a5a Mon Sep 17 00:00:00 2001
+Message-Id: <60e7b3d9a02801ac76478abccec00809b6764a5a@dist-git>
+From: Erik Skultety <eskultet@redhat.com>
+Date: Wed, 8 Jul 2015 15:30:04 +0200
+Subject: [PATCH] storage: Fix regression in storagePoolUpdateAllState
+
+Commit 2a31c5f0 introduced support for storage pool state XMLs, however
+it also introduced a regression:
+
+if (!virstoragePoolObjIsActive(pool)) {
+    virStoragePoolObjUnlock(pool);
+    continue;
+}
+
+The idea behind this was that since we've got state XMLs and the pool
+wasn't marked as active by autostart routine (if the autostart flag had been
+set earlier), the pool is inactive and we can leave it be and continue with
+other pools. However, filesystem type pools like fs,dir, possibly netfs are
+supposed to be active if the filesystem is mounted on the host. And this is
+exactly where the regression occurs, e.g. pool type 'dir' which has been
+previously destroyed and marked as !autostart gets filtered out
+by the condition above.
+The resolution should be simply to remove the condition completely,
+all pools will get their 'active' flag updated by check callback and if
+they do not support such callback, the logic doesn't change and such
+pools will be inactive by default (e.g. RBD, even if a state XML exists).
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1238610
+
+(cherry picked from commit f92f31213a718e194323718cb3c667129ef1d4e8)
+Signed-off-by: Erik Skultety <eskultet@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/storage/storage_driver.c | 5 -----
+ 1 file changed, 5 deletions(-)
+
+diff --git a/src/storage/storage_driver.c b/src/storage/storage_driver.c
+index e600514..d3cdbc5 100644
+--- a/src/storage/storage_driver.c
++++ b/src/storage/storage_driver.c
+@@ -142,11 +142,6 @@ storagePoolUpdateAllState(void)
+         virStoragePoolObjPtr pool = driver->pools.objs[i];
+ 
+         virStoragePoolObjLock(pool);
+-        if (!virStoragePoolObjIsActive(pool)) {
+-            virStoragePoolObjUnlock(pool);
+-            continue;
+-        }
+-
+         storagePoolUpdateState(pool);
+         virStoragePoolObjUnlock(pool);
+     }
+-- 
+2.4.5
+

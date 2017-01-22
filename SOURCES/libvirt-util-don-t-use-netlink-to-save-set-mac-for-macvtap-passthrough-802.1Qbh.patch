@@ -1,0 +1,89 @@
+From e09abaad84630d6cd25a1ecff1811ce070201006 Mon Sep 17 00:00:00 2001
+Message-Id: <e09abaad84630d6cd25a1ecff1811ce070201006@dist-git>
+From: Laine Stump <laine@laine.org>
+Date: Thu, 3 Sep 2015 12:08:25 -0400
+Subject: [PATCH] util: don't use netlink to save/set mac for
+ macvtap+passthrough+802.1Qbh
+
+Before libvirt sets the MAC address of the physdev (the physical
+ethernet device) linked to a macvtap passthrough device, it always
+saves the previous MAC address to restore when the guest is finished
+(following a "leave nothing behind" policy). For a long time it
+accomplished the save/restore with a combination of
+ioctl(SIOCGIFHWADDR) and ioctl(SIOCSIFHWADDR), but in commit cbfe38c
+(first in libvirt 1.2.15) this was changed to use netlink RTM_GETLINK
+and RTM_SETLINK commands sent to the Physical Function (PF) of any
+device that was detected to be a Virtual Function (VF).
+
+We later found out that this caused problems with any devices using
+the Cisco enic driver (e.g. vmfex cards) because the enic driver
+hasn't implemented the function that is called to gather the
+information in the IFLA_VFINFO_LIST attribute of RTM_GETLINK
+(ndo_get_vf_config() for those keeping score), so we would never get
+back a useful response.
+
+In an ideal world, all drivers would implement all functions, but it
+turns out that in this case we can work around this omission without
+any bad side effects - since all macvtap passthrough <interface>
+definitions pointing to a physdev that uses the enic driver *must*
+have a <virtualport type='802.1Qbh'>, and since no other type of
+ethernet devices use 802.1Qbh, libvirt can change its behavior in this
+case to use the old-style.  ioctl(SIOC[GS]IFHWADDR).  That's what this
+patch does.
+
+Resolves:  https://bugzilla.redhat.com/show_bug.cgi?id=1257004
+(cherry picked from commit 46cf0cefa0168a0d929ca87010f59e1cba6c689b)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/util/virnetdevmacvlan.c | 26 ++++++++++++++++++++++----
+ 1 file changed, 22 insertions(+), 4 deletions(-)
+
+diff --git a/src/util/virnetdevmacvlan.c b/src/util/virnetdevmacvlan.c
+index 213b8eb..641bd24 100644
+--- a/src/util/virnetdevmacvlan.c
++++ b/src/util/virnetdevmacvlan.c
+@@ -778,9 +778,22 @@ int virNetDevMacVLanCreateWithVPortProfile(const char *tgifname,
+      * This is especially important when using SRIOV capable cards that
+      * emulate their switch in firmware.
+      */
++
+     if (mode == VIR_NETDEV_MACVLAN_MODE_PASSTHRU) {
+-        if (virNetDevReplaceNetConfig(linkdev, -1, macaddress, -1, stateDir) < 0)
+-            return -1;
++        if (virtPortProfile &&
++            virtPortProfile->virtPortType == VIR_NETDEV_VPORT_PROFILE_8021QBH) {
++            /* The Cisco enic driver (the only card that uses
++             * 802.1Qbh) doesn't support IFLA_VFINFO_LIST, which is
++             * required for virNetDevReplaceNetConfig(), so we must
++             * use this function (which uses ioctl(SIOCGIFHWADDR)
++             * instead or virNetDevReplaceNetConfig()
++             */
++            if (virNetDevReplaceMacAddress(linkdev, macaddress, stateDir) < 0)
++                return -1;
++        } else {
++            if (virNetDevReplaceNetConfig(linkdev, -1, macaddress, -1, stateDir) < 0)
++                return -1;
++        }
+     }
+ 
+     if (tgifname) {
+@@ -913,8 +926,13 @@ int virNetDevMacVLanDeleteWithVPortProfile(const char *ifname,
+     int ret = 0;
+     int vf = -1;
+ 
+-    if (mode == VIR_NETDEV_MACVLAN_MODE_PASSTHRU)
+-        ignore_value(virNetDevRestoreNetConfig(linkdev, vf, stateDir));
++    if (mode == VIR_NETDEV_MACVLAN_MODE_PASSTHRU) {
++        if (virtPortProfile &&
++             virtPortProfile->virtPortType == VIR_NETDEV_VPORT_PROFILE_8021QBH)
++            ignore_value(virNetDevRestoreMacAddress(linkdev, stateDir));
++        else
++            ignore_value(virNetDevRestoreNetConfig(linkdev, vf, stateDir));
++    }
+ 
+     if (ifname) {
+         if (virNetDevVPortProfileDisassociate(ifname,
+-- 
+2.5.1
+

@@ -1,0 +1,43 @@
+From 779b0c17407ca656c666a0eb6f66d6210bf65eca Mon Sep 17 00:00:00 2001
+Message-Id: <779b0c17407ca656c666a0eb6f66d6210bf65eca@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Thu, 1 Oct 2015 21:39:35 +0200
+Subject: [PATCH] qemu: Always update migration times on destination
+
+Even if we are migrating a domain with VIR_MIGRATE_PAUSED flag set, we
+should still update the total time of the migration. Updating downtime
+doesn't hurt either, even though we don't actually start guest CPUs.
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+(cherry picked from commit d27c66dbaae33d9b463eab8a8a2b0ad8cebff06a)
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1265902
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_migration.c | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/src/qemu/qemu_migration.c b/src/qemu/qemu_migration.c
+index cb82687..759fd21 100644
+--- a/src/qemu/qemu_migration.c
++++ b/src/qemu/qemu_migration.c
+@@ -5735,10 +5735,11 @@ qemuMigrationFinish(virQEMUDriverPtr driver,
+                 }
+                 goto endjob;
+             }
+-            if (priv->job.completed) {
+-                qemuDomainJobInfoUpdateTime(priv->job.completed);
+-                qemuDomainJobInfoUpdateDowntime(priv->job.completed);
+-            }
++        }
++
++        if (priv->job.completed) {
++            qemuDomainJobInfoUpdateTime(priv->job.completed);
++            qemuDomainJobInfoUpdateDowntime(priv->job.completed);
+         }
+ 
+         dom = virGetDomain(dconn, vm->def->name, vm->def->uuid);
+-- 
+2.6.1
+

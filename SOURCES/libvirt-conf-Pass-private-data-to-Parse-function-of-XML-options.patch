@@ -1,0 +1,116 @@
+From f7cf89a71e2850d227a623909c7d8fada2990538 Mon Sep 17 00:00:00 2001
+Message-Id: <f7cf89a71e2850d227a623909c7d8fada2990538@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Thu, 13 Aug 2015 15:11:46 +0200
+Subject: [PATCH] conf: Pass private data to Parse function of XML options
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1162947
+
+This needs a reorder of XML option definitions.  It might come in handy
+one day.
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 7c8028cda95c3af388f7485e682ed07629bb9e7a)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/conf/domain_conf.c   |  2 +-
+ src/conf/domain_conf.h   | 17 +++++++++--------
+ src/libxl/libxl_domain.c |  3 ++-
+ src/lxc/lxc_domain.c     |  3 ++-
+ src/qemu/qemu_domain.c   |  3 ++-
+ 5 files changed, 16 insertions(+), 12 deletions(-)
+
+diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
+index 8784367..9aee04f 100644
+--- a/src/conf/domain_conf.c
++++ b/src/conf/domain_conf.c
+@@ -16343,7 +16343,7 @@ virDomainObjParseXML(xmlDocPtr xml,
+     VIR_FREE(nodes);
+ 
+     if (xmlopt->privateData.parse &&
+-        xmlopt->privateData.parse(ctxt, obj) < 0)
++        xmlopt->privateData.parse(ctxt, obj, &xmlopt->config) < 0)
+         goto error;
+ 
+     return obj;
+diff --git a/src/conf/domain_conf.h b/src/conf/domain_conf.h
+index 1be8e63..ed0ccba 100644
+--- a/src/conf/domain_conf.h
++++ b/src/conf/domain_conf.h
+@@ -2357,14 +2357,6 @@ typedef bool (*virDomainObjListACLFilter)(virConnectPtr conn,
+ typedef struct _virDomainXMLOption virDomainXMLOption;
+ typedef virDomainXMLOption *virDomainXMLOptionPtr;
+ 
+-typedef void *(*virDomainXMLPrivateDataAllocFunc)(void);
+-typedef void (*virDomainXMLPrivateDataFreeFunc)(void *);
+-typedef virObjectPtr (*virDomainXMLPrivateDataNewFunc)(void);
+-typedef int (*virDomainXMLPrivateDataFormatFunc)(virBufferPtr,
+-                                                 virDomainObjPtr);
+-typedef int (*virDomainXMLPrivateDataParseFunc)(xmlXPathContextPtr,
+-                                                virDomainObjPtr);
+-
+ /* Called once after everything else has been parsed, for adjusting
+  * overall domain defaults.  */
+ typedef int (*virDomainDefPostParseCallback)(virDomainDefPtr def,
+@@ -2393,6 +2385,15 @@ struct _virDomainDefParserConfig {
+     unsigned char macPrefix[VIR_MAC_PREFIX_BUFLEN];
+ };
+ 
++typedef void *(*virDomainXMLPrivateDataAllocFunc)(void);
++typedef void (*virDomainXMLPrivateDataFreeFunc)(void *);
++typedef virObjectPtr (*virDomainXMLPrivateDataNewFunc)(void);
++typedef int (*virDomainXMLPrivateDataFormatFunc)(virBufferPtr,
++                                                 virDomainObjPtr);
++typedef int (*virDomainXMLPrivateDataParseFunc)(xmlXPathContextPtr,
++                                                virDomainObjPtr,
++                                                virDomainDefParserConfigPtr);
++
+ typedef struct _virDomainXMLPrivateDataCallbacks virDomainXMLPrivateDataCallbacks;
+ typedef virDomainXMLPrivateDataCallbacks *virDomainXMLPrivateDataCallbacksPtr;
+ struct _virDomainXMLPrivateDataCallbacks {
+diff --git a/src/libxl/libxl_domain.c b/src/libxl/libxl_domain.c
+index 8e8a292..7bc4d92 100644
+--- a/src/libxl/libxl_domain.c
++++ b/src/libxl/libxl_domain.c
+@@ -224,7 +224,8 @@ libxlDomainObjPrivateFree(void *data)
+ 
+ static int
+ libxlDomainObjPrivateXMLParse(xmlXPathContextPtr ctxt,
+-                              virDomainObjPtr vm)
++                              virDomainObjPtr vm,
++                              virDomainDefParserConfigPtr config ATTRIBUTE_UNUSED)
+ {
+     libxlDomainObjPrivatePtr priv = vm->privateData;
+ 
+diff --git a/src/lxc/lxc_domain.c b/src/lxc/lxc_domain.c
+index 70606f3..2f377d8 100644
+--- a/src/lxc/lxc_domain.c
++++ b/src/lxc/lxc_domain.c
+@@ -65,7 +65,8 @@ virLXCDomainObjPrivateXMLFormat(virBufferPtr buf,
+ 
+ static int
+ virLXCDomainObjPrivateXMLParse(xmlXPathContextPtr ctxt,
+-                               virDomainObjPtr vm)
++                               virDomainObjPtr vm,
++                               virDomainDefParserConfigPtr config ATTRIBUTE_UNUSED)
+ {
+     virLXCDomainObjPrivatePtr priv = vm->privateData;
+     unsigned long long thepid;
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index d95f24f..ca41ca4 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -623,7 +623,8 @@ qemuDomainObjPrivateXMLFormat(virBufferPtr buf,
+ 
+ static int
+ qemuDomainObjPrivateXMLParse(xmlXPathContextPtr ctxt,
+-                             virDomainObjPtr vm)
++                             virDomainObjPtr vm,
++                             virDomainDefParserConfigPtr config ATTRIBUTE_UNUSED)
+ {
+     qemuDomainObjPrivatePtr priv = vm->privateData;
+     char *monitorpath;
+-- 
+2.5.0
+

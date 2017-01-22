@@ -1,0 +1,124 @@
+From 9ac80cb260482543d02c9d8fd79162c05d684a74 Mon Sep 17 00:00:00 2001
+Message-Id: <9ac80cb260482543d02c9d8fd79162c05d684a74@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Thu, 2 Jul 2015 21:46:56 +0200
+Subject: [PATCH] qemu: Use error from Finish instead of "unexpectedly failed"
+
+When QEMU exits on destination during migration, the source reports
+either success (if the failure happened at the very end) or unhelpful
+"unexpectedly failed" error message. However, the Finish API called on
+the destination may report a real error so let's use it instead of the
+generic one.
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+(cherry picked from commit 2e7cea24355328102c40dd127329ddf47d55a3e2)
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1090093
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/libvirt-domain.c      | 30 ++++++++++++++++++++++++++++--
+ src/qemu/qemu_migration.c | 39 +++++++++++++++++++++++++++++++++++++--
+ 2 files changed, 65 insertions(+), 4 deletions(-)
+
+diff --git a/src/libvirt-domain.c b/src/libvirt-domain.c
+index 909c264..837933f 100644
+--- a/src/libvirt-domain.c
++++ b/src/libvirt-domain.c
+@@ -3175,8 +3175,34 @@ virDomainMigrateVersion3Full(virDomainPtr domain,
+             (dconn, dname, cookiein, cookieinlen, &cookieout, &cookieoutlen,
+              NULL, uri, destflags, cancelled);
+     }
+-    if (cancelled && ddomain)
+-        VIR_ERROR(_("finish step ignored that migration was cancelled"));
++
++    if (cancelled) {
++        if (ddomain) {
++            VIR_ERROR(_("finish step ignored that migration was cancelled"));
++        } else {
++            /* If Finish reported a useful error, use it instead of the
++             * original "migration unexpectedly failed" error.
++             *
++             * This is ugly but we can't do better with the APIs we have. We
++             * only replace the error if Finish was called with cancelled == 1
++             * and reported a real error (old libvirt would report an error
++             * from RPC instead of MIGRATE_FINISH_OK), which only happens when
++             * the domain died on destination. To further reduce a possibility
++             * of false positives we also check that Perform returned
++             * VIR_ERR_OPERATION_FAILED.
++             */
++            if (orig_err &&
++                orig_err->domain == VIR_FROM_QEMU &&
++                orig_err->code == VIR_ERR_OPERATION_FAILED) {
++                virErrorPtr err = virGetLastError();
++                if (err->domain == VIR_FROM_QEMU &&
++                    err->code != VIR_ERR_MIGRATE_FINISH_OK) {
++                    virFreeError(orig_err);
++                    orig_err = NULL;
++                }
++            }
++        }
++    }
+ 
+     /* If ddomain is NULL, then we were unable to start
+      * the guest on the target, and must restart on the
+diff --git a/src/qemu/qemu_migration.c b/src/qemu/qemu_migration.c
+index a9cbada..d789110 100644
+--- a/src/qemu/qemu_migration.c
++++ b/src/qemu/qemu_migration.c
+@@ -4982,8 +4982,34 @@ doPeer2PeerMigrate3(virQEMUDriverPtr driver,
+              dconnuri, uri, destflags, cancelled);
+         qemuDomainObjExitRemote(vm);
+     }
+-    if (cancelled && ddomain)
+-        VIR_ERROR(_("finish step ignored that migration was cancelled"));
++
++    if (cancelled) {
++        if (ddomain) {
++            VIR_ERROR(_("finish step ignored that migration was cancelled"));
++        } else {
++            /* If Finish reported a useful error, use it instead of the
++             * original "migration unexpectedly failed" error.
++             *
++             * This is ugly but we can't do better with the APIs we have. We
++             * only replace the error if Finish was called with cancelled == 1
++             * and reported a real error (old libvirt would report an error
++             * from RPC instead of MIGRATE_FINISH_OK), which only happens when
++             * the domain died on destination. To further reduce a possibility
++             * of false positives we also check that Perform returned
++             * VIR_ERR_OPERATION_FAILED.
++             */
++            if (orig_err &&
++                orig_err->domain == VIR_FROM_QEMU &&
++                orig_err->code == VIR_ERR_OPERATION_FAILED) {
++                virErrorPtr err = virGetLastError();
++                if (err->domain == VIR_FROM_QEMU &&
++                    err->code != VIR_ERR_MIGRATE_FINISH_OK) {
++                    virFreeError(orig_err);
++                    orig_err = NULL;
++                }
++            }
++        }
++    }
+ 
+     /* If ddomain is NULL, then we were unable to start
+      * the guest on the target, and must restart on the
+@@ -5719,6 +5745,15 @@ qemuMigrationFinish(virQEMUDriverPtr driver,
+         /* Guest is successfully running, so cancel previous auto destroy */
+         qemuProcessAutoDestroyRemove(driver, vm);
+     } else if (!(flags & VIR_MIGRATE_OFFLINE)) {
++        qemuDomainJobInfo info;
++
++        /* Check for a possible error on the monitor in case Finish was called
++         * earlier than monitor EOF handler got a chance to process the error
++         */
++        qemuMigrationFetchJobStatus(driver, vm,
++                                    QEMU_ASYNC_JOB_MIGRATION_IN,
++                                    &info);
++
+         qemuProcessStop(driver, vm, VIR_DOMAIN_SHUTOFF_FAILED,
+                         VIR_QEMU_PROCESS_STOP_MIGRATED);
+         virDomainAuditStop(vm, "failed");
+-- 
+2.4.5
+

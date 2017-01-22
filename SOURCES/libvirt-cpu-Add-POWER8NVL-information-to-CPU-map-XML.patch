@@ -1,0 +1,34 @@
+From 3904386ebdf08d922742c6c516d106ec633850b9 Mon Sep 17 00:00:00 2001
+Message-Id: <3904386ebdf08d922742c6c516d106ec633850b9@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Tue, 11 Aug 2015 17:16:08 +0200
+Subject: [PATCH] cpu: Add POWER8NVL information to CPU map XML
+
+This is yet another variation of POWER8. The PVR information comes
+from arch/powerpc/kernel/cputable.c in the Linux kernel tree.
+
+(cherry picked from commit 36300d2ba15b0f84272fc8be234c4228f19c29b9)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1250977
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/cpu/cpu_map.xml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/cpu/cpu_map.xml b/src/cpu/cpu_map.xml
+index 4e7ca2a..c304c9a 100644
+--- a/src/cpu/cpu_map.xml
++++ b/src/cpu/cpu_map.xml
+@@ -642,6 +642,7 @@
+     <model name='POWER8'>
+       <vendor name='IBM'/>
+       <pvr value='0x004b0000' mask='0xffff0000'/>
++      <pvr value='0x004c0000' mask='0xffff0000'/>
+       <pvr value='0x004d0000' mask='0xffff0000'/>
+     </model>
+ 
+-- 
+2.5.0
+

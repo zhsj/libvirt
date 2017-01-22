@@ -1,0 +1,114 @@
+From f9bb279a947c2b296a05bfe77881a8dda3b01e31 Mon Sep 17 00:00:00 2001
+Message-Id: <f9bb279a947c2b296a05bfe77881a8dda3b01e31@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Tue, 11 Aug 2015 17:16:01 +0200
+Subject: [PATCH] cpu: CPU model names have to match on ppc64
+
+Limitations of the POWER architecture mean that you can't run
+eg. a POWER7 guest on a POWER8 host when using KVM. This applies
+to all guests, not just those using VIR_CPU_MATCH_STRICT in the
+CPU definition; in fact, exact and strict CPU matching are
+basically the same on ppc64.
+
+This means, of course, that hosts using different CPUs have to be
+considered incompatible as well.
+
+Change ppc64Compute(), called by cpuGuestData(), to reflect this
+fact and update test cases accordingly.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1250977
+(cherry picked from commit 96b2c7459cb689a27996c2d69131e245940bc533)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1250977
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/cpu/cpu_ppc64.c                                                  | 5 +----
+ tests/cputest.c                                                      | 4 ++--
+ tests/cputestdata/ppc64-guest.xml                                    | 2 +-
+ tests/cputestdata/ppc64-host+guest,ppc_models-result.xml             | 2 +-
+ .../ppc64-host+guest-nofallback,ppc_models,POWER7_v2.1-result.xml    | 5 -----
+ 5 files changed, 5 insertions(+), 13 deletions(-)
+ delete mode 100644 tests/cputestdata/ppc64-host+guest-nofallback,ppc_models,POWER7_v2.1-result.xml
+
+diff --git a/src/cpu/cpu_ppc64.c b/src/cpu/cpu_ppc64.c
+index 53d8fb0..0769956 100644
+--- a/src/cpu/cpu_ppc64.c
++++ b/src/cpu/cpu_ppc64.c
+@@ -350,7 +350,6 @@ ppc64Compute(virCPUDefPtr host,
+              const virCPUDef *cpu,
+              virCPUDataPtr *guestData,
+              char **message)
+-
+ {
+     struct ppc64_map *map = NULL;
+     struct ppc64_model *host_model = NULL;
+@@ -407,9 +406,7 @@ ppc64Compute(virCPUDefPtr host,
+         !(guest_model = ppc64ModelFromCPU(cpu, map)))
+         goto cleanup;
+ 
+-    if (cpu->type == VIR_CPU_TYPE_GUEST &&
+-        cpu->match == VIR_CPU_MATCH_STRICT &&
+-        STRNEQ(guest_model->name, host_model->name)) {
++    if (STRNEQ(guest_model->name, host_model->name)) {
+         VIR_DEBUG("host CPU model does not match required CPU model %s",
+                   guest_model->name);
+         if (message &&
+diff --git a/tests/cputest.c b/tests/cputest.c
+index 93f9d2e..1e84fd3 100644
+--- a/tests/cputest.c
++++ b/tests/cputest.c
+@@ -501,7 +501,7 @@ static const char *model486[]   = { "486" };
+ static const char *nomodel[]    = { "nomodel" };
+ static const char *models[]     = { "qemu64", "core2duo", "Nehalem" };
+ static const char *haswell[]    = { "SandyBridge", "Haswell" };
+-static const char *ppc_models[]     = { "POWER7", "POWER7_v2.1", "POWER8_v1.0"};
++static const char *ppc_models[] = { "POWER7", "POWER7_v2.1", "POWER7_v2.3", "POWER8_v1.0"};
+ 
+ static int
+ mymain(void)
+@@ -662,7 +662,7 @@ mymain(void)
+                       NULL, "Haswell-noTSX", 0);
+ 
+     DO_TEST_GUESTDATA("ppc64", "host", "guest", ppc_models, NULL, 0);
+-    DO_TEST_GUESTDATA("ppc64", "host", "guest-nofallback", ppc_models, "POWER7_v2.1", 0);
++    DO_TEST_GUESTDATA("ppc64", "host", "guest-nofallback", ppc_models, "POWER7_v2.1", -1);
+ 
+     return ret == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+ }
+diff --git a/tests/cputestdata/ppc64-guest.xml b/tests/cputestdata/ppc64-guest.xml
+index ac81ec0..9e91501 100644
+--- a/tests/cputestdata/ppc64-guest.xml
++++ b/tests/cputestdata/ppc64-guest.xml
+@@ -1,4 +1,4 @@
+ <cpu match='exact'>
+-  <model>POWER8_v1.0</model>
++  <model>POWER7_v2.3</model>
+   <topology sockets='2' cores='4' threads='1'/>
+ </cpu>
+diff --git a/tests/cputestdata/ppc64-host+guest,ppc_models-result.xml b/tests/cputestdata/ppc64-host+guest,ppc_models-result.xml
+index 0cb0830..3e55f68 100644
+--- a/tests/cputestdata/ppc64-host+guest,ppc_models-result.xml
++++ b/tests/cputestdata/ppc64-host+guest,ppc_models-result.xml
+@@ -1,5 +1,5 @@
+ <cpu mode='custom' match='exact'>
+   <arch>ppc64</arch>
+-  <model fallback='allow'>POWER8_v1.0</model>
++  <model fallback='allow'>POWER7_v2.3</model>
+   <vendor>IBM</vendor>
+ </cpu>
+diff --git a/tests/cputestdata/ppc64-host+guest-nofallback,ppc_models,POWER7_v2.1-result.xml b/tests/cputestdata/ppc64-host+guest-nofallback,ppc_models,POWER7_v2.1-result.xml
+deleted file mode 100644
+index 7e58361..0000000
+--- a/tests/cputestdata/ppc64-host+guest-nofallback,ppc_models,POWER7_v2.1-result.xml
++++ /dev/null
+@@ -1,5 +0,0 @@
+-<cpu mode='custom' match='exact'>
+-  <arch>ppc64</arch>
+-  <model fallback='forbid'>POWER7_v2.1</model>
+-  <vendor>IBM</vendor>
+-</cpu>
+-- 
+2.5.0
+

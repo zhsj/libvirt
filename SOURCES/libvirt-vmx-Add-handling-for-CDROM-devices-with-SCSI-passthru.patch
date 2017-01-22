@@ -1,0 +1,425 @@
+From 9b72a34973d7e3fa0f4072b22d6ea10ee1241ece Mon Sep 17 00:00:00 2001
+Message-Id: <9b72a34973d7e3fa0f4072b22d6ea10ee1241ece@dist-git>
+From: Matthias Bolte <matthias.bolte@googlemail.com>
+Date: Tue, 8 Sep 2015 09:52:59 +0200
+Subject: [PATCH] vmx: Add handling for CDROM devices with SCSI passthru
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1172544
+
+(cherry picked from commit 98d8c811ce09cfec707aa3729cf0c01c67471356)
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/vmx/vmx.c                                     | 36 ++++++++--
+ tests/vmx2xmldata/vmx2xml-cdrom-scsi-passthru.vmx |  6 ++
+ tests/vmx2xmldata/vmx2xml-cdrom-scsi-passthru.xml | 24 +++++++
+ tests/vmx2xmldata/vmx2xml-esx-in-the-wild-7.vmx   | 85 +++++++++++++++++++++++
+ tests/vmx2xmldata/vmx2xml-esx-in-the-wild-7.xml   | 35 ++++++++++
+ tests/vmx2xmltest.c                               |  2 +
+ tests/xml2vmxdata/xml2vmx-cdrom-scsi-passthru.vmx | 14 ++++
+ tests/xml2vmxdata/xml2vmx-cdrom-scsi-passthru.xml | 14 ++++
+ tests/xml2vmxdata/xml2vmx-esx-in-the-wild-7.vmx   | 25 +++++++
+ tests/xml2vmxdata/xml2vmx-esx-in-the-wild-7.xml   | 35 ++++++++++
+ tests/xml2vmxtest.c                               |  2 +
+ 11 files changed, 273 insertions(+), 5 deletions(-)
+ create mode 100644 tests/vmx2xmldata/vmx2xml-cdrom-scsi-passthru.vmx
+ create mode 100644 tests/vmx2xmldata/vmx2xml-cdrom-scsi-passthru.xml
+ create mode 100644 tests/vmx2xmldata/vmx2xml-esx-in-the-wild-7.vmx
+ create mode 100644 tests/vmx2xmldata/vmx2xml-esx-in-the-wild-7.xml
+ create mode 100644 tests/xml2vmxdata/xml2vmx-cdrom-scsi-passthru.vmx
+ create mode 100644 tests/xml2vmxdata/xml2vmx-cdrom-scsi-passthru.xml
+ create mode 100644 tests/xml2vmxdata/xml2vmx-esx-in-the-wild-7.vmx
+ create mode 100644 tests/xml2vmxdata/xml2vmx-esx-in-the-wild-7.xml
+
+diff --git a/src/vmx/vmx.c b/src/vmx/vmx.c
+index 799668c..9ba5848 100644
+--- a/src/vmx/vmx.c
++++ b/src/vmx/vmx.c
+@@ -2178,12 +2178,14 @@ virVMXParseDisk(virVMXContext *ctx, virDomainXMLOptionPtr xmlopt, virConfPtr con
+         } else if (virFileHasSuffix(fileName, ".iso") ||
+                    (deviceType &&
+                     (STRCASEEQ(deviceType, "atapi-cdrom") ||
+-                     STRCASEEQ(deviceType, "cdrom-raw")))) {
++                     STRCASEEQ(deviceType, "cdrom-raw") ||
++                     (STRCASEEQ(deviceType, "scsi-passthru") &&
++                      STRPREFIX(fileName, "/vmfs/devices/cdrom/"))))) {
+             /*
+              * This function was called in order to parse a harddisk device,
+-             * but .iso files, 'atapi-cdrom', and 'cdrom-raw' devices are for
+-             * CDROM devices only. Just ignore it, another call to this
+-             * function to parse a CDROM device may handle it.
++             * but .iso files, 'atapi-cdrom', 'cdrom-raw', and 'scsi-passthru'
++             * CDROM devices are for CDROM devices only. Just ignore it, another
++             * call to this function to parse a CDROM device may handle it.
+              */
+             goto ignore;
+         } else {
+@@ -2241,6 +2243,24 @@ virVMXParseDisk(virVMXContext *ctx, virDomainXMLOptionPtr xmlopt, virConfPtr con
+             } else if (virDomainDiskSetSource(*def, fileName) < 0) {
+                 goto cleanup;
+             }
++        } else if (busType == VIR_DOMAIN_DISK_BUS_SCSI &&
++                   deviceType && STRCASEEQ(deviceType, "scsi-passthru")) {
++            if (STRPREFIX(fileName, "/vmfs/devices/cdrom/")) {
++                /* SCSI-passthru CD-ROMs actually are device='lun' */
++                (*def)->device = VIR_DOMAIN_DISK_DEVICE_LUN;
++                virDomainDiskSetType(*def, VIR_STORAGE_TYPE_BLOCK);
++
++                if (virDomainDiskSetSource(*def, fileName) < 0)
++                    goto cleanup;
++            } else {
++                /*
++                 * This function was called in order to parse a CDROM device,
++                 * but the filename does not indicate a CDROM device. Just ignore
++                 * it, another call to this function to parse a harddisk device
++                 * may handle it.
++                 */
++                goto ignore;
++            }
+         } else {
+             virReportError(VIR_ERR_INTERNAL_ERROR,
+                            _("Invalid or not yet handled value '%s' "
+@@ -3423,7 +3443,13 @@ virVMXFormatDisk(virVMXContext *ctx, virDomainDiskDefPtr def,
+         else
+             vmxDeviceType = "atapi-cdrom";
+     } else if (def->device == VIR_DOMAIN_DISK_DEVICE_LUN) {
+-        vmxDeviceType = "cdrom-raw";
++        const char *src = virDomainDiskGetSource(def);
++
++        if (def->bus == VIR_DOMAIN_DISK_BUS_SCSI &&
++            src && STRPREFIX(src, "/vmfs/devices/cdrom/"))
++            vmxDeviceType = "scsi-passthru";
++        else
++            vmxDeviceType = "cdrom-raw";
+     } else {
+         virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
+                        _("%s %s '%s' has an unsupported type '%s'"),
+diff --git a/tests/vmx2xmldata/vmx2xml-cdrom-scsi-passthru.vmx b/tests/vmx2xmldata/vmx2xml-cdrom-scsi-passthru.vmx
+new file mode 100644
+index 0000000..fb7ea72
+--- /dev/null
++++ b/tests/vmx2xmldata/vmx2xml-cdrom-scsi-passthru.vmx
+@@ -0,0 +1,6 @@
++config.version = "8"
++virtualHW.version = "4"
++scsi0.present = "true"
++scsi0:0.present = "true"
++scsi0:0.deviceType = "scsi-passthru"
++scsi0:0.fileName = "/vmfs/devices/cdrom/mpx.vmhba32:C0:T0:L0"
+diff --git a/tests/vmx2xmldata/vmx2xml-cdrom-scsi-passthru.xml b/tests/vmx2xmldata/vmx2xml-cdrom-scsi-passthru.xml
+new file mode 100644
+index 0000000..d3b382a
+--- /dev/null
++++ b/tests/vmx2xmldata/vmx2xml-cdrom-scsi-passthru.xml
+@@ -0,0 +1,24 @@
++<domain type='vmware'>
++  <uuid>00000000-0000-0000-0000-000000000000</uuid>
++  <memory unit='KiB'>32768</memory>
++  <currentMemory unit='KiB'>32768</currentMemory>
++  <vcpu placement='static'>1</vcpu>
++  <os>
++    <type arch='i686'>hvm</type>
++  </os>
++  <clock offset='utc'/>
++  <on_poweroff>destroy</on_poweroff>
++  <on_reboot>restart</on_reboot>
++  <on_crash>destroy</on_crash>
++  <devices>
++    <disk type='block' device='lun'>
++      <source dev='/vmfs/devices/cdrom/mpx.vmhba32:C0:T0:L0'/>
++      <target dev='sda' bus='scsi'/>
++      <address type='drive' controller='0' bus='0' target='0' unit='0'/>
++    </disk>
++    <controller type='scsi' index='0'/>
++    <video>
++      <model type='vmvga' vram='4096'/>
++    </video>
++  </devices>
++</domain>
+diff --git a/tests/vmx2xmldata/vmx2xml-esx-in-the-wild-7.vmx b/tests/vmx2xmldata/vmx2xml-esx-in-the-wild-7.vmx
+new file mode 100644
+index 0000000..f9da706
+--- /dev/null
++++ b/tests/vmx2xmldata/vmx2xml-esx-in-the-wild-7.vmx
+@@ -0,0 +1,85 @@
++.encoding = "UTF-8"
++config.version = "8"
++virtualHW.version = "8"
++pciBridge0.present = "TRUE"
++pciBridge4.present = "TRUE"
++pciBridge4.virtualDev = "pcieRootPort"
++pciBridge4.functions = "8"
++pciBridge5.present = "TRUE"
++pciBridge5.virtualDev = "pcieRootPort"
++pciBridge5.functions = "8"
++pciBridge6.present = "TRUE"
++pciBridge6.virtualDev = "pcieRootPort"
++pciBridge6.functions = "8"
++pciBridge7.present = "TRUE"
++pciBridge7.virtualDev = "pcieRootPort"
++pciBridge7.functions = "8"
++vmci0.present = "TRUE"
++hpet0.present = "TRUE"
++nvram = "esx-rhel6-mini.nvram"
++virtualHW.productCompatibility = "hosted"
++powerType.powerOff = "soft"
++powerType.powerOn = "hard"
++powerType.suspend = "hard"
++powerType.reset = "soft"
++displayName = "esx-rhel6-mini-with-scsi-device"
++extendedConfigFile = "esx-rhel6-mini.vmxf"
++floppy0.present = "TRUE"
++scsi0.present = "TRUE"
++scsi0.sharedBus = "none"
++scsi0.virtualDev = "pvscsi"
++memsize = "2048"
++scsi0:0.present = "TRUE"
++scsi0:0.fileName = "esx-rhel6-mini.vmdk"
++scsi0:0.deviceType = "scsi-hardDisk"
++ide1:0.present = "TRUE"
++ide1:0.clientDevice = "TRUE"
++ide1:0.deviceType = "cdrom-raw"
++ide1:0.startConnected = "FALSE"
++floppy0.startConnected = "FALSE"
++floppy0.fileName = ""
++floppy0.clientDevice = "TRUE"
++ethernet0.present = "TRUE"
++ethernet0.virtualDev = "vmxnet3"
++ethernet0.networkName = "VM Network"
++ethernet0.addressType = "vpx"
++guestOS = "rhel6-64"
++uuid.location = "56 4d 91 76 62 1f 02 39-f5 ad 3a 00 23 71 95 3b"
++uuid.bios = "56 4d 91 76 62 1f 02 39-f5 ad 3a 00 23 71 95 3b"
++vc.uuid = "52 40 95 33 33 a2 56 c5-36 ce 80 d6 05 f8 ec f4"
++scsi0.pciSlotNumber = "160"
++ethernet0.generatedAddress = "00:50:56:9f:08:51"
++ethernet0.pciSlotNumber = "192"
++svga.vramSize = "8388608"
++vmci0.id = "594646331"
++vmci0.pciSlotNumber = "32"
++tools.syncTime = "FALSE"
++cleanShutdown = "TRUE"
++replay.supported = "FALSE"
++sched.swap.derivedName = "/vmfs/volumes/4f59a359-4cc3fa06-cac0-4437e66df86c/esx-rhel6-mini/esx-rhel6-mini-f62c1180.vswp"
++replay.filename = ""
++scsi0:0.redo = ""
++pciBridge0.pciSlotNumber = "17"
++pciBridge4.pciSlotNumber = "21"
++pciBridge5.pciSlotNumber = "22"
++pciBridge6.pciSlotNumber = "23"
++pciBridge7.pciSlotNumber = "24"
++scsi0.sasWWID = "50 05 05 66 62 1f 02 30"
++ethernet0.generatedAddressOffset = "0"
++hostCPUID.0 = "0000000d756e65476c65746e49656e69"
++hostCPUID.1 = "000206a70010080017bae3f7bfebfbff"
++hostCPUID.80000001 = "00000000000000000000000128100800"
++guestCPUID.0 = "0000000d756e65476c65746e49656e69"
++guestCPUID.1 = "000206a700010800969822030fabfbff"
++guestCPUID.80000001 = "00000000000000000000000128100800"
++userCPUID.0 = "0000000d756e65476c65746e49656e69"
++userCPUID.1 = "000206a700100800169822030fabfbff"
++userCPUID.80000001 = "00000000000000000000000128100800"
++evcCompatibilityMode = "FALSE"
++vmotion.checkpointFBSize = "8388608"
++softPowerOff = "TRUE"
++scsi0:1.present = "TRUE"
++scsi0:1.deviceType = "scsi-passthru"
++scsi0:1.fileName = "/vmfs/devices/cdrom/mpx.vmhba32:C0:T0:L0"
++scsi0:1.allowGuestConnectionControl = "FALSE"
++scsi0:3.present = "FALSE"
+diff --git a/tests/vmx2xmldata/vmx2xml-esx-in-the-wild-7.xml b/tests/vmx2xmldata/vmx2xml-esx-in-the-wild-7.xml
+new file mode 100644
+index 0000000..5180a99
+--- /dev/null
++++ b/tests/vmx2xmldata/vmx2xml-esx-in-the-wild-7.xml
+@@ -0,0 +1,35 @@
++<domain type='vmware'>
++  <name>esx-rhel6-mini-with-scsi-device</name>
++  <uuid>564d9176-621f-0239-f5ad-3a002371953b</uuid>
++  <memory unit='KiB'>2097152</memory>
++  <currentMemory unit='KiB'>2097152</currentMemory>
++  <vcpu placement='static'>1</vcpu>
++  <os>
++    <type arch='x86_64'>hvm</type>
++  </os>
++  <clock offset='utc'/>
++  <on_poweroff>destroy</on_poweroff>
++  <on_reboot>restart</on_reboot>
++  <on_crash>destroy</on_crash>
++  <devices>
++    <disk type='file' device='disk'>
++      <source file='[datastore] directory/esx-rhel6-mini.vmdk'/>
++      <target dev='sda' bus='scsi'/>
++      <address type='drive' controller='0' bus='0' target='0' unit='0'/>
++    </disk>
++    <disk type='block' device='lun'>
++      <source dev='/vmfs/devices/cdrom/mpx.vmhba32:C0:T0:L0'/>
++      <target dev='sdb' bus='scsi'/>
++      <address type='drive' controller='0' bus='0' target='0' unit='1'/>
++    </disk>
++    <controller type='scsi' index='0' model='vmpvscsi'/>
++    <interface type='bridge'>
++      <mac address='00:50:56:9f:08:51'/>
++      <source bridge='VM Network'/>
++      <model type='vmxnet3'/>
++    </interface>
++    <video>
++      <model type='vmvga' vram='8192'/>
++    </video>
++  </devices>
++</domain>
+diff --git a/tests/vmx2xmltest.c b/tests/vmx2xmltest.c
+index d3e33e6..1d1fe83 100644
+--- a/tests/vmx2xmltest.c
++++ b/tests/vmx2xmltest.c
+@@ -221,6 +221,7 @@ mymain(void)
+     DO_TEST("cdrom-scsi-device", "cdrom-scsi-device");
+     DO_TEST("cdrom-scsi-raw-device", "cdrom-scsi-raw-device");
+     DO_TEST("cdrom-scsi-raw-auto-detect", "cdrom-scsi-raw-auto-detect");
++    DO_TEST("cdrom-scsi-passthru", "cdrom-scsi-passthru");
+     DO_TEST("cdrom-ide-file", "cdrom-ide-file");
+     DO_TEST("cdrom-ide-device", "cdrom-ide-device");
+     DO_TEST("cdrom-ide-raw-device", "cdrom-ide-raw-device");
+@@ -261,6 +262,7 @@ mymain(void)
+     DO_TEST("esx-in-the-wild-4", "esx-in-the-wild-4");
+     DO_TEST("esx-in-the-wild-5", "esx-in-the-wild-5");
+     DO_TEST("esx-in-the-wild-6", "esx-in-the-wild-6");
++    DO_TEST("esx-in-the-wild-7", "esx-in-the-wild-7");
+ 
+     DO_TEST("gsx-in-the-wild-1", "gsx-in-the-wild-1");
+     DO_TEST("gsx-in-the-wild-2", "gsx-in-the-wild-2");
+diff --git a/tests/xml2vmxdata/xml2vmx-cdrom-scsi-passthru.vmx b/tests/xml2vmxdata/xml2vmx-cdrom-scsi-passthru.vmx
+new file mode 100644
+index 0000000..be2f089
+--- /dev/null
++++ b/tests/xml2vmxdata/xml2vmx-cdrom-scsi-passthru.vmx
+@@ -0,0 +1,14 @@
++.encoding = "UTF-8"
++config.version = "8"
++virtualHW.version = "4"
++guestOS = "other"
++uuid.bios = "56 4d 9b ef ac d9 b4 e0-c8 f0 ae a8 b9 10 35 15"
++displayName = "cdrom-scsi-passthru"
++memsize = "4"
++numvcpus = "1"
++scsi0.present = "true"
++scsi0:0.present = "true"
++scsi0:0.deviceType = "scsi-passthru"
++scsi0:0.fileName = "/vmfs/devices/cdrom/mpx.vmhba32:C0:T0:L0"
++floppy0.present = "false"
++floppy1.present = "false"
+diff --git a/tests/xml2vmxdata/xml2vmx-cdrom-scsi-passthru.xml b/tests/xml2vmxdata/xml2vmx-cdrom-scsi-passthru.xml
+new file mode 100644
+index 0000000..0bf3696
+--- /dev/null
++++ b/tests/xml2vmxdata/xml2vmx-cdrom-scsi-passthru.xml
+@@ -0,0 +1,14 @@
++<domain type='vmware'>
++  <name>cdrom-scsi-passthru</name>
++  <uuid>564d9bef-acd9-b4e0-c8f0-aea8b9103515</uuid>
++  <memory unit='KiB'>4096</memory>
++  <os>
++    <type>hvm</type>
++  </os>
++  <devices>
++    <disk type='block' device='lun'>
++      <source dev='/vmfs/devices/cdrom/mpx.vmhba32:C0:T0:L0'/>
++      <target dev='sda' bus='scsi'/>
++    </disk>
++  </devices>
++</domain>
+diff --git a/tests/xml2vmxdata/xml2vmx-esx-in-the-wild-7.vmx b/tests/xml2vmxdata/xml2vmx-esx-in-the-wild-7.vmx
+new file mode 100644
+index 0000000..2eedd35
+--- /dev/null
++++ b/tests/xml2vmxdata/xml2vmx-esx-in-the-wild-7.vmx
+@@ -0,0 +1,25 @@
++.encoding = "UTF-8"
++config.version = "8"
++virtualHW.version = "4"
++guestOS = "other-64"
++uuid.bios = "56 4d 91 76 62 1f 02 39-f5 ad 3a 00 23 71 95 3b"
++displayName = "esx-rhel6-mini-with-scsi-device"
++memsize = "2048"
++numvcpus = "1"
++scsi0.present = "true"
++scsi0.virtualDev = "pvscsi"
++scsi0:0.present = "true"
++scsi0:0.deviceType = "scsi-hardDisk"
++scsi0:0.fileName = "/vmfs/volumes/datastore/directory/esx-rhel6-mini.vmdk"
++scsi0:1.present = "true"
++scsi0:1.deviceType = "scsi-passthru"
++scsi0:1.fileName = "/vmfs/devices/cdrom/mpx.vmhba32:C0:T0:L0"
++floppy0.present = "false"
++floppy1.present = "false"
++ethernet0.present = "true"
++ethernet0.virtualDev = "vmxnet3"
++ethernet0.networkName = "VM Network"
++ethernet0.connectionType = "bridged"
++ethernet0.addressType = "vpx"
++ethernet0.generatedAddress = "00:50:56:9f:08:51"
++svga.vramSize = "8388608"
+diff --git a/tests/xml2vmxdata/xml2vmx-esx-in-the-wild-7.xml b/tests/xml2vmxdata/xml2vmx-esx-in-the-wild-7.xml
+new file mode 100644
+index 0000000..5180a99
+--- /dev/null
++++ b/tests/xml2vmxdata/xml2vmx-esx-in-the-wild-7.xml
+@@ -0,0 +1,35 @@
++<domain type='vmware'>
++  <name>esx-rhel6-mini-with-scsi-device</name>
++  <uuid>564d9176-621f-0239-f5ad-3a002371953b</uuid>
++  <memory unit='KiB'>2097152</memory>
++  <currentMemory unit='KiB'>2097152</currentMemory>
++  <vcpu placement='static'>1</vcpu>
++  <os>
++    <type arch='x86_64'>hvm</type>
++  </os>
++  <clock offset='utc'/>
++  <on_poweroff>destroy</on_poweroff>
++  <on_reboot>restart</on_reboot>
++  <on_crash>destroy</on_crash>
++  <devices>
++    <disk type='file' device='disk'>
++      <source file='[datastore] directory/esx-rhel6-mini.vmdk'/>
++      <target dev='sda' bus='scsi'/>
++      <address type='drive' controller='0' bus='0' target='0' unit='0'/>
++    </disk>
++    <disk type='block' device='lun'>
++      <source dev='/vmfs/devices/cdrom/mpx.vmhba32:C0:T0:L0'/>
++      <target dev='sdb' bus='scsi'/>
++      <address type='drive' controller='0' bus='0' target='0' unit='1'/>
++    </disk>
++    <controller type='scsi' index='0' model='vmpvscsi'/>
++    <interface type='bridge'>
++      <mac address='00:50:56:9f:08:51'/>
++      <source bridge='VM Network'/>
++      <model type='vmxnet3'/>
++    </interface>
++    <video>
++      <model type='vmvga' vram='8192'/>
++    </video>
++  </devices>
++</domain>
+diff --git a/tests/xml2vmxtest.c b/tests/xml2vmxtest.c
+index 357f1e6..53efe31 100644
+--- a/tests/xml2vmxtest.c
++++ b/tests/xml2vmxtest.c
+@@ -237,6 +237,7 @@ mymain(void)
+     DO_TEST("cdrom-scsi-device", "cdrom-scsi-device", 4);
+     DO_TEST("cdrom-scsi-raw-device", "cdrom-scsi-raw-device", 4);
+     DO_TEST("cdrom-scsi-raw-auto-detect", "cdrom-scsi-raw-auto-detect", 4);
++    DO_TEST("cdrom-scsi-passthru", "cdrom-scsi-passthru", 4);
+     DO_TEST("cdrom-ide-file", "cdrom-ide-file", 4);
+     DO_TEST("cdrom-ide-device", "cdrom-ide-device", 4);
+     DO_TEST("cdrom-ide-raw-device", "cdrom-ide-raw-device", 4);
+@@ -274,6 +275,7 @@ mymain(void)
+     DO_TEST("esx-in-the-wild-4", "esx-in-the-wild-4", 4);
+     DO_TEST("esx-in-the-wild-5", "esx-in-the-wild-5", 4);
+     DO_TEST("esx-in-the-wild-6", "esx-in-the-wild-6", 4);
++    DO_TEST("esx-in-the-wild-7", "esx-in-the-wild-7", 4);
+ 
+     DO_TEST("gsx-in-the-wild-1", "gsx-in-the-wild-1", 4);
+     DO_TEST("gsx-in-the-wild-2", "gsx-in-the-wild-2", 4);
+-- 
+2.5.2
+

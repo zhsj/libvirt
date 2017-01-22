@@ -1,0 +1,79 @@
+From a7232a3278c7eb1363b4795b9cc556fe8b14b950 Mon Sep 17 00:00:00 2001
+Message-Id: <a7232a3278c7eb1363b4795b9cc556fe8b14b950@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Tue, 18 Aug 2015 17:27:58 -0700
+Subject: [PATCH] util: Add virStringGetFirstWithPrefix
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1165580
+
+That function takes string list and returns first string in that list
+that starts with the @prefix parameter with that prefix being skipped as
+the caller knows what it starts with (also for easier manipulation in
+future).
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 1fe69c4656082f48762f69149efc6d9d01d62ce1)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/libvirt_private.syms |  1 +
+ src/util/virstring.c     | 17 +++++++++++++++++
+ src/util/virstring.h     |  2 ++
+ 3 files changed, 20 insertions(+)
+
+diff --git a/src/libvirt_private.syms b/src/libvirt_private.syms
+index 15fa785..a170214 100644
+--- a/src/libvirt_private.syms
++++ b/src/libvirt_private.syms
+@@ -2174,6 +2174,7 @@ virStrdup;
+ virStringArrayHasString;
+ virStringFreeList;
+ virStringFreeListCount;
++virStringGetFirstWithPrefix;
+ virStringHasControlChars;
+ virStringIsEmpty;
+ virStringJoin;
+diff --git a/src/util/virstring.c b/src/util/virstring.c
+index 5794f96..31f77cd 100644
+--- a/src/util/virstring.c
++++ b/src/util/virstring.c
+@@ -238,6 +238,23 @@ virStringArrayHasString(char **strings, const char *needle)
+     return false;
+ }
+ 
++char *
++virStringGetFirstWithPrefix(char **strings, const char *prefix)
++{
++    size_t i = 0;
++
++    if (!strings)
++        return NULL;
++
++    while (strings[i]) {
++        if (STRPREFIX(strings[i], prefix))
++            return strings[i] + strlen(prefix);
++        i++;
++    }
++
++    return NULL;
++}
++
+ /* Like strtol, but produce an "int" result, and check more carefully.
+    Return 0 upon success;  return -1 to indicate failure.
+    When END_PTR is NULL, the byte after the final valid digit must be NUL.
+diff --git a/src/util/virstring.h b/src/util/virstring.h
+index e6dcb32..f65a126 100644
+--- a/src/util/virstring.h
++++ b/src/util/virstring.h
+@@ -47,6 +47,8 @@ void virStringFreeListCount(char **strings, size_t count);
+ size_t virStringListLen(const char **strings);
+ 
+ bool virStringArrayHasString(char **strings, const char *needle);
++char *virStringGetFirstWithPrefix(char **strings, const char *prefix)
++    ATTRIBUTE_NONNULL(2);
+ 
+ char *virArgvToString(const char *const *argv);
+ 
+-- 
+2.5.1
+

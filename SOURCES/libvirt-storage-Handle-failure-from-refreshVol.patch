@@ -1,0 +1,44 @@
+From 79eaa4a5fde86f6d9c4b059aef5d4db6dfcf3659 Mon Sep 17 00:00:00 2001
+Message-Id: <79eaa4a5fde86f6d9c4b059aef5d4db6dfcf3659@dist-git>
+From: John Ferlan <jferlan@redhat.com>
+Date: Wed, 2 Sep 2015 09:55:15 -0400
+Subject: [PATCH] storage: Handle failure from refreshVol
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1253609
+
+Commit id '155ca616' added the 'refreshVol' API. In an NFS root-squash
+environment it was possible that if the just created volume from XML wasn't
+properly created with the right uid/gid and/or mode, then the followup
+refreshVol will fail to open the volume in order to get the allocation/
+capacity values. This would leave the volume still on the server and
+cause a libvirtd crash because 'voldef' would be in the pool list, but
+the cleanup code would free it.
+
+(cherry picked from commit db9277a39bc364806e8d3e08a08fc128d59b7094)
+Signed-off-by: John Ferlan <jferlan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/storage/storage_driver.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/src/storage/storage_driver.c b/src/storage/storage_driver.c
+index b67a5d8..038c176 100644
+--- a/src/storage/storage_driver.c
++++ b/src/storage/storage_driver.c
+@@ -1867,8 +1867,12 @@ storageVolCreateXML(virStoragePoolPtr obj,
+     }
+ 
+     if (backend->refreshVol &&
+-        backend->refreshVol(obj->conn, pool, voldef) < 0)
++        backend->refreshVol(obj->conn, pool, voldef) < 0) {
++        storageVolDeleteInternal(volobj, backend, pool, voldef,
++                                 0, false);
++        voldef = NULL;
+         goto cleanup;
++    }
+ 
+     /* Update pool metadata ignoring the disk backend since
+      * it updates the pool values.
+-- 
+2.5.1
+

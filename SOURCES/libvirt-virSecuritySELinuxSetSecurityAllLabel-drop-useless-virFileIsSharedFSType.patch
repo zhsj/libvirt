@@ -1,0 +1,51 @@
+From 71c76c2375fc782a613f0e1154b76be084c8cea2 Mon Sep 17 00:00:00 2001
+Message-Id: <71c76c2375fc782a613f0e1154b76be084c8cea2@dist-git>
+From: Michal Privoznik <mprivozn@redhat.com>
+Date: Tue, 15 Sep 2015 11:51:21 +0200
+Subject: [PATCH] virSecuritySELinuxSetSecurityAllLabel: drop useless
+ virFileIsSharedFSType
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1124841
+
+The check is done in virSecuritySELinuxSetFilecon itself. There's
+no need to check it again.
+
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+(cherry picked from commit 370461d1dbcdcf63fbe6c34d188c28cf11488845)
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/security/security_selinux.c | 10 ++++------
+ 1 file changed, 4 insertions(+), 6 deletions(-)
+
+diff --git a/src/security/security_selinux.c b/src/security/security_selinux.c
+index d2e5aa2..46080bf 100644
+--- a/src/security/security_selinux.c
++++ b/src/security/security_selinux.c
+@@ -2306,7 +2306,7 @@ virSecuritySELinuxSetSecurityAllLabel(virSecurityManagerPtr mgr,
+             continue;
+         }
+         if (virSecuritySELinuxSetSecurityDiskLabel(mgr,
+-                                         def, def->disks[i]) < 0)
++                                                   def, def->disks[i]) < 0)
+             return -1;
+     }
+     /* XXX fixme process  def->fss if relabel == true */
+@@ -2355,11 +2355,9 @@ virSecuritySELinuxSetSecurityAllLabel(virSecurityManagerPtr mgr,
+         virSecuritySELinuxSetFilecon(def->os.dtb, data->content_context) < 0)
+         return -1;
+ 
+-    if (stdin_path) {
+-        if (virSecuritySELinuxSetFilecon(stdin_path, data->content_context) < 0 &&
+-            virFileIsSharedFSType(stdin_path, VIR_FILE_SHFS_NFS) != 1)
+-            return -1;
+-    }
++    if (stdin_path &&
++        virSecuritySELinuxSetFilecon(stdin_path, data->content_context) < 0)
++        return -1;
+ 
+     return 0;
+ }
+-- 
+2.5.3
+

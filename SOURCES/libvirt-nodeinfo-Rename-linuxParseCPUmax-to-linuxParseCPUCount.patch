@@ -1,0 +1,51 @@
+From 3897d418e69e7604302040a8015bf6f50d40ae45 Mon Sep 17 00:00:00 2001
+Message-Id: <3897d418e69e7604302040a8015bf6f50d40ae45@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Wed, 5 Aug 2015 18:18:24 +0200
+Subject: [PATCH] nodeinfo: Rename linuxParseCPUmax() to linuxParseCPUCount()
+
+The original name was confusing because the function returns the number
+of CPUs, not the maximum CPU id. The comment above the function has
+been updated to reflect this.
+
+No behavioral changes.
+
+(cherry picked from commit a2e2add1f1e253b5ba150446980aa32a161dc107)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/nodeinfo.c | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/src/nodeinfo.c b/src/nodeinfo.c
+index 5459cc6..a7a5d98 100644
+--- a/src/nodeinfo.c
++++ b/src/nodeinfo.c
+@@ -982,9 +982,10 @@ linuxGetCPUOnlinePath(const char *sysfs_prefix)
+     return linuxGetCPUGlobalPath(sysfs_prefix, "online");
+ }
+ 
+-/* Determine the maximum cpu id from a Linux sysfs cpu/present file. */
++/* Determine the number of CPUs (maximum CPU id + 1) from a file containing
++ * a list of CPU ids, like the Linux sysfs cpu/present file */
+ static int
+-linuxParseCPUmax(const char *path)
++linuxParseCPUCount(const char *path)
+ {
+     char *str = NULL;
+     char *tmp;
+@@ -1246,7 +1247,7 @@ nodeGetCPUCount(const char *sysfs_prefix ATTRIBUTE_UNUSED)
+         return -1;
+ 
+     if (virFileExists(present_path)) {
+-        ncpu = linuxParseCPUmax(present_path);
++        ncpu = linuxParseCPUCount(present_path);
+         goto cleanup;
+     }
+ 
+-- 
+2.5.0
+

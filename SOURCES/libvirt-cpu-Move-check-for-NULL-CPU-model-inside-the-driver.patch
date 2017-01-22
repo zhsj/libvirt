@@ -1,0 +1,108 @@
+From 71ec836090966a629753444b19d3beb6e490a571 Mon Sep 17 00:00:00 2001
+Message-Id: <71ec836090966a629753444b19d3beb6e490a571@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Fri, 21 Aug 2015 16:36:03 -0700
+Subject: [PATCH] cpu: Move check for NULL CPU model inside the driver
+
+While the check is appropriate for eg. the x86 and generic drivers,
+there are some valid ppc64 guest configurations where the CPU
+model is supposed to be NULL.
+
+Moving this check from the generic code to the drivers makes it
+possible to accomodate both use cases.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1251927
+(cherry picked from commit 5750149fedb2ec7f1aaaad8286650255718c861d)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1251927
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/cpu/cpu.c         | 12 ------------
+ src/cpu/cpu_generic.c |  6 ++++++
+ src/cpu/cpu_ppc64.c   |  3 ++-
+ src/cpu/cpu_x86.c     |  6 ++++++
+ 4 files changed, 14 insertions(+), 13 deletions(-)
+
+diff --git a/src/cpu/cpu.c b/src/cpu/cpu.c
+index 731df26..1952b53 100644
+--- a/src/cpu/cpu.c
++++ b/src/cpu/cpu.c
+@@ -142,12 +142,6 @@ cpuCompare(virCPUDefPtr host,
+ 
+     VIR_DEBUG("host=%p, cpu=%p", host, cpu);
+ 
+-    if (!cpu->model) {
+-        virReportError(VIR_ERR_INVALID_ARG, "%s",
+-                       _("no guest CPU model specified"));
+-        return VIR_CPU_COMPARE_ERROR;
+-    }
+-
+     if ((driver = cpuGetSubDriver(host->arch)) == NULL)
+         return VIR_CPU_COMPARE_ERROR;
+ 
+@@ -376,12 +370,6 @@ cpuGuestData(virCPUDefPtr host,
+ 
+     VIR_DEBUG("host=%p, guest=%p, data=%p, msg=%p", host, guest, data, msg);
+ 
+-    if (!guest->model) {
+-        virReportError(VIR_ERR_INVALID_ARG, "%s",
+-                       _("no guest CPU model specified"));
+-        return VIR_CPU_COMPARE_ERROR;
+-    }
+-
+     if ((driver = cpuGetSubDriver(host->arch)) == NULL)
+         return VIR_CPU_COMPARE_ERROR;
+ 
+diff --git a/src/cpu/cpu_generic.c b/src/cpu/cpu_generic.c
+index a9cde4c..f26a62d 100644
+--- a/src/cpu/cpu_generic.c
++++ b/src/cpu/cpu_generic.c
+@@ -65,6 +65,12 @@ genericCompare(virCPUDefPtr host,
+     size_t i;
+     unsigned int reqfeatures;
+ 
++    if (!cpu->model) {
++        virReportError(VIR_ERR_INVALID_ARG, "%s",
++                       _("no guest CPU model specified"));
++        goto cleanup;
++    }
++
+     if ((cpu->arch != VIR_ARCH_NONE &&
+          host->arch != cpu->arch) ||
+         STRNEQ(host->model, cpu->model)) {
+diff --git a/src/cpu/cpu_ppc64.c b/src/cpu/cpu_ppc64.c
+index a72cc32..364c8ed 100644
+--- a/src/cpu/cpu_ppc64.c
++++ b/src/cpu/cpu_ppc64.c
+@@ -71,7 +71,8 @@ ppc64ConvertLegacyCPUDef(const virCPUDef *legacy)
+     if (!(cpu = virCPUDefCopy(legacy)))
+         goto out;
+ 
+-    if (!(STREQ(cpu->model, "POWER7_v2.1") ||
++    if (!cpu->model ||
++        !(STREQ(cpu->model, "POWER7_v2.1") ||
+           STREQ(cpu->model, "POWER7_v2.3") ||
+           STREQ(cpu->model, "POWER7+_v2.1") ||
+           STREQ(cpu->model, "POWER8_v1.0"))) {
+diff --git a/src/cpu/cpu_x86.c b/src/cpu/cpu_x86.c
+index f5f7697..90949f6 100644
+--- a/src/cpu/cpu_x86.c
++++ b/src/cpu/cpu_x86.c
+@@ -1371,6 +1371,12 @@ x86Compute(virCPUDefPtr host,
+     virArch arch;
+     size_t i;
+ 
++    if (!cpu->model) {
++        virReportError(VIR_ERR_INVALID_ARG, "%s",
++                       _("no guest CPU model specified"));
++        return VIR_CPU_COMPARE_ERROR;
++    }
++
+     if (cpu->arch != VIR_ARCH_NONE) {
+         bool found = false;
+ 
+-- 
+2.5.0
+

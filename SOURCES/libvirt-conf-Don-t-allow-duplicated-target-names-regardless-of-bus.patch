@@ -1,0 +1,96 @@
+From fbced70807b7564359803a3877fa796c90b32f9f Mon Sep 17 00:00:00 2001
+Message-Id: <fbced70807b7564359803a3877fa796c90b32f9f@dist-git>
+From: John Ferlan <jferlan@redhat.com>
+Date: Thu, 9 Jul 2015 08:45:36 -0400
+Subject: [PATCH] conf: Don't allow duplicated target names regardless of bus
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1142631
+
+Commit id 'e0e290552' added a check to determine if the same bus
+had the same target value.  It seems that's not quite good enough
+as the check should check the target name value regardless of bus type.
+
+Also added a DO_TEST_DIFFERENT to exhibit the issue
+
+(cherry picked from commit 2e09729b1c1cc0096be4edd2d939bf1044aec506)
+Signed-off-by: John Ferlan <jferlan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/conf/domain_conf.c                             |  3 +-
+ .../qemuxml2argv-disk-same-targets.xml             | 35 ++++++++++++++++++++++
+ tests/qemuxml2argvtest.c                           |  3 ++
+ 3 files changed, 39 insertions(+), 2 deletions(-)
+ create mode 100644 tests/qemuxml2argvdata/qemuxml2argv-disk-same-targets.xml
+
+diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
+index 006e04e..f3416cf 100644
+--- a/src/conf/domain_conf.c
++++ b/src/conf/domain_conf.c
+@@ -12656,8 +12656,7 @@ virDomainDiskDefDstDuplicates(virDomainDefPtr def)
+ 
+     for (i = 1; i < def->ndisks; i++) {
+         for (j = 0; j < i; j++) {
+-            if (def->disks[i]->bus == def->disks[j]->bus &&
+-                STREQ(def->disks[i]->dst, def->disks[j]->dst)) {
++            if (STREQ(def->disks[i]->dst, def->disks[j]->dst)) {
+                 virReportError(VIR_ERR_XML_ERROR,
+                                _("target '%s' duplicated for disk sources "
+                                  "'%s' and '%s'"),
+diff --git a/tests/qemuxml2argvdata/qemuxml2argv-disk-same-targets.xml b/tests/qemuxml2argvdata/qemuxml2argv-disk-same-targets.xml
+new file mode 100644
+index 0000000..3276ce5
+--- /dev/null
++++ b/tests/qemuxml2argvdata/qemuxml2argv-disk-same-targets.xml
+@@ -0,0 +1,35 @@
++<domain type='qemu'>
++  <name>QEMUGuest1</name>
++  <uuid>c7a5fdbd-edaf-9455-926a-d65c16db1809</uuid>
++  <memory unit='KiB'>219136</memory>
++  <currentMemory unit='KiB'>219136</currentMemory>
++  <vcpu placement='static'>1</vcpu>
++  <os>
++    <type arch='i686' machine='pc'>hvm</type>
++    <boot dev='hd'/>
++  </os>
++  <clock offset='utc'/>
++  <on_poweroff>destroy</on_poweroff>
++  <on_reboot>restart</on_reboot>
++  <on_crash>destroy</on_crash>
++  <devices>
++    <emulator>/usr/bin/qemu</emulator>
++    <disk type='block' device='disk'>
++      <source dev='/dev/HostVG/QEMUGuest1'/>
++      <target dev='hda' bus='ide'/>
++    </disk>
++    <disk type='file' device='disk'>
++      <source file='/tmp/usbdisk.img'/>
++      <target dev='sda' bus='usb'/>
++    </disk>
++    <disk type='file' device='disk'>
++      <source file='/tmp/idedisk.img'/>
++      <target dev='sda' bus='ide'/>
++    </disk>
++    <disk type='file' device='disk'>
++      <source file='/tmp/scsidisk.img'/>
++      <target dev='sda' bus='scsi'/>
++    </disk>
++    <memballoon model='virtio'/>
++  </devices>
++</domain>
+diff --git a/tests/qemuxml2argvtest.c b/tests/qemuxml2argvtest.c
+index bee6637..4290c06 100644
+--- a/tests/qemuxml2argvtest.c
++++ b/tests/qemuxml2argvtest.c
+@@ -903,6 +903,9 @@ mymain(void)
+             QEMU_CAPS_DEVICE);
+     DO_TEST("disk-snapshot",
+             QEMU_CAPS_DRIVE, QEMU_CAPS_DRIVE_CACHE_V2, QEMU_CAPS_DRIVE_FORMAT);
++    DO_TEST_FAILURE("disk-same-targets",
++                    QEMU_CAPS_DRIVE, QEMU_CAPS_DEVICE, QEMU_CAPS_SCSI_LSI,
++                    QEMU_CAPS_DEVICE_USB_STORAGE, QEMU_CAPS_NODEFCONFIG);
+     DO_TEST("event_idx",
+             QEMU_CAPS_DRIVE,
+             QEMU_CAPS_VIRTIO_BLK_EVENT_IDX,
+-- 
+2.4.5
+

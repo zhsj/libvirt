@@ -1,0 +1,130 @@
+From c2e77e9c6e246a254083ac0e30c9b0da209daac2 Mon Sep 17 00:00:00 2001
+Message-Id: <c2e77e9c6e246a254083ac0e30c9b0da209daac2@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Thu, 13 Aug 2015 15:11:47 +0200
+Subject: [PATCH] qemu: Keep numad hint after daemon restart
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1162947
+
+The numad hint stored in priv->autoNodeset is information that gets lost
+during daemon restart.  And because we would like to use that
+information in the future, we also need to save it in the status XML.
+For the sake of tests, we need to initialize nnumaCell_max to some
+value, so that the restoration doesn't fail in our test suite.  There is
+no need to fill in the actual numa cell data since the recalculating
+function virCapabilitiesGetCpusForNodemask() will not fail, it will just
+skip filling the data in the bitmap which we don't use in tests anyway.
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 8ce86722d78d8b2a1e7d9cb29571beb791c9f3d7)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_domain.c  | 32 +++++++++++++++++++++++++++++++-
+ tests/qemuxml2xmltest.c |  3 ++-
+ tests/testutilsqemu.c   |  2 ++
+ 3 files changed, 35 insertions(+), 2 deletions(-)
+
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index ca41ca4..3b542f5 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -618,21 +618,33 @@ qemuDomainObjPrivateXMLFormat(virBufferPtr buf,
+         virBufferAddLit(buf, "</devices>\n");
+     }
+ 
++    if (priv->autoNodeset) {
++        char *nodeset = virBitmapFormat(priv->autoNodeset);
++
++        if (!nodeset)
++            return -1;
++
++        virBufferAsprintf(buf, "<numad nodeset='%s'/>\n", nodeset);
++        VIR_FREE(nodeset);
++    }
++
+     return 0;
+ }
+ 
+ static int
+ qemuDomainObjPrivateXMLParse(xmlXPathContextPtr ctxt,
+                              virDomainObjPtr vm,
+-                             virDomainDefParserConfigPtr config ATTRIBUTE_UNUSED)
++                             virDomainDefParserConfigPtr config)
+ {
+     qemuDomainObjPrivatePtr priv = vm->privateData;
++    virQEMUDriverPtr driver = config->priv;
+     char *monitorpath;
+     char *tmp = NULL;
+     int n;
+     size_t i;
+     xmlNodePtr *nodes = NULL;
+     virQEMUCapsPtr qemuCaps = NULL;
++    virCapsPtr caps = NULL;
+ 
+     if (VIR_ALLOC(priv->monConfig) < 0)
+         goto error;
+@@ -805,15 +817,33 @@ qemuDomainObjPrivateXMLParse(xmlXPathContextPtr ctxt,
+     }
+     VIR_FREE(nodes);
+ 
++    if (!(caps = virQEMUDriverGetCapabilities(driver, false)))
++        goto error;
++
++    if ((tmp = virXPathString("string(./numad/@nodeset)", ctxt))) {
++        if (virBitmapParse(tmp, 0, &priv->autoNodeset,
++                           caps->host.nnumaCell_max) < 0)
++            goto error;
++
++        if (!(priv->autoCpuset = virCapabilitiesGetCpusForNodemask(caps,
++                                                                   priv->autoNodeset)))
++            goto error;
++    }
++    virObjectUnref(caps);
++    caps = NULL;
++    VIR_FREE(tmp);
++
+     return 0;
+ 
+  error:
+     virDomainChrSourceDefFree(priv->monConfig);
+     priv->monConfig = NULL;
+     VIR_FREE(nodes);
++    VIR_FREE(tmp);
+     virStringFreeList(priv->qemuDevices);
+     priv->qemuDevices = NULL;
+     virObjectUnref(qemuCaps);
++    virObjectUnref(caps);
+     return -1;
+ }
+ 
+diff --git a/tests/qemuxml2xmltest.c b/tests/qemuxml2xmltest.c
+index 7a41a18..09806b2 100644
+--- a/tests/qemuxml2xmltest.c
++++ b/tests/qemuxml2xmltest.c
+@@ -130,7 +130,8 @@ static const char testStatusXMLPrefix[] =
+ "    <device alias='serial0'/>\n"
+ "    <device alias='net0'/>\n"
+ "    <device alias='usb'/>\n"
+-"  </devices>\n";
++"  </devices>\n"
++"  <numad nodeset='0-2'/>\n";
+ 
+ static const char testStatusXMLSuffix[] =
+ "</domstatus>\n";
+diff --git a/tests/testutilsqemu.c b/tests/testutilsqemu.c
+index ceaabb6..a2f4299 100644
+--- a/tests/testutilsqemu.c
++++ b/tests/testutilsqemu.c
+@@ -336,6 +336,8 @@ virCapsPtr testQemuCapsInit(void)
+ 
+     caps->host.cpu = cpuDefault;
+ 
++    caps->host.nnumaCell_max = 4;
++
+     if ((machines = testQemuAllocMachines(&nmachines)) == NULL)
+         goto cleanup;
+ 
+-- 
+2.5.0
+

@@ -1,0 +1,192 @@
+From 77f59c5205af71af094a1a87b2502a8e286369ef Mon Sep 17 00:00:00 2001
+Message-Id: <77f59c5205af71af094a1a87b2502a8e286369ef@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Thu, 3 Sep 2015 15:55:43 +0200
+Subject: [PATCH] conf: Add ioeventfd option for controllers
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1150484
+
+This will be used with a virtio-scsi controller later on.
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 35eecddee3fd822285a4ac619ac972f3714e8edc)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+
+ Conflicts:
+	src/conf/domain_conf.c -- controller (sub)models
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ docs/formatdomain.html.in                          |  8 ++++++
+ docs/schemas/domaincommon.rng                      |  3 +++
+ src/conf/domain_conf.c                             | 20 +++++++++++++--
+ src/conf/domain_conf.h                             |  1 +
+ .../qemuxml2argv-disk-virtio-scsi-ioeventfd.xml    | 29 ++++++++++++++++++++++
+ tests/qemuxml2xmltest.c                            |  1 +
+ 6 files changed, 60 insertions(+), 2 deletions(-)
+ create mode 100644 tests/qemuxml2argvdata/qemuxml2argv-disk-virtio-scsi-ioeventfd.xml
+
+diff --git a/docs/formatdomain.html.in b/docs/formatdomain.html.in
+index cb11b1f..0bf5845 100644
+--- a/docs/formatdomain.html.in
++++ b/docs/formatdomain.html.in
+@@ -3000,6 +3000,14 @@
+         a sector is 512 bytes.
+         <span class="since">Since 1.2.7 (QEMU and KVM only)</span>
+       </dd>
++      <dt><code>ioeventfd</code></dt>
++      <dd>
++        The optional <code>ioeventfd</code> attribute specifies
++        whether the controller should use
++        <a href='https://patchwork.kernel.org/patch/43390/'>
++        I/O asynchronous handling</a> or not.  Accepted values are
++        "on" and "off". <span class="since">Since 1.2.18</span>
++      </dd>
+     </dl>
+     <p>
+       USB companion controllers have an optional
+diff --git a/docs/schemas/domaincommon.rng b/docs/schemas/domaincommon.rng
+index 1120003..1739015 100644
+--- a/docs/schemas/domaincommon.rng
++++ b/docs/schemas/domaincommon.rng
+@@ -1790,6 +1790,9 @@
+                 <ref name="unsignedInt"/>
+               </attribute>
+             </optional>
++            <optional>
++              <ref name="ioeventfd"/>
++            </optional>
+           </element>
+         </optional>
+       </interleave>
+diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
+index b4503c3..15d3a5e 100644
+--- a/src/conf/domain_conf.c
++++ b/src/conf/domain_conf.c
+@@ -7734,6 +7734,7 @@ virDomainControllerDefParseXML(xmlNodePtr node,
+     char *queues = NULL;
+     char *cmd_per_lun = NULL;
+     char *max_sectors = NULL;
++    char *ioeventfd = NULL;
+     xmlNodePtr saved = ctxt->node;
+     int rc;
+ 
+@@ -7779,6 +7780,7 @@ virDomainControllerDefParseXML(xmlNodePtr node,
+                 queues = virXMLPropString(cur, "queues");
+                 cmd_per_lun = virXMLPropString(cur, "cmd_per_lun");
+                 max_sectors = virXMLPropString(cur, "max_sectors");
++                ioeventfd = virXMLPropString(cur, "ioeventfd");
+             }
+         }
+         cur = cur->next;
+@@ -7802,6 +7804,13 @@ virDomainControllerDefParseXML(xmlNodePtr node,
+         goto error;
+     }
+ 
++    if (ioeventfd &&
++        (def->ioeventfd = virTristateSwitchTypeFromString(ioeventfd)) < 0) {
++        virReportError(VIR_ERR_XML_ERROR,
++                       _("Malformed 'ioeventfd' value %s'"), max_sectors);
++        goto error;
++    }
++
+     if (def->type == VIR_DOMAIN_CONTROLLER_TYPE_USB &&
+         def->model == VIR_DOMAIN_CONTROLLER_MODEL_USB_NONE) {
+         VIR_DEBUG("Ignoring device address for none model usb controller");
+@@ -7915,6 +7924,7 @@ virDomainControllerDefParseXML(xmlNodePtr node,
+     VIR_FREE(queues);
+     VIR_FREE(cmd_per_lun);
+     VIR_FREE(max_sectors);
++    VIR_FREE(ioeventfd);
+ 
+     return def;
+ 
+@@ -18980,12 +18990,13 @@ virDomainControllerDefFormat(virBufferPtr buf,
+         break;
+     }
+ 
+-    if (def->queues || def->cmd_per_lun || def->max_sectors ||
++    if (def->queues || def->cmd_per_lun || def->max_sectors || def->ioeventfd ||
+         virDomainDeviceInfoNeedsFormat(&def->info, flags) || pcihole64) {
+         virBufferAddLit(buf, ">\n");
+         virBufferAdjustIndent(buf, 2);
+ 
+-        if (def->queues || def->cmd_per_lun || def->max_sectors) {
++        if (def->queues || def->cmd_per_lun ||
++            def->max_sectors || def->ioeventfd) {
+             virBufferAddLit(buf, "<driver");
+             if (def->queues)
+                 virBufferAsprintf(buf, " queues='%u'", def->queues);
+@@ -18995,6 +19006,11 @@ virDomainControllerDefFormat(virBufferPtr buf,
+ 
+             if (def->max_sectors)
+                 virBufferAsprintf(buf, " max_sectors='%u'", def->max_sectors);
++
++            if (def->ioeventfd) {
++                virBufferAsprintf(buf, " ioeventfd='%s'",
++                                  virTristateSwitchTypeToString(def->ioeventfd));
++            }
+             virBufferAddLit(buf, "/>\n");
+         }
+ 
+diff --git a/src/conf/domain_conf.h b/src/conf/domain_conf.h
+index ed0ccba..3040ddc 100644
+--- a/src/conf/domain_conf.h
++++ b/src/conf/domain_conf.h
+@@ -807,6 +807,7 @@ struct _virDomainControllerDef {
+     unsigned int queues;
+     unsigned int cmd_per_lun;
+     unsigned int max_sectors;
++    int ioeventfd; /* enum virTristateSwitch */
+     union {
+         virDomainVirtioSerialOpts vioserial;
+         virDomainPCIControllerOpts pciopts;
+diff --git a/tests/qemuxml2argvdata/qemuxml2argv-disk-virtio-scsi-ioeventfd.xml b/tests/qemuxml2argvdata/qemuxml2argv-disk-virtio-scsi-ioeventfd.xml
+new file mode 100644
+index 0000000..f4487eb
+--- /dev/null
++++ b/tests/qemuxml2argvdata/qemuxml2argv-disk-virtio-scsi-ioeventfd.xml
+@@ -0,0 +1,29 @@
++<domain type='qemu'>
++  <name>QEMUGuest1</name>
++  <uuid>c7a5fdbd-edaf-9455-926a-d65c16db1809</uuid>
++  <memory unit='KiB'>219136</memory>
++  <currentMemory unit='KiB'>219136</currentMemory>
++  <vcpu placement='static'>8</vcpu>
++  <os>
++    <type arch='i686' machine='pc'>hvm</type>
++    <boot dev='hd'/>
++  </os>
++  <clock offset='utc'/>
++  <on_poweroff>destroy</on_poweroff>
++  <on_reboot>restart</on_reboot>
++  <on_crash>destroy</on_crash>
++  <devices>
++    <emulator>/usr/bin/qemu</emulator>
++    <disk type='block' device='disk'>
++      <source dev='/dev/HostVG/QEMUGuest1'/>
++      <target dev='sdb' bus='scsi'/>
++      <address type='drive' controller='0' bus='0' target='0' unit='0'/>
++    </disk>
++    <controller type='usb' index='0'/>
++    <controller type='scsi' index='0' model='virtio-scsi'>
++      <driver ioeventfd='on'/>
++    </controller>
++    <controller type='pci' index='0' model='pci-root'/>
++    <memballoon model='virtio'/>
++  </devices>
++</domain>
+diff --git a/tests/qemuxml2xmltest.c b/tests/qemuxml2xmltest.c
+index 09806b2..5f88c5d 100644
+--- a/tests/qemuxml2xmltest.c
++++ b/tests/qemuxml2xmltest.c
+@@ -421,6 +421,7 @@ mymain(void)
+     DO_TEST("disk-virtio-scsi-num_queues");
+     DO_TEST("disk-virtio-scsi-cmd_per_lun");
+     DO_TEST("disk-virtio-scsi-max_sectors");
++    DO_TEST("disk-virtio-scsi-ioeventfd");
+     DO_TEST("disk-scsi-megasas");
+     DO_TEST_DIFFERENT("disk-mirror-old");
+     DO_TEST_FULL("disk-mirror", false, WHEN_ACTIVE);
+-- 
+2.5.1
+

@@ -1,0 +1,50 @@
+From fa6359064ef72968c212581e4f0011a15d809f42 Mon Sep 17 00:00:00 2001
+Message-Id: <fa6359064ef72968c212581e4f0011a15d809f42@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Mon, 24 Aug 2015 13:04:46 +0200
+Subject: [PATCH] security_dac: Label non-listening sockets
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1146886
+
+SELinux security driver already does that, but DAC driver somehow missed
+the memo.  Let's fix it so it works the same way.
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 7b6953bc2256200a5ff4b985c431bfe3c3e0cfb1)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/security/security_dac.c | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/src/security/security_dac.c b/src/security/security_dac.c
+index deb6980..bed23c3 100644
+--- a/src/security/security_dac.c
++++ b/src/security/security_dac.c
+@@ -789,6 +789,15 @@ virSecurityDACSetChardevLabel(virSecurityManagerPtr mgr,
+         ret = 0;
+         break;
+ 
++    case VIR_DOMAIN_CHR_TYPE_UNIX:
++        if (!dev_source->data.nix.listen) {
++            if (virSecurityDACSetOwnership(dev_source->data.nix.path,
++                                           user, group) < 0)
++                goto done;
++        }
++        ret = 0;
++        break;
++
+     case VIR_DOMAIN_CHR_TYPE_SPICEPORT:
+     case VIR_DOMAIN_CHR_TYPE_NULL:
+     case VIR_DOMAIN_CHR_TYPE_VC:
+@@ -796,7 +805,6 @@ virSecurityDACSetChardevLabel(virSecurityManagerPtr mgr,
+     case VIR_DOMAIN_CHR_TYPE_STDIO:
+     case VIR_DOMAIN_CHR_TYPE_UDP:
+     case VIR_DOMAIN_CHR_TYPE_TCP:
+-    case VIR_DOMAIN_CHR_TYPE_UNIX:
+     case VIR_DOMAIN_CHR_TYPE_SPICEVMC:
+     case VIR_DOMAIN_CHR_TYPE_NMDM:
+     case VIR_DOMAIN_CHR_TYPE_LAST:
+-- 
+2.5.1
+

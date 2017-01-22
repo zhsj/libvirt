@@ -1,0 +1,90 @@
+From 21f44cec9cc44e52990897a2f752c1ea9e4a2007 Mon Sep 17 00:00:00 2001
+Message-Id: <21f44cec9cc44e52990897a2f752c1ea9e4a2007@dist-git>
+From: Pavel Hrdina <phrdina@redhat.com>
+Date: Fri, 10 Jul 2015 12:39:30 +0200
+Subject: [PATCH] virDomainObjSignal: drop this function
+
+There are multiple consumers for the domain condition and we should
+always wake them all.
+
+Signed-off-by: Pavel Hrdina <phrdina@redhat.com>
+(cherry picked from commit 6b278f3ad6fa0c8b0366a0858546808e15a6676f)
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1147471
+
+Signed-off-by: Pavel Hrdina <phrdina@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/conf/domain_conf.c   | 7 -------
+ src/conf/domain_conf.h   | 1 -
+ src/libvirt_private.syms | 1 -
+ src/qemu/qemu_process.c  | 4 ++--
+ 4 files changed, 2 insertions(+), 11 deletions(-)
+
+diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
+index 2f1f69d..d990180 100644
+--- a/src/conf/domain_conf.c
++++ b/src/conf/domain_conf.c
+@@ -2662,13 +2662,6 @@ virDomainObjEndAPI(virDomainObjPtr *vm)
+ 
+ 
+ void
+-virDomainObjSignal(virDomainObjPtr vm)
+-{
+-    virCondSignal(&vm->cond);
+-}
+-
+-
+-void
+ virDomainObjBroadcast(virDomainObjPtr vm)
+ {
+     virCondBroadcast(&vm->cond);
+diff --git a/src/conf/domain_conf.h b/src/conf/domain_conf.h
+index 2bdbff1..0adaefc 100644
+--- a/src/conf/domain_conf.h
++++ b/src/conf/domain_conf.h
+@@ -2443,7 +2443,6 @@ void virDomainObjEndAPI(virDomainObjPtr *vm);
+ bool virDomainObjTaint(virDomainObjPtr obj,
+                        virDomainTaintFlags taint);
+ 
+-void virDomainObjSignal(virDomainObjPtr vm);
+ void virDomainObjBroadcast(virDomainObjPtr vm);
+ int virDomainObjWait(virDomainObjPtr vm);
+ int virDomainObjWaitUntil(virDomainObjPtr vm,
+diff --git a/src/libvirt_private.syms b/src/libvirt_private.syms
+index 1566d11..720afdf 100644
+--- a/src/libvirt_private.syms
++++ b/src/libvirt_private.syms
+@@ -412,7 +412,6 @@ virDomainObjParseNode;
+ virDomainObjSetDefTransient;
+ virDomainObjSetMetadata;
+ virDomainObjSetState;
+-virDomainObjSignal;
+ virDomainObjTaint;
+ virDomainObjUpdateModificationImpact;
+ virDomainObjWait;
+diff --git a/src/qemu/qemu_process.c b/src/qemu/qemu_process.c
+index 7abeaae..9f1ae5a 100644
+--- a/src/qemu/qemu_process.c
++++ b/src/qemu/qemu_process.c
+@@ -1007,7 +1007,7 @@ qemuProcessHandleBlockJob(qemuMonitorPtr mon ATTRIBUTE_UNUSED,
+         /* We have a SYNC API waiting for this event, dispatch it back */
+         diskPriv->blockJobType = type;
+         diskPriv->blockJobStatus = status;
+-        virDomainObjSignal(vm);
++        virDomainObjBroadcast(vm);
+     } else {
+         /* there is no waiting SYNC API, dispatch the update to a thread */
+         if (VIR_ALLOC(processEvent) < 0)
+@@ -1503,7 +1503,7 @@ qemuProcessHandleSpiceMigrated(qemuMonitorPtr mon ATTRIBUTE_UNUSED,
+     }
+ 
+     priv->job.spiceMigrated = true;
+-    virDomainObjSignal(vm);
++    virDomainObjBroadcast(vm);
+ 
+  cleanup:
+     virObjectUnlock(vm);
+-- 
+2.4.5
+

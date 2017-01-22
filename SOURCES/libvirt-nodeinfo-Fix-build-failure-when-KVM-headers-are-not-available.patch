@@ -1,0 +1,69 @@
+From 1693e23be444bd7adf9d65062cddb906855bbf24 Mon Sep 17 00:00:00 2001
+Message-Id: <1693e23be444bd7adf9d65062cddb906855bbf24@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Wed, 5 Aug 2015 18:18:40 +0200
+Subject: [PATCH] nodeinfo: Fix build failure when KVM headers are not
+ available
+
+Compiler error:
+
+  ../../src/nodeinfo.c: In function 'nodeGetThreadsPerSubcore':
+  ../../src/nodeinfo.c:2393: error: label 'out' defined but not used [-Wunused-label]
+  ../../src/nodeinfo.c:2352: error: unused parameter 'arch' [-Wunused-parameter]
+
+(cherry picked from commit 88c4c32af17adfc21b810b62b71de8b2d245fef9)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/nodeinfo.c | 17 ++++++++++++++---
+ 1 file changed, 14 insertions(+), 3 deletions(-)
+
+diff --git a/src/nodeinfo.c b/src/nodeinfo.c
+index ec78f65..d662be5 100644
+--- a/src/nodeinfo.c
++++ b/src/nodeinfo.c
+@@ -2340,6 +2340,8 @@ nodeAllocPages(unsigned int npages,
+     return ret;
+ }
+ 
++#if HAVE_LINUX_KVM_H && defined(KVM_CAP_PPC_SMT)
++
+ /* Get the number of threads per subcore.
+  *
+  * This will be 2, 4 or 8 on POWER hosts, depending on the current
+@@ -2351,8 +2353,6 @@ int
+ nodeGetThreadsPerSubcore(virArch arch)
+ {
+     int threads_per_subcore = 0;
+-
+-#if HAVE_LINUX_KVM_H && defined(KVM_CAP_PPC_SMT)
+     const char *kvmpath = "/dev/kvm";
+     int kvmfd;
+ 
+@@ -2387,8 +2387,19 @@ nodeGetThreadsPerSubcore(virArch arch)
+ 
+         VIR_FORCE_CLOSE(kvmfd);
+     }
+-#endif /* HAVE_LINUX_KVM_H && defined(KVM_CAP_PPC_SMT) */
+ 
+  out:
+     return threads_per_subcore;
+ }
++
++#else
++
++/* Fallback for nodeGetThreadsPerSubcore() used when KVM headers
++ * are not available on the system */
++int
++nodeGetThreadsPerSubcore(virArch arch ATTRIBUTE_UNUSED)
++{
++    return 0;
++}
++
++#endif /* HAVE_LINUX_KVM_H && defined(KVM_CAP_PPC_SMT) */
+-- 
+2.5.0
+

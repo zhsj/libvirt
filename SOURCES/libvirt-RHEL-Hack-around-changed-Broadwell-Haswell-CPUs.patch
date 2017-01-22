@@ -1,0 +1,89 @@
+From c920fb815413e588dfa36da3221196762a77e6fd Mon Sep 17 00:00:00 2001
+Message-Id: <c920fb815413e588dfa36da3221196762a77e6fd@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Fri, 27 Mar 2015 12:48:40 +0100
+Subject: [PATCH] RHEL: Hack around changed Broadwell/Haswell CPUs
+
+RHEL-only
+
+Upstream tried to solve the change of Broadwell and Haswell CPUs by
+removing rtm and hle features from the corresponding CPU models for new
+machine types. Then they reverted this and introduced new *-noTSX models
+instead. However, the original fix was backported to RHEL.
+
+This patch makes sue Broadwell and Haswell will always contain rtm and
+hle features regardless on RHEL version or machine type used.
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1199446
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_command.c                             | 21 +++++++++++++++++++++
+ .../qemuxml2argvdata/qemuxml2argv-cpu-Haswell.args  |  2 +-
+ .../qemuxml2argvdata/qemuxml2argv-cpu-Haswell3.args |  2 +-
+ 3 files changed, 23 insertions(+), 2 deletions(-)
+
+diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
+index 25a7bc6..ca14ffc 100644
+--- a/src/qemu/qemu_command.c
++++ b/src/qemu/qemu_command.c
+@@ -7011,6 +7011,8 @@ qemuBuildCpuModelArgStr(virQEMUDriverPtr driver,
+     virCPUCompareResult cmp;
+     const char *preferred;
+     virCapsPtr caps = NULL;
++    bool hle = false;
++    bool rtm = false;
+     bool compareAgainstHost = ((def->virtType == VIR_DOMAIN_VIRT_KVM ||
+                                 def->cpu->mode != VIR_CPU_MODE_CUSTOM) &&
+                                def->cpu->mode != VIR_CPU_MODE_HOST_PASSTHROUGH);
+@@ -7171,8 +7173,27 @@ qemuBuildCpuModelArgStr(virQEMUDriverPtr driver,
+             else
+                 sign = '+';
+ 
++            if (STREQ("rtm", featCpu->features[i].name))
++                rtm = true;
++            if (STREQ("hle", featCpu->features[i].name))
++                hle = true;
++
+             virBufferAsprintf(buf, ",%c%s", sign, featCpu->features[i].name);
+         }
++
++        /* Some versions of qemu-kvm in RHEL provide Broadwell and Haswell CPU
++         * models which lack rtm and hle features when used with some machine
++         * types. Let's make sure Broadwell and Haswell will always have these
++         * features. But only if the features were not explicitly mentioned in
++         * the guest CPU definition.
++         */
++        if (STREQ_NULLABLE(featCpu->model, "Broadwell") ||
++            STREQ_NULLABLE(featCpu->model, "Haswell")) {
++            if (!rtm)
++                virBufferAddLit(buf, ",+rtm");
++            if (!hle)
++                virBufferAddLit(buf, ",+hle");
++        }
+     }
+ 
+     ret = 0;
+diff --git a/tests/qemuxml2argvdata/qemuxml2argv-cpu-Haswell.args b/tests/qemuxml2argvdata/qemuxml2argv-cpu-Haswell.args
+index f9bea62..6c11291 100644
+--- a/tests/qemuxml2argvdata/qemuxml2argv-cpu-Haswell.args
++++ b/tests/qemuxml2argvdata/qemuxml2argv-cpu-Haswell.args
+@@ -1,4 +1,4 @@
+ LC_ALL=C PATH=/bin HOME=/home/test USER=test LOGNAME=test QEMU_AUDIO_DRV=none \
+-/usr/bin/qemu-kvm -S -M pc -cpu Haswell -m 214 -smp 6 \
++/usr/bin/qemu-kvm -S -M pc -cpu Haswell,+rtm,+hle -m 214 -smp 6 \
+ -nographic -monitor unix:/tmp/test-monitor,server,nowait -no-acpi -boot n -usb -net \
+ none -serial none -parallel none
+diff --git a/tests/qemuxml2argvdata/qemuxml2argv-cpu-Haswell3.args b/tests/qemuxml2argvdata/qemuxml2argv-cpu-Haswell3.args
+index f9bea62..6c11291 100644
+--- a/tests/qemuxml2argvdata/qemuxml2argv-cpu-Haswell3.args
++++ b/tests/qemuxml2argvdata/qemuxml2argv-cpu-Haswell3.args
+@@ -1,4 +1,4 @@
+ LC_ALL=C PATH=/bin HOME=/home/test USER=test LOGNAME=test QEMU_AUDIO_DRV=none \
+-/usr/bin/qemu-kvm -S -M pc -cpu Haswell -m 214 -smp 6 \
++/usr/bin/qemu-kvm -S -M pc -cpu Haswell,+rtm,+hle -m 214 -smp 6 \
+ -nographic -monitor unix:/tmp/test-monitor,server,nowait -no-acpi -boot n -usb -net \
+ none -serial none -parallel none
+-- 
+2.4.5
+

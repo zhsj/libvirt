@@ -1,0 +1,144 @@
+From f218da31d36f599ecec401773fd675a1ab5e915d Mon Sep 17 00:00:00 2001
+Message-Id: <f218da31d36f599ecec401773fd675a1ab5e915d@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Fri, 7 Aug 2015 13:39:30 +0200
+Subject: [PATCH] qemu: Fix reporting of physical capacity for block devices
+
+Qemu reports physical size 0 for block devices. As 15fa84acbb55ebfee6a4
+changed the behavior of qemuDomainGetBlockInfo to just query the monitor
+this created a regression since we didn't report the size correctly any
+more.
+
+This patch adds code to refresh the physical size of a block device by
+opening it and seeking to the end and uses it both in
+qemuDomainGetBlockInfo and also in qemuDomainGetStatsOneBlock that was
+broken since it was introduced in this respect.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1250982
+(cherry picked from commit 8dc27259255b79758367789ed272e909bdb56735)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/libvirt_private.syms  |  1 +
+ src/qemu/qemu_driver.c    | 18 ++++++++++++++++--
+ src/util/virstoragefile.c | 39 +++++++++++++++++++++++++++++++++++++++
+ src/util/virstoragefile.h |  2 ++
+ 4 files changed, 58 insertions(+), 2 deletions(-)
+
+diff --git a/src/libvirt_private.syms b/src/libvirt_private.syms
+index ad9ebb1..e5d8437 100644
+--- a/src/libvirt_private.syms
++++ b/src/libvirt_private.syms
+@@ -2157,6 +2157,7 @@ virStorageSourceParseRBDColonString;
+ virStorageSourcePoolDefFree;
+ virStorageSourcePoolModeTypeFromString;
+ virStorageSourcePoolModeTypeToString;
++virStorageSourceUpdateBlockPhysicalSize;
+ virStorageTypeFromString;
+ virStorageTypeToString;
+ 
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index 8d569fe..48857ce 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -11908,8 +11908,16 @@ qemuDomainGetBlockInfo(virDomainPtr dom,
+         info->allocation = entry->wr_highest_offset;
+     }
+ 
++    if (entry->physical) {
++        info->physical = entry->physical;
++    } else {
++        if (virStorageSourceUpdateBlockPhysicalSize(disk->src, true) < 0)
++            goto endjob;
++
++        info->physical = disk->src->physical;
++    }
++
+     info->capacity = entry->capacity;
+-    info->physical = entry->physical;
+ 
+     ret = 0;
+ 
+@@ -19355,9 +19363,15 @@ qemuDomainGetStatsOneBlock(virQEMUDriverPtr driver,
+     if (entry->capacity)
+         QEMU_ADD_BLOCK_PARAM_ULL(record, maxparams, block_idx,
+                                  "capacity", entry->capacity);
+-    if (entry->physical)
++    if (entry->physical) {
+         QEMU_ADD_BLOCK_PARAM_ULL(record, maxparams, block_idx,
+                                  "physical", entry->physical);
++    } else {
++        if (virStorageSourceUpdateBlockPhysicalSize(src, false) == 0) {
++            QEMU_ADD_BLOCK_PARAM_ULL(record, maxparams, block_idx,
++                                     "physical", src->physical);
++        }
++    }
+ 
+     ret = 0;
+  cleanup:
+diff --git a/src/util/virstoragefile.c b/src/util/virstoragefile.c
+index 6c3017c..2aa1d90 100644
+--- a/src/util/virstoragefile.c
++++ b/src/util/virstoragefile.c
+@@ -2587,6 +2587,45 @@ virStorageSourceNewFromBacking(virStorageSourcePtr parent)
+ }
+ 
+ 
++/**
++ * @src: disk source definiton structure
++ * @report: report libvirt errors if set to true
++ *
++ * Updates src->physical for block devices since qemu doesn't report the current
++ * size correctly for them. Returns 0 on success, -1 on error.
++ */
++int
++virStorageSourceUpdateBlockPhysicalSize(virStorageSourcePtr src,
++                                        bool report)
++{
++    int fd = -1;
++    off_t end;
++    int ret = -1;
++
++    if (virStorageSourceGetActualType(src) != VIR_STORAGE_TYPE_BLOCK)
++        return 0;
++
++    if ((fd = open(src->path, O_RDONLY)) < 0) {
++        if (report)
++            virReportSystemError(errno, _("failed to open block device '%s'"),
++                                 src->path);
++        return -1;
++    }
++
++    if ((end = lseek(fd, 0, SEEK_END)) == (off_t) -1) {
++        if (report)
++            virReportSystemError(errno,
++                                 _("failed to seek to end of '%s'"), src->path);
++    } else {
++        src->physical = end;
++        ret = 0;
++    }
++
++    VIR_FORCE_CLOSE(fd);
++    return ret;
++}
++
++
+ static char *
+ virStorageFileCanonicalizeFormatPath(char **components,
+                                      size_t ncomponents,
+diff --git a/src/util/virstoragefile.h b/src/util/virstoragefile.h
+index aa17a00..b98fe25 100644
+--- a/src/util/virstoragefile.h
++++ b/src/util/virstoragefile.h
+@@ -362,6 +362,8 @@ bool virStorageSourceIsLocalStorage(virStorageSourcePtr src);
+ bool virStorageSourceIsEmpty(virStorageSourcePtr src);
+ void virStorageSourceFree(virStorageSourcePtr def);
+ void virStorageSourceBackingStoreClear(virStorageSourcePtr def);
++int virStorageSourceUpdateBlockPhysicalSize(virStorageSourcePtr src,
++                                            bool report);
+ virStorageSourcePtr virStorageSourceNewFromBacking(virStorageSourcePtr parent);
+ virStorageSourcePtr virStorageSourceCopy(const virStorageSource *src,
+                                          bool backingChain)
+-- 
+2.5.0
+

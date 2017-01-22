@@ -1,0 +1,80 @@
+From 891e04fccd80d2773e177858da80210800ebbad5 Mon Sep 17 00:00:00 2001
+Message-Id: <891e04fccd80d2773e177858da80210800ebbad5@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Tue, 26 May 2015 13:42:06 +0200
+Subject: [PATCH] qemuDomainGetJobStatsInternal: Support migration events
+
+When QEMU supports migration events the qemuDomainJobInfo structure will
+no longer be updated with migration statistics. We have to enter a job
+and explicitly ask QEMU every time virDomainGetJob{Info,Stats} is
+called.
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+(cherry picked from commit 66c95964a5706c223f4857e55396318c857abb6f)
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1212077
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_driver.c | 27 +++++++++++++++++++++++----
+ 1 file changed, 23 insertions(+), 4 deletions(-)
+
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index 6dafbec..b3e9e63 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -13021,15 +13021,27 @@ qemuConnectBaselineCPU(virConnectPtr conn ATTRIBUTE_UNUSED,
+ 
+ 
+ static int
+-qemuDomainGetJobStatsInternal(virQEMUDriverPtr driver ATTRIBUTE_UNUSED,
++qemuDomainGetJobStatsInternal(virQEMUDriverPtr driver,
+                               virDomainObjPtr vm,
+                               bool completed,
+                               qemuDomainJobInfoPtr jobInfo)
+ {
+     qemuDomainObjPrivatePtr priv = vm->privateData;
+     qemuDomainJobInfoPtr info;
++    bool fetch = virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_MIGRATION_EVENT);
+     int ret = -1;
+ 
++    if (completed)
++        fetch = false;
++
++    /* Do not ask QEMU if migration is not even running yet  */
++    if (!priv->job.current || !priv->job.current->status.status)
++        fetch = false;
++
++    if (fetch &&
++        qemuDomainObjBeginJob(driver, vm, QEMU_JOB_QUERY) < 0)
++        return -1;
++
+     if (!completed &&
+         !virDomainObjIsActive(vm)) {
+         virReportError(VIR_ERR_OPERATION_INVALID, "%s",
+@@ -13050,12 +13062,19 @@ qemuDomainGetJobStatsInternal(virQEMUDriverPtr driver ATTRIBUTE_UNUSED,
+     *jobInfo = *info;
+ 
+     if (jobInfo->type == VIR_DOMAIN_JOB_BOUNDED ||
+-        jobInfo->type == VIR_DOMAIN_JOB_UNBOUNDED)
+-        ret = qemuDomainJobInfoUpdateTime(jobInfo);
+-    else
++        jobInfo->type == VIR_DOMAIN_JOB_UNBOUNDED) {
++        if (fetch)
++            ret = qemuMigrationFetchJobStatus(driver, vm, QEMU_ASYNC_JOB_NONE,
++                                              jobInfo);
++        else
++            ret = qemuDomainJobInfoUpdateTime(jobInfo);
++    } else {
+         ret = 0;
++    }
+ 
+  cleanup:
++    if (fetch)
++        qemuDomainObjEndJob(driver, vm);
+     return ret;
+ }
+ 
+-- 
+2.4.5
+

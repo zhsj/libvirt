@@ -1,0 +1,46 @@
+From 951bd331d71c86f606961d4ce7e2172e817b32d1 Mon Sep 17 00:00:00 2001
+Message-Id: <951bd331d71c86f606961d4ce7e2172e817b32d1@dist-git>
+From: Christophe Fergeau <cfergeau@redhat.com>
+Date: Tue, 21 Jul 2015 09:40:04 -0400
+Subject: [PATCH] storage: Fix pool building when directory already exists
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1244080
+
+Currently, when trying to virsh pool-define/virsh pool-build a new
+'dir' pool, if the target directory already exists, virsh
+pool-build/virStoragePoolBuild will error out. This is a change of
+behaviour compared to eg libvirt 1.2.13
+
+This is caused by the wrong type being used for the dir_create_flags
+variable in virStorageBackendFileSystemBuild , it's defined as a bool
+but is used as a flag bit field so should be unsigned int (this matches
+the type virDirCreate expects for this variable).
+
+This should fix https://bugzilla.gnome.org/show_bug.cgi?id=752417 (GNOME
+Boxes) and https://bugzilla.redhat.com/show_bug.cgi?id=1244080
+(downstream virt-manager).
+
+(cherry picked from commit 60d5ed8c520462fd8fbc2d8dfac7b7c16ae5eb51)
+Signed-off-by: John Ferlan <jferlan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/storage/storage_backend_fs.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/storage/storage_backend_fs.c b/src/storage/storage_backend_fs.c
+index 0eebac3..c0ea1df 100644
+--- a/src/storage/storage_backend_fs.c
++++ b/src/storage/storage_backend_fs.c
+@@ -784,7 +784,8 @@ virStorageBackendFileSystemBuild(virConnectPtr conn ATTRIBUTE_UNUSED,
+     char *parent = NULL;
+     char *p = NULL;
+     mode_t mode;
+-    bool needs_create_as_uid, dir_create_flags;
++    bool needs_create_as_uid;
++    unsigned int dir_create_flags;
+ 
+     virCheckFlags(VIR_STORAGE_POOL_BUILD_OVERWRITE |
+                   VIR_STORAGE_POOL_BUILD_NO_OVERWRITE, ret);
+-- 
+2.5.0
+

@@ -1,0 +1,37 @@
+From e0e54b182c8ab8ba5be114d70e8a1ad17767bf4e Mon Sep 17 00:00:00 2001
+Message-Id: <e0e54b182c8ab8ba5be114d70e8a1ad17767bf4e@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Mon, 24 Aug 2015 13:04:45 +0200
+Subject: [PATCH] security_selinux: Use proper structure to access socket data
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1146886
+
+In virSecuritySELinuxSetSecurityChardevLabel() we are labelling unix
+socket path, but accessing another structure of the union.  This does
+not pose a problem currently as both paths are at the same offset, but
+this should be fixed for the future.
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 4ac6ce38d3bc60f45491509ede4fc8437348048c)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/security/security_selinux.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/security/security_selinux.c b/src/security/security_selinux.c
+index 6e67a86..a37f8c1 100644
+--- a/src/security/security_selinux.c
++++ b/src/security/security_selinux.c
+@@ -1740,7 +1740,7 @@ virSecuritySELinuxSetSecurityChardevLabel(virDomainDefPtr def,
+ 
+     case VIR_DOMAIN_CHR_TYPE_UNIX:
+         if (!dev_source->data.nix.listen) {
+-            if (virSecuritySELinuxSetFilecon(dev_source->data.file.path,
++            if (virSecuritySELinuxSetFilecon(dev_source->data.nix.path,
+                                              imagelabel) < 0)
+                 goto done;
+         }
+-- 
+2.5.1
+

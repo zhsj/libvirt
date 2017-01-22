@@ -1,0 +1,41 @@
+From 642c0565683b08aa183c835e998e1b81398dfbd0 Mon Sep 17 00:00:00 2001
+Message-Id: <642c0565683b08aa183c835e998e1b81398dfbd0@dist-git>
+From: John Ferlan <jferlan@redhat.com>
+Date: Wed, 2 Sep 2015 09:55:12 -0400
+Subject: [PATCH] virfile: Add error for root squash change mode failure
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1253609
+
+This will only be seen when debugging, but in order to help determine
+whether a virFileOpenForceOwnerMode failed during an NFS root-squash
+volume/file creation, add an error message from the child.
+
+(cherry picked from commit 1fafc1bc1cd5c18f36089ec697da08f72270b35c)
+Signed-off-by: John Ferlan <jferlan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/util/virfile.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/src/util/virfile.c b/src/util/virfile.c
+index 61f6e4d..e657913 100644
+--- a/src/util/virfile.c
++++ b/src/util/virfile.c
+@@ -2087,8 +2087,13 @@ virFileOpenForked(const char *path, int openflags, mode_t mode,
+ 
+         /* File is successfully open. Set permissions if requested. */
+         ret = virFileOpenForceOwnerMode(path, fd, mode, uid, gid, flags);
+-        if (ret < 0)
++        if (ret < 0) {
++            ret = -errno;
++            virReportSystemError(errno,
++                                 _("child process failed to force owner mode file '%s'"),
++                                 path);
+             goto childerror;
++        }
+ 
+         do {
+             ret = sendfd(pair[1], fd);
+-- 
+2.5.1
+

@@ -1,0 +1,160 @@
+From c08ee284b60c8c52faba6b0b4586fc9fdf018ddb Mon Sep 17 00:00:00 2001
+Message-Id: <c08ee284b60c8c52faba6b0b4586fc9fdf018ddb@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Fri, 29 May 2015 08:38:44 +0200
+Subject: [PATCH] qemu: Wait for migration events on domain condition
+
+Since we already support the MIGRATION event, we just need to make sure
+the domain condition is signalled whenever a p2p connection drops or the
+domain is paused due to IO error and we can avoid waking up every 50 ms
+to check whether something happened.
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+(cherry picked from commit 3409f5bc4e0ea870982f4eee3bb6f97fe9f9f883)
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1212077
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_domain.h    |  3 +++
+ src/qemu/qemu_migration.c | 45 +++++++++++++++++++++++++++++++++++++++------
+ src/qemu/qemu_process.c   |  3 +++
+ 3 files changed, 45 insertions(+), 6 deletions(-)
+
+diff --git a/src/qemu/qemu_domain.h b/src/qemu/qemu_domain.h
+index 66dbcf5..2af7c59 100644
+--- a/src/qemu/qemu_domain.h
++++ b/src/qemu/qemu_domain.h
+@@ -199,6 +199,9 @@ struct _qemuDomainObjPrivate {
+     /* Bitmaps below hold data from the auto NUMA feature */
+     virBitmapPtr autoNodeset;
+     virBitmapPtr autoCpuset;
++
++    bool signalIOError; /* true if the domain condition should be signalled on
++                           I/O error */
+ };
+ 
+ # define QEMU_DOMAIN_DISK_PRIVATE(disk)	\
+diff --git a/src/qemu/qemu_migration.c b/src/qemu/qemu_migration.c
+index 9a50923..7257182 100644
+--- a/src/qemu/qemu_migration.c
++++ b/src/qemu/qemu_migration.c
+@@ -2661,20 +2661,28 @@ qemuMigrationWaitForCompletion(virQEMUDriverPtr driver,
+ {
+     qemuDomainObjPrivatePtr priv = vm->privateData;
+     qemuDomainJobInfoPtr jobInfo = priv->job.current;
++    bool events = virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_MIGRATION_EVENT);
+     int rv;
+ 
+     jobInfo->type = VIR_DOMAIN_JOB_UNBOUNDED;
+     while ((rv = qemuMigrationCompleted(driver, vm, asyncJob, dconn,
+                                         abort_on_error, storage)) != 1) {
+-        /* Poll every 50ms for progress & to allow cancellation */
+-        struct timespec ts = { .tv_sec = 0, .tv_nsec = 50 * 1000 * 1000ull };
+-
+         if (rv < 0)
+             return rv;
+ 
+-        virObjectUnlock(vm);
+-        nanosleep(&ts, NULL);
+-        virObjectLock(vm);
++        if (events) {
++            if (virDomainObjWait(vm) < 0) {
++                jobInfo->type = VIR_DOMAIN_JOB_FAILED;
++                return -2;
++            }
++        } else {
++            /* Poll every 50ms for progress & to allow cancellation */
++            struct timespec ts = { .tv_sec = 0, .tv_nsec = 50 * 1000 * 1000ull };
++
++            virObjectUnlock(vm);
++            nanosleep(&ts, NULL);
++            virObjectLock(vm);
++        }
+     }
+ 
+     qemuDomainJobInfoUpdateDowntime(jobInfo);
+@@ -4148,6 +4156,7 @@ qemuMigrationRun(virQEMUDriverPtr driver,
+     virErrorPtr orig_err = NULL;
+     unsigned int cookieFlags = 0;
+     bool abort_on_error = !!(flags & VIR_MIGRATE_ABORT_ON_ERROR);
++    bool events = virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_MIGRATION_EVENT);
+     int rc;
+ 
+     VIR_DEBUG("driver=%p, vm=%p, cookiein=%s, cookieinlen=%d, "
+@@ -4178,6 +4187,9 @@ qemuMigrationRun(virQEMUDriverPtr driver,
+         return -1;
+     }
+ 
++    if (events)
++        priv->signalIOError = abort_on_error;
++
+     mig = qemuMigrationEatCookie(driver, vm, cookiein, cookieinlen,
+                                  cookieFlags | QEMU_MIGRATION_COOKIE_GRAPHICS);
+     if (!mig)
+@@ -4387,6 +4399,9 @@ qemuMigrationRun(virQEMUDriverPtr driver,
+ 
+     qemuMigrationCookieFree(mig);
+ 
++    if (events)
++        priv->signalIOError = false;
++
+     if (orig_err) {
+         virSetError(orig_err);
+         virFreeError(orig_err);
+@@ -5029,6 +5044,18 @@ doPeer2PeerMigrate3(virQEMUDriverPtr driver,
+ }
+ 
+ 
++static void
++qemuMigrationConnectionClosed(virConnectPtr conn,
++                              int reason,
++                              void *opaque)
++{
++    virDomainObjPtr vm = opaque;
++
++    VIR_DEBUG("conn=%p, reason=%d, vm=%s", conn, reason, vm->def->name);
++    virDomainObjBroadcast(vm);
++}
++
++
+ static int virConnectCredType[] = {
+     VIR_CRED_AUTHNAME,
+     VIR_CRED_PASSPHRASE,
+@@ -5104,6 +5131,11 @@ static int doPeer2PeerMigrate(virQEMUDriverPtr driver,
+                                cfg->keepAliveCount) < 0)
+         goto cleanup;
+ 
++    if (virConnectRegisterCloseCallback(dconn, qemuMigrationConnectionClosed,
++                                        vm, NULL) < 0) {
++        goto cleanup;
++    }
++
+     qemuDomainObjEnterRemote(vm);
+     p2p = VIR_DRV_SUPPORTS_FEATURE(dconn->driver, dconn,
+                                    VIR_DRV_FEATURE_MIGRATION_P2P);
+@@ -5169,6 +5201,7 @@ static int doPeer2PeerMigrate(virQEMUDriverPtr driver,
+  cleanup:
+     orig_err = virSaveLastError();
+     qemuDomainObjEnterRemote(vm);
++    virConnectUnregisterCloseCallback(dconn, qemuMigrationConnectionClosed);
+     virObjectUnref(dconn);
+     qemuDomainObjExitRemote(vm);
+     if (orig_err) {
+diff --git a/src/qemu/qemu_process.c b/src/qemu/qemu_process.c
+index 577f309..7abeaae 100644
+--- a/src/qemu/qemu_process.c
++++ b/src/qemu/qemu_process.c
+@@ -952,6 +952,9 @@ qemuProcessHandleIOError(qemuMonitorPtr mon ATTRIBUTE_UNUSED,
+         qemuDomainObjPrivatePtr priv = vm->privateData;
+         VIR_DEBUG("Transitioned guest %s to paused state due to IO error", vm->def->name);
+ 
++        if (priv->signalIOError)
++            virDomainObjBroadcast(vm);
++
+         virDomainObjSetState(vm, VIR_DOMAIN_PAUSED, VIR_DOMAIN_PAUSED_IOERROR);
+         lifecycleEvent = virDomainEventLifecycleNewFromObj(vm,
+                                                   VIR_DOMAIN_EVENT_SUSPENDED,
+-- 
+2.4.5
+

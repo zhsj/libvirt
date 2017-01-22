@@ -1,0 +1,106 @@
+From cedb46fe3e884bd23b7ba504fac78e60265a8ea3 Mon Sep 17 00:00:00 2001
+Message-Id: <cedb46fe3e884bd23b7ba504fac78e60265a8ea3@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Fri, 29 May 2015 08:37:59 +0200
+Subject: [PATCH] qemu: Update migration state according to MIGRATION event
+
+We don't need to call query-migrate every 50ms when we get the current
+migration state via MIGRATION event.
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+(cherry picked from commit 6d2edb6a42d0d41971fcf53c16cdc785d36c3ecc)
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1212077
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_migration.c | 14 ++++++++++++--
+ src/qemu/qemu_process.c   | 31 +++++++++++++++++++++++++++++++
+ 2 files changed, 43 insertions(+), 2 deletions(-)
+
+diff --git a/src/qemu/qemu_migration.c b/src/qemu/qemu_migration.c
+index a57a177..9a50923 100644
+--- a/src/qemu/qemu_migration.c
++++ b/src/qemu/qemu_migration.c
+@@ -2552,7 +2552,11 @@ qemuMigrationCheckJobStatus(virQEMUDriverPtr driver,
+     qemuDomainObjPrivatePtr priv = vm->privateData;
+     qemuDomainJobInfoPtr jobInfo = priv->job.current;
+ 
+-    if (qemuMigrationUpdateJobStatus(driver, vm, asyncJob) < 0)
++    bool events = virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_MIGRATION_EVENT);
++
++    if (events)
++        qemuMigrationUpdateJobType(jobInfo);
++    else if (qemuMigrationUpdateJobStatus(driver, vm, asyncJob) < 0)
+         return -1;
+ 
+     switch (jobInfo->type) {
+@@ -2571,9 +2575,15 @@ qemuMigrationCheckJobStatus(virQEMUDriverPtr driver,
+                        qemuMigrationJobName(vm), _("canceled by client"));
+         return -1;
+ 
++    case VIR_DOMAIN_JOB_COMPLETED:
++        /* Fetch statistics of a completed migration */
++        if (events &&
++            qemuMigrationUpdateJobStatus(driver, vm, asyncJob) < 0)
++            return -1;
++        break;
++
+     case VIR_DOMAIN_JOB_BOUNDED:
+     case VIR_DOMAIN_JOB_UNBOUNDED:
+-    case VIR_DOMAIN_JOB_COMPLETED:
+     case VIR_DOMAIN_JOB_LAST:
+         break;
+     }
+diff --git a/src/qemu/qemu_process.c b/src/qemu/qemu_process.c
+index 1d223d3..577f309 100644
+--- a/src/qemu/qemu_process.c
++++ b/src/qemu/qemu_process.c
+@@ -1508,6 +1508,36 @@ qemuProcessHandleSpiceMigrated(qemuMonitorPtr mon ATTRIBUTE_UNUSED,
+ }
+ 
+ 
++static int
++qemuProcessHandleMigrationStatus(qemuMonitorPtr mon ATTRIBUTE_UNUSED,
++                                 virDomainObjPtr vm,
++                                 int status,
++                                 void *opaque ATTRIBUTE_UNUSED)
++{
++    qemuDomainObjPrivatePtr priv;
++
++    virObjectLock(vm);
++
++    VIR_DEBUG("Migration of domain %p %s changed state to %s",
++              vm, vm->def->name,
++              qemuMonitorMigrationStatusTypeToString(status));
++
++    priv = vm->privateData;
++    if (priv->job.asyncJob != QEMU_ASYNC_JOB_MIGRATION_OUT &&
++        priv->job.asyncJob != QEMU_ASYNC_JOB_MIGRATION_IN) {
++        VIR_DEBUG("got MIGRATION event without a migration job");
++        goto cleanup;
++    }
++
++    priv->job.current->status.status = status;
++    virDomainObjBroadcast(vm);
++
++ cleanup:
++    virObjectUnlock(vm);
++    return 0;
++}
++
++
+ static qemuMonitorCallbacks monitorCallbacks = {
+     .eofNotify = qemuProcessHandleMonitorEOF,
+     .errorNotify = qemuProcessHandleMonitorError,
+@@ -1532,6 +1562,7 @@ static qemuMonitorCallbacks monitorCallbacks = {
+     .domainNicRxFilterChanged = qemuProcessHandleNicRxFilterChanged,
+     .domainSerialChange = qemuProcessHandleSerialChanged,
+     .domainSpiceMigrated = qemuProcessHandleSpiceMigrated,
++    .domainMigrationStatus = qemuProcessHandleMigrationStatus,
+ };
+ 
+ static int
+-- 
+2.4.5
+

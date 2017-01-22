@@ -1,0 +1,48 @@
+From 76d622dec775b332594c46fa55d1fd33785d1d62 Mon Sep 17 00:00:00 2001
+Message-Id: <76d622dec775b332594c46fa55d1fd33785d1d62@dist-git>
+From: Cole Robinson <crobinso@redhat.com>
+Date: Tue, 29 Sep 2015 15:57:34 +0200
+Subject: [PATCH] qemu: Fix dynamic_ownership qemu.conf setting
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1266628
+
+Commit 307fb904 (Sep 10) added a 'privileged' variable when creating
+the DAC driver:
+
+@@ -153,6 +157,7 @@ virSecurityManagerNewDAC(const char *virtDriver,
+                          bool defaultConfined,
+                          bool requireConfined,
+                          bool dynamicOwnership,
++                         bool privileged,
+                          virSecurityManagerDACChownCallback chownCallback)
+
+But argument order is mixed up at the caller, swapping dynamicOwnership
+and privileged values. This corrects the argument order
+
+(cherry picked from commit 68572de8228e3971174a83c227fcb018d6f684c7)
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1267154
+
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_driver.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index e77e548..bdebf13 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -431,8 +431,8 @@ qemuSecurityInit(virQEMUDriverPtr driver)
+                                              cfg->allowDiskFormatProbing,
+                                              cfg->securityDefaultConfined,
+                                              cfg->securityRequireConfined,
+-                                             virQEMUDriverIsPrivileged(driver),
+                                              cfg->dynamicOwnership,
++                                             virQEMUDriverIsPrivileged(driver),
+                                              qemuSecurityChownCallback)))
+             goto error;
+         if (!stack) {
+-- 
+2.6.0
+

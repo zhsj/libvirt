@@ -1,0 +1,50 @@
+From f03a1cb15b60d56f8f85bcd4a9823aac68682d56 Mon Sep 17 00:00:00 2001
+Message-Id: <f03a1cb15b60d56f8f85bcd4a9823aac68682d56@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Tue, 22 Sep 2015 16:59:46 +0200
+Subject: [PATCH] qemu: command: Align memory sizes only on fresh starts
+
+When we are starting a qemu process for an incomming migration or
+snapshot reloading we should not modify the memory sizes in the domain
+since we could potentially change the guest ABI that was tediously
+checked before. Additionally the function now updates the initial memory
+size according to the NUMA node size, which should not happen if we are
+restoring state.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1252685
+(cherry picked from commit c7d7ba85a6242d789ba3f4dae313e950fbb638c5)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_command.c                             | 3 ++-
+ tests/qemuxml2argvdata/qemuxml2argv-restore-v1.args | 2 +-
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
+index 701ccc3..6314976 100644
+--- a/src/qemu/qemu_command.c
++++ b/src/qemu/qemu_command.c
+@@ -9040,7 +9040,8 @@ qemuBuildCommandLine(virConnectPtr conn,
+     if (qemuBuildDomainLoaderCommandLine(cmd, def, qemuCaps) < 0)
+         goto error;
+ 
+-    if (qemuDomainAlignMemorySizes(def) < 0)
++    if (!migrateFrom && !snapshot &&
++        qemuDomainAlignMemorySizes(def) < 0)
+         goto error;
+ 
+     virCommandAddArg(cmd, "-m");
+diff --git a/tests/qemuxml2argvdata/qemuxml2argv-restore-v1.args b/tests/qemuxml2argvdata/qemuxml2argv-restore-v1.args
+index 5c67702..458c015 100644
+--- a/tests/qemuxml2argvdata/qemuxml2argv-restore-v1.args
++++ b/tests/qemuxml2argvdata/qemuxml2argv-restore-v1.args
+@@ -1,5 +1,5 @@
+ LC_ALL=C PATH=/bin HOME=/home/test USER=test LOGNAME=test QEMU_AUDIO_DRV=none \
+ /usr/bin/qemu -S -M \
+-pc -m 214 -smp 1 -nographic -monitor unix:/tmp/test-monitor,server,nowait \
++pc -m 213 -smp 1 -nographic -monitor unix:/tmp/test-monitor,server,nowait \
+ -no-acpi -boot c -usb -hda /dev/HostVG/QEMUGuest1 -net none -serial none -parallel \
+ none -incoming stdio
+-- 
+2.5.3
+

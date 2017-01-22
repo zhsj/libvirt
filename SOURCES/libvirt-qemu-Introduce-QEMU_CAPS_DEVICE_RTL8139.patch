@@ -1,0 +1,219 @@
+From 4a5223042084155fafe5b54bd07fd0be106d123b Mon Sep 17 00:00:00 2001
+Message-Id: <4a5223042084155fafe5b54bd07fd0be106d123b@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Fri, 11 Sep 2015 17:00:17 +0200
+Subject: [PATCH] qemu: Introduce QEMU_CAPS_DEVICE_RTL8139
+
+This capability can be used to detect whether or not the QEMU
+binary supports the rtl8139 network device.
+
+(cherry picked from commit b8d545a8b88f03b1a4c30d272a4561d6adbfcd60)
+
+Conflicts:
+	src/qemu/qemu_capabilities.c
+	src/qemu/qemu_capabilities.h
+	tests/qemucapabilitiesdata/caps_1.2.2-1.caps
+	tests/qemucapabilitiesdata/caps_1.3.1-1.caps
+	tests/qemucapabilitiesdata/caps_1.4.2-1.caps
+	tests/qemucapabilitiesdata/caps_1.5.3-1.caps
+	tests/qemucapabilitiesdata/caps_1.6.0-1.caps
+	tests/qemucapabilitiesdata/caps_1.6.50-1.caps
+	tests/qemucapabilitiesdata/caps_2.1.1-1.caps
+	tests/qemuhelptest.c
+
+Conflicts are caused by the fact that some members are missing from
+the virQEMUCaps enumeration because the relevant commits have not
+been backported.
+
+The value of QEMU_CAPS_DEVICE_RTL8139 has been changed from 196 to
+192 to avoid making the enumeration sparse.
+
+The test program and data have been updated accordingly as well,
+removing any reference to capabilities that have not been backported.
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1254044
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_capabilities.c                  |  2 ++
+ src/qemu/qemu_capabilities.h                  |  1 +
+ tests/qemucapabilitiesdata/caps_1.2.2-1.caps  |  1 +
+ tests/qemucapabilitiesdata/caps_1.3.1-1.caps  |  1 +
+ tests/qemucapabilitiesdata/caps_1.4.2-1.caps  |  1 +
+ tests/qemucapabilitiesdata/caps_1.5.3-1.caps  |  1 +
+ tests/qemucapabilitiesdata/caps_1.6.0-1.caps  |  1 +
+ tests/qemucapabilitiesdata/caps_1.6.50-1.caps |  1 +
+ tests/qemucapabilitiesdata/caps_2.1.1-1.caps  |  1 +
+ tests/qemuhelptest.c                          | 18 ++++++++++++------
+ 10 files changed, 22 insertions(+), 6 deletions(-)
+
+diff --git a/src/qemu/qemu_capabilities.c b/src/qemu/qemu_capabilities.c
+index be5384f..69259f5 100644
+--- a/src/qemu/qemu_capabilities.c
++++ b/src/qemu/qemu_capabilities.c
+@@ -288,6 +288,7 @@ VIR_ENUM_IMPL(virQEMUCaps, QEMU_CAPS_LAST,
+ 
+               "vhost-user-multiqueue", /* 190 */
+               "migration-event",
++              "rtl8139",
+     );
+ 
+ 
+@@ -1569,6 +1570,7 @@ struct virQEMUCapsStringFlags virQEMUCapsObjectTypes[] = {
+     { "ivshmem", QEMU_CAPS_DEVICE_IVSHMEM },
+     { "pc-dimm", QEMU_CAPS_DEVICE_PC_DIMM },
+     { "pci-serial", QEMU_CAPS_DEVICE_PCI_SERIAL },
++    { "rtl8139", QEMU_CAPS_DEVICE_RTL8139 },
+ };
+ 
+ static struct virQEMUCapsStringFlags virQEMUCapsObjectPropsVirtioBlk[] = {
+diff --git a/src/qemu/qemu_capabilities.h b/src/qemu/qemu_capabilities.h
+index f77bd06..2762cec 100644
+--- a/src/qemu/qemu_capabilities.h
++++ b/src/qemu/qemu_capabilities.h
+@@ -231,6 +231,7 @@ typedef enum {
+     QEMU_CAPS_CPU_AARCH64_OFF    = 189, /* -cpu ...,aarch64=off */
+     QEMU_CAPS_VHOSTUSER_MULTIQUEUE = 190, /* vhost-user with -netdev queues= */
+     QEMU_CAPS_MIGRATION_EVENT    = 191, /* MIGRATION event */
++    QEMU_CAPS_DEVICE_RTL8139 = 192, /* -device rtl8139 */
+ 
+     QEMU_CAPS_LAST,                   /* this must always be the last item */
+ } virQEMUCapsFlags;
+diff --git a/tests/qemucapabilitiesdata/caps_1.2.2-1.caps b/tests/qemucapabilitiesdata/caps_1.2.2-1.caps
+index 30239df..fd44748 100644
+--- a/tests/qemucapabilitiesdata/caps_1.2.2-1.caps
++++ b/tests/qemucapabilitiesdata/caps_1.2.2-1.caps
+@@ -120,4 +120,5 @@
+     <flag name='vmware-svga.vgamem_mb'/>
+     <flag name='qxl.vgamem_mb'/>
+     <flag name='qxl-vga.vgamem_mb'/>
++    <flag name='rtl8139'/>
+   </qemuCaps>
+diff --git a/tests/qemucapabilitiesdata/caps_1.3.1-1.caps b/tests/qemucapabilitiesdata/caps_1.3.1-1.caps
+index ea3d850..0730eab 100644
+--- a/tests/qemucapabilitiesdata/caps_1.3.1-1.caps
++++ b/tests/qemucapabilitiesdata/caps_1.3.1-1.caps
+@@ -135,4 +135,5 @@
+     <flag name='qxl.vgamem_mb'/>
+     <flag name='qxl-vga.vgamem_mb'/>
+     <flag name='pci-serial'/>
++    <flag name='rtl8139'/>
+   </qemuCaps>
+diff --git a/tests/qemucapabilitiesdata/caps_1.4.2-1.caps b/tests/qemucapabilitiesdata/caps_1.4.2-1.caps
+index 2c19ddc..66bd901 100644
+--- a/tests/qemucapabilitiesdata/caps_1.4.2-1.caps
++++ b/tests/qemucapabilitiesdata/caps_1.4.2-1.caps
+@@ -136,4 +136,5 @@
+     <flag name='qxl.vgamem_mb'/>
+     <flag name='qxl-vga.vgamem_mb'/>
+     <flag name='pci-serial'/>
++    <flag name='rtl8139'/>
+   </qemuCaps>
+diff --git a/tests/qemucapabilitiesdata/caps_1.5.3-1.caps b/tests/qemucapabilitiesdata/caps_1.5.3-1.caps
+index aadccd5..fb7a8b0 100644
+--- a/tests/qemucapabilitiesdata/caps_1.5.3-1.caps
++++ b/tests/qemucapabilitiesdata/caps_1.5.3-1.caps
+@@ -145,4 +145,5 @@
+     <flag name='qxl.vgamem_mb'/>
+     <flag name='qxl-vga.vgamem_mb'/>
+     <flag name='pci-serial'/>
++    <flag name='rtl8139'/>
+   </qemuCaps>
+diff --git a/tests/qemucapabilitiesdata/caps_1.6.0-1.caps b/tests/qemucapabilitiesdata/caps_1.6.0-1.caps
+index 3e81cbf..250ef4e 100644
+--- a/tests/qemucapabilitiesdata/caps_1.6.0-1.caps
++++ b/tests/qemucapabilitiesdata/caps_1.6.0-1.caps
+@@ -151,4 +151,5 @@
+     <flag name='qxl.vgamem_mb'/>
+     <flag name='qxl-vga.vgamem_mb'/>
+     <flag name='pci-serial'/>
++    <flag name='rtl8139'/>
+   </qemuCaps>
+diff --git a/tests/qemucapabilitiesdata/caps_1.6.50-1.caps b/tests/qemucapabilitiesdata/caps_1.6.50-1.caps
+index 84c357f..a8850b8 100644
+--- a/tests/qemucapabilitiesdata/caps_1.6.50-1.caps
++++ b/tests/qemucapabilitiesdata/caps_1.6.50-1.caps
+@@ -151,4 +151,5 @@
+     <flag name='qxl.vgamem_mb'/>
+     <flag name='qxl-vga.vgamem_mb'/>
+     <flag name='pci-serial'/>
++    <flag name='rtl8139'/>
+   </qemuCaps>
+diff --git a/tests/qemucapabilitiesdata/caps_2.1.1-1.caps b/tests/qemucapabilitiesdata/caps_2.1.1-1.caps
+index b1ee8df..705ee65 100644
+--- a/tests/qemucapabilitiesdata/caps_2.1.1-1.caps
++++ b/tests/qemucapabilitiesdata/caps_2.1.1-1.caps
+@@ -167,4 +167,5 @@
+     <flag name='qxl-vga.vgamem_mb'/>
+     <flag name='pc-dimm'/>
+     <flag name='pci-serial'/>
++    <flag name='rtl8139'/>
+   </qemuCaps>
+diff --git a/tests/qemuhelptest.c b/tests/qemuhelptest.c
+index 507831c..a481693 100644
+--- a/tests/qemuhelptest.c
++++ b/tests/qemuhelptest.c
+@@ -409,7 +409,8 @@ mymain(void)
+             QEMU_CAPS_DEVICE_USB_SERIAL,
+             QEMU_CAPS_DEVICE_USB_NET,
+             QEMU_CAPS_DEVICE_USB_KBD,
+-            QEMU_CAPS_DEVICE_PCI_BRIDGE);
++            QEMU_CAPS_DEVICE_PCI_BRIDGE,
++            QEMU_CAPS_DEVICE_RTL8139);
+     DO_TEST("qemu-kvm-0.12.3", 12003, 1, 0,
+             QEMU_CAPS_VNC_COLON,
+             QEMU_CAPS_NO_REBOOT,
+@@ -524,7 +525,8 @@ mymain(void)
+             QEMU_CAPS_DEVICE_USB_KBD,
+             QEMU_CAPS_DEVICE_USB_STORAGE,
+             QEMU_CAPS_HOST_PCI_MULTIDOMAIN,
+-            QEMU_CAPS_DEVICE_IVSHMEM);
++            QEMU_CAPS_DEVICE_IVSHMEM,
++            QEMU_CAPS_DEVICE_RTL8139);
+     DO_TEST("qemu-kvm-0.12.1.2-rhel61", 12001, 1, 0,
+             QEMU_CAPS_VNC_COLON,
+             QEMU_CAPS_NO_REBOOT,
+@@ -591,7 +593,8 @@ mymain(void)
+             QEMU_CAPS_DEVICE_USB_SERIAL,
+             QEMU_CAPS_DEVICE_USB_NET,
+             QEMU_CAPS_DEVICE_USB_KBD,
+-            QEMU_CAPS_DEVICE_PCI_BRIDGE);
++            QEMU_CAPS_DEVICE_PCI_BRIDGE,
++            QEMU_CAPS_DEVICE_RTL8139);
+     DO_TEST("qemu-kvm-0.12.1.2-rhel62-beta", 12001, 1, 0,
+             QEMU_CAPS_VNC_COLON,
+             QEMU_CAPS_NO_REBOOT,
+@@ -666,7 +669,8 @@ mymain(void)
+             QEMU_CAPS_DEVICE_CIRRUS_VGA,
+             QEMU_CAPS_DEVICE_PCI_BRIDGE,
+             QEMU_CAPS_DEVICE_USB_KBD,
+-            QEMU_CAPS_DEVICE_USB_STORAGE);
++            QEMU_CAPS_DEVICE_USB_STORAGE,
++            QEMU_CAPS_DEVICE_RTL8139);
+     DO_TEST("qemu-1.0", 1000000, 0, 0,
+             QEMU_CAPS_VNC_COLON,
+             QEMU_CAPS_NO_REBOOT,
+@@ -753,7 +757,8 @@ mymain(void)
+             QEMU_CAPS_DEVICE_USB_KBD,
+             QEMU_CAPS_DEVICE_USB_STORAGE,
+             QEMU_CAPS_SPLASH_TIMEOUT,
+-            QEMU_CAPS_DEVICE_IVSHMEM);
++            QEMU_CAPS_DEVICE_IVSHMEM,
++            QEMU_CAPS_DEVICE_RTL8139);
+     DO_TEST("qemu-1.1.0", 1001000, 0, 0,
+             QEMU_CAPS_VNC_COLON,
+             QEMU_CAPS_NO_REBOOT,
+@@ -853,7 +858,8 @@ mymain(void)
+             QEMU_CAPS_DEVICE_USB_STORAGE,
+             QEMU_CAPS_OBJECT_USB_AUDIO,
+             QEMU_CAPS_SPLASH_TIMEOUT,
+-            QEMU_CAPS_DEVICE_IVSHMEM);
++            QEMU_CAPS_DEVICE_IVSHMEM,
++            QEMU_CAPS_DEVICE_RTL8139);
+     DO_TEST_FULL("qemu-1.2.0", 1002000, 0, 0, VIR_ERR_CONFIG_UNSUPPORTED,
+             QEMU_CAPS_LAST);
+     DO_TEST_FULL("qemu-kvm-1.2.0", 1002000, 1, 0, VIR_ERR_CONFIG_UNSUPPORTED,
+-- 
+2.5.2
+

@@ -1,0 +1,84 @@
+From 7d9e53dfd33baa9a934548aeba04abcf6775d7ca Mon Sep 17 00:00:00 2001
+Message-Id: <7d9e53dfd33baa9a934548aeba04abcf6775d7ca@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Wed, 5 Aug 2015 18:18:29 +0200
+Subject: [PATCH] nodeinfo: Use nodeGetOnlineCPUBitmap() when parsing node
+
+No need to look up the online status of each CPU separately when we
+can get all the information in one go.
+
+(cherry picked from commit b909e9fb2c095b7c83eab99e1f812bd1ffe6e480)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/nodeinfo.c | 16 +++++++---------
+ 1 file changed, 7 insertions(+), 9 deletions(-)
+
+diff --git a/src/nodeinfo.c b/src/nodeinfo.c
+index 7d0e6b0..2d910c9 100644
+--- a/src/nodeinfo.c
++++ b/src/nodeinfo.c
+@@ -409,6 +409,7 @@ virNodeParseNode(const char *sysfs_prefix,
+     DIR *cpudir = NULL;
+     struct dirent *cpudirent = NULL;
+     virBitmapPtr present_cpumap = NULL;
++    virBitmapPtr online_cpus_map = NULL;
+     virBitmapPtr sockets_map = NULL;
+     virBitmapPtr *cores_maps = NULL;
+     int sock_max = 0;
+@@ -417,7 +418,6 @@ virNodeParseNode(const char *sysfs_prefix,
+     size_t i;
+     int siblings;
+     unsigned int cpu;
+-    int online;
+     int direrr;
+ 
+     *threads = 0;
+@@ -432,6 +432,9 @@ virNodeParseNode(const char *sysfs_prefix,
+     present_cpumap = nodeGetPresentCPUBitmap(sysfs_prefix);
+     if (!present_cpumap)
+         goto cleanup;
++    online_cpus_map = nodeGetOnlineCPUBitmap(sysfs_prefix);
++    if (!online_cpus_map)
++        goto cleanup;
+ 
+     /* enumerate sockets in the node */
+     if (!(sockets_map = virBitmapNew(ID_MAX + 1)))
+@@ -444,10 +447,7 @@ virNodeParseNode(const char *sysfs_prefix,
+         if (!virBitmapIsBitSet(present_cpumap, cpu))
+             continue;
+ 
+-        if ((online = virNodeGetCpuValue(node, cpu, "online", 1)) < 0)
+-            goto cleanup;
+-
+-        if (!online)
++        if (!virBitmapIsBitSet(online_cpus_map, cpu))
+             continue;
+ 
+         /* Parse socket */
+@@ -489,10 +489,7 @@ virNodeParseNode(const char *sysfs_prefix,
+         if (!virBitmapIsBitSet(present_cpumap, cpu))
+             continue;
+ 
+-        if ((online = virNodeGetCpuValue(node, cpu, "online", 1)) < 0)
+-            goto cleanup;
+-
+-        if (!online) {
++        if (!virBitmapIsBitSet(online_cpus_map, cpu)) {
+             (*offline)++;
+             continue;
+         }
+@@ -560,6 +557,7 @@ virNodeParseNode(const char *sysfs_prefix,
+             virBitmapFree(cores_maps[i]);
+     VIR_FREE(cores_maps);
+     virBitmapFree(sockets_map);
++    virBitmapFree(online_cpus_map);
+     virBitmapFree(present_cpumap);
+ 
+     return ret;
+-- 
+2.5.0
+

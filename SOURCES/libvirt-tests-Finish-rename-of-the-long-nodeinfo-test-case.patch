@@ -1,0 +1,166 @@
+From 20962f926fb903f4368e25dbc791a092de29fbda Mon Sep 17 00:00:00 2001
+Message-Id: <20962f926fb903f4368e25dbc791a092de29fbda@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Wed, 5 Aug 2015 18:18:34 +0200
+Subject: [PATCH] tests: Finish rename of the long nodeinfo test case
+
+Commit 2094d01e2f54e5774c0d0d380e83154b42ea65be forgot to rename two
+more files.
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 54965743e23ff6488cbbf0f86ea44d24c1ab71a5)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ tests/nodeinfodata/linux-ppc64-deconf-cpus.cpuinfo | 55 ++++++++++++++++++++++
+ .../nodeinfodata/linux-ppc64-deconf-cpus.expected  |  1 +
+ .../linux-ppc64-deconfigured-cpus.cpuinfo          | 55 ----------------------
+ .../linux-ppc64-deconfigured-cpus.expected         |  1 -
+ 4 files changed, 56 insertions(+), 56 deletions(-)
+ create mode 100644 tests/nodeinfodata/linux-ppc64-deconf-cpus.cpuinfo
+ create mode 100644 tests/nodeinfodata/linux-ppc64-deconf-cpus.expected
+ delete mode 100644 tests/nodeinfodata/linux-ppc64-deconfigured-cpus.cpuinfo
+ delete mode 100644 tests/nodeinfodata/linux-ppc64-deconfigured-cpus.expected
+
+diff --git a/tests/nodeinfodata/linux-ppc64-deconf-cpus.cpuinfo b/tests/nodeinfodata/linux-ppc64-deconf-cpus.cpuinfo
+new file mode 100644
+index 0000000..e5560e2
+--- /dev/null
++++ b/tests/nodeinfodata/linux-ppc64-deconf-cpus.cpuinfo
+@@ -0,0 +1,55 @@
++processor	: 16
++cpu		: POWER8E (raw), altivec supported
++clock		: 3690.000000MHz
++revision	: 2.1 (pvr 004b 0201)
++
++processor	: 24
++cpu		: POWER8E (raw), altivec supported
++clock		: 3690.000000MHz
++revision	: 2.1 (pvr 004b 0201)
++
++processor	: 40
++cpu		: POWER8E (raw), altivec supported
++clock		: 3690.000000MHz
++revision	: 2.1 (pvr 004b 0201)
++
++processor	: 48
++cpu		: POWER8E (raw), altivec supported
++clock		: 3690.000000MHz
++revision	: 2.1 (pvr 004b 0201)
++
++processor	: 72
++cpu		: POWER8E (raw), altivec supported
++clock		: 3690.000000MHz
++revision	: 2.1 (pvr 004b 0201)
++
++processor	: 104
++cpu		: POWER8E (raw), altivec supported
++clock		: 3690.000000MHz
++revision	: 2.1 (pvr 004b 0201)
++
++processor	: 112
++cpu		: POWER8E (raw), altivec supported
++clock		: 3690.000000MHz
++revision	: 2.1 (pvr 004b 0201)
++
++processor	: 120
++cpu		: POWER8E (raw), altivec supported
++clock		: 3690.000000MHz
++revision	: 2.1 (pvr 004b 0201)
++
++processor	: 128
++cpu		: POWER8E (raw), altivec supported
++clock		: 3690.000000MHz
++revision	: 2.1 (pvr 004b 0201)
++
++processor	: 136
++cpu		: POWER8E (raw), altivec supported
++clock		: 3690.000000MHz
++revision	: 2.1 (pvr 004b 0201)
++
++timebase	: 512000000
++platform	: PowerNV
++model		: 8247-22L
++machine		: PowerNV 8247-22L
++firmware	: OPAL v3
+diff --git a/tests/nodeinfodata/linux-ppc64-deconf-cpus.expected b/tests/nodeinfodata/linux-ppc64-deconf-cpus.expected
+new file mode 100644
+index 0000000..304f423
+--- /dev/null
++++ b/tests/nodeinfodata/linux-ppc64-deconf-cpus.expected
+@@ -0,0 +1 @@
++CPUs: 10/80, MHz: 3690, Nodes: 1, Sockets: 1, Cores: 80, Threads: 1
+diff --git a/tests/nodeinfodata/linux-ppc64-deconfigured-cpus.cpuinfo b/tests/nodeinfodata/linux-ppc64-deconfigured-cpus.cpuinfo
+deleted file mode 100644
+index e5560e2..0000000
+--- a/tests/nodeinfodata/linux-ppc64-deconfigured-cpus.cpuinfo
++++ /dev/null
+@@ -1,55 +0,0 @@
+-processor	: 16
+-cpu		: POWER8E (raw), altivec supported
+-clock		: 3690.000000MHz
+-revision	: 2.1 (pvr 004b 0201)
+-
+-processor	: 24
+-cpu		: POWER8E (raw), altivec supported
+-clock		: 3690.000000MHz
+-revision	: 2.1 (pvr 004b 0201)
+-
+-processor	: 40
+-cpu		: POWER8E (raw), altivec supported
+-clock		: 3690.000000MHz
+-revision	: 2.1 (pvr 004b 0201)
+-
+-processor	: 48
+-cpu		: POWER8E (raw), altivec supported
+-clock		: 3690.000000MHz
+-revision	: 2.1 (pvr 004b 0201)
+-
+-processor	: 72
+-cpu		: POWER8E (raw), altivec supported
+-clock		: 3690.000000MHz
+-revision	: 2.1 (pvr 004b 0201)
+-
+-processor	: 104
+-cpu		: POWER8E (raw), altivec supported
+-clock		: 3690.000000MHz
+-revision	: 2.1 (pvr 004b 0201)
+-
+-processor	: 112
+-cpu		: POWER8E (raw), altivec supported
+-clock		: 3690.000000MHz
+-revision	: 2.1 (pvr 004b 0201)
+-
+-processor	: 120
+-cpu		: POWER8E (raw), altivec supported
+-clock		: 3690.000000MHz
+-revision	: 2.1 (pvr 004b 0201)
+-
+-processor	: 128
+-cpu		: POWER8E (raw), altivec supported
+-clock		: 3690.000000MHz
+-revision	: 2.1 (pvr 004b 0201)
+-
+-processor	: 136
+-cpu		: POWER8E (raw), altivec supported
+-clock		: 3690.000000MHz
+-revision	: 2.1 (pvr 004b 0201)
+-
+-timebase	: 512000000
+-platform	: PowerNV
+-model		: 8247-22L
+-machine		: PowerNV 8247-22L
+-firmware	: OPAL v3
+diff --git a/tests/nodeinfodata/linux-ppc64-deconfigured-cpus.expected b/tests/nodeinfodata/linux-ppc64-deconfigured-cpus.expected
+deleted file mode 100644
+index 304f423..0000000
+--- a/tests/nodeinfodata/linux-ppc64-deconfigured-cpus.expected
++++ /dev/null
+@@ -1 +0,0 @@
+-CPUs: 10/80, MHz: 3690, Nodes: 1, Sockets: 1, Cores: 80, Threads: 1
+-- 
+2.5.0
+

@@ -1,0 +1,40 @@
+From a45c385857dc2d5a19f9d1509e1d473466d68a60 Mon Sep 17 00:00:00 2001
+Message-Id: <a45c385857dc2d5a19f9d1509e1d473466d68a60@dist-git>
+From: John Ferlan <jferlan@redhat.com>
+Date: Tue, 4 Aug 2015 08:05:51 -0400
+Subject: [PATCH] docs: Add Fibre Channel NPIV supported option for volume lun
+ config
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1238545
+
+"Further" clarification (and testing) shows that using a SCSI Fibre
+Channel NPIV device/lun from a storage pool as a <disk type='volume'
+device'lun'> will work. So just add that to the allowable options
+
+Related to: https://bugzilla.redhat.com/show_bug.cgi?id=1230179
+
+(cherry picked from commit 4ae72f131b7eb7e860d4400378f47d5383f13705)
+Signed-off-by: John Ferlan <jferlan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ docs/formatdomain.html.in | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/docs/formatdomain.html.in b/docs/formatdomain.html.in
+index ea2fff8..8785200 100644
+--- a/docs/formatdomain.html.in
++++ b/docs/formatdomain.html.in
+@@ -1973,7 +1973,9 @@
+             valid when the <code>type</code> is "block" or "network" for
+             <code>protocol='iscsi'</code> or when the <code>type</code>
+             is "volume" when using an iSCSI source <code>pool</code>
+-            for <code>mode</code> "host".
++            for <code>mode</code> "host" or as an
++            <a href="http://wiki.libvirt.org/page/NPIV_in_libvirt">NPIV</a>
++            virtual Host Bus Adapter (vHBA) using a Fibre Channel storage pool.
+             Configured in this manner, the LUN behaves identically to "disk",
+             except that generic SCSI commands from the guest are accepted
+             and passed through to the physical device. Also note that
+-- 
+2.5.0
+

@@ -1,0 +1,130 @@
+From b0dc796ccdf858a0fdb22a811fd28b4ed3d6dce5 Mon Sep 17 00:00:00 2001
+Message-Id: <b0dc796ccdf858a0fdb22a811fd28b4ed3d6dce5@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Tue, 22 Sep 2015 16:59:37 +0200
+Subject: [PATCH] conf: Add helper to determine whether memory hotplug is
+ enabled for a vm
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1252685
+
+Add a simple helper so that the code doesn't have to rewrite the same
+condition multiple times.
+
+(cherry picked from commit 1891cad5420a3a1727177d1c762b23104c9ccc6d)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/conf/domain_conf.c    | 11 +++++++++--
+ src/conf/domain_conf.h    |  1 +
+ src/libvirt_private.syms  |  1 +
+ src/qemu/qemu_command.c   |  2 +-
+ src/qemu/qemu_domain.c    |  2 +-
+ src/qemu/qemu_migration.c |  5 ++---
+ 6 files changed, 15 insertions(+), 7 deletions(-)
+
+diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
+index 15d3a5e..2dc5912 100644
+--- a/src/conf/domain_conf.c
++++ b/src/conf/domain_conf.c
+@@ -1141,7 +1141,7 @@ int
+ virDomainDefCheckUnsupportedMemoryHotplug(virDomainDefPtr def)
+ {
+     /* memory hotplug tunables are not supported by this driver */
+-    if (def->mem.max_memory > 0 || def->mem.memory_slots > 0) {
++    if (virDomainDefHasMemoryHotplug(def)) {
+         virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
+                        _("memory hotplug tunables <maxMemory> are not "
+                          "supported by this hypervisor driver"));
+@@ -7637,6 +7637,13 @@ virDomainParseMemoryLimit(const char *xpath,
+ }
+ 
+ 
++bool
++virDomainDefHasMemoryHotplug(const virDomainDef *def)
++{
++    return def->mem.memory_slots > 0 || def->mem.max_memory > 0;
++}
++
++
+ /**
+  * virDomainDefGetMemoryInitial:
+  * @def: domain definition
+@@ -21342,7 +21349,7 @@ virDomainDefFormatInternal(virDomainDefPtr def,
+         xmlIndentTreeOutput = oldIndentTreeOutput;
+     }
+ 
+-    if (def->mem.max_memory) {
++    if (virDomainDefHasMemoryHotplug(def)) {
+         virBufferAsprintf(buf,
+                           "<maxMemory slots='%u' unit='KiB'>%llu</maxMemory>\n",
+                           def->mem.memory_slots, def->mem.max_memory);
+diff --git a/src/conf/domain_conf.h b/src/conf/domain_conf.h
+index 3040ddc..902dfb9 100644
+--- a/src/conf/domain_conf.h
++++ b/src/conf/domain_conf.h
+@@ -2288,6 +2288,7 @@ struct _virDomainDef {
+ unsigned long long virDomainDefGetMemoryInitial(virDomainDefPtr def);
+ void virDomainDefSetMemoryInitial(virDomainDefPtr def, unsigned long long size);
+ unsigned long long virDomainDefGetMemoryActual(virDomainDefPtr def);
++bool virDomainDefHasMemoryHotplug(const virDomainDef *def);
+ 
+ typedef enum {
+     VIR_DOMAIN_KEY_WRAP_CIPHER_NAME_AES,
+diff --git a/src/libvirt_private.syms b/src/libvirt_private.syms
+index 9332194..335f8d0 100644
+--- a/src/libvirt_private.syms
++++ b/src/libvirt_private.syms
+@@ -215,6 +215,7 @@ virDomainDefGetMemoryActual;
+ virDomainDefGetMemoryInitial;
+ virDomainDefGetSecurityLabelDef;
+ virDomainDefHasDeviceAddress;
++virDomainDefHasMemoryHotplug;
+ virDomainDefMaybeAddController;
+ virDomainDefMaybeAddInput;
+ virDomainDefNeedsPlacementAdvice;
+diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
+index 47d91c6..ade75e3 100644
+--- a/src/qemu/qemu_command.c
++++ b/src/qemu/qemu_command.c
+@@ -9045,7 +9045,7 @@ qemuBuildCommandLine(virConnectPtr conn,
+ 
+     virCommandAddArg(cmd, "-m");
+ 
+-    if (def->mem.max_memory) {
++    if (virDomainDefHasMemoryHotplug(def)) {
+         if (!virQEMUCapsGet(qemuCaps, QEMU_CAPS_DEVICE_PC_DIMM)) {
+             virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
+                            _("memory hotplug isn't supported by this QEMU binary"));
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index e4a9c55..9d9fb06 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -1347,7 +1347,7 @@ qemuDomainDeviceDefPostParse(virDomainDeviceDefPtr dev,
+     }
+ 
+     if (dev->type == VIR_DOMAIN_DEVICE_MEMORY &&
+-        def->mem.max_memory == 0) {
++        !virDomainDefHasMemoryHotplug(def)) {
+         virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
+                        _("maxMemory has to be specified when using memory "
+                          "devices "));
+diff --git a/src/qemu/qemu_migration.c b/src/qemu/qemu_migration.c
+index 58fcb94..93f561f 100644
+--- a/src/qemu/qemu_migration.c
++++ b/src/qemu/qemu_migration.c
+@@ -2988,10 +2988,9 @@ qemuMigrationBeginPhase(virQEMUDriverPtr driver,
+         }
+     }
+ 
+-    if (vm->def->mem.max_memory ||
++    if (virDomainDefHasMemoryHotplug(vm->def) ||
+         ((flags & VIR_MIGRATE_PERSIST_DEST) &&
+-         vm->newDef &&
+-         vm->newDef->mem.max_memory))
++         vm->newDef && virDomainDefHasMemoryHotplug(vm->newDef)))
+         cookieFlags |= QEMU_MIGRATION_COOKIE_MEMORY_HOTPLUG;
+ 
+     if (!(mig = qemuMigrationEatCookie(driver, vm, NULL, 0, 0)))
+-- 
+2.5.3
+

@@ -1,0 +1,230 @@
+From 80ea7f1e17cc676c591988de47396dd24d390631 Mon Sep 17 00:00:00 2001
+Message-Id: <80ea7f1e17cc676c591988de47396dd24d390631@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Tue, 4 Aug 2015 14:05:52 +0200
+Subject: [PATCH] examples: Add example polkit ACL rules
+
+Creating ACL rules is not exactly easy and existing examples are pretty
+simple. This patch adds a somewhat complex example which defines several
+roles. Admins can do everything, operators can do basic operations
+on any domain and several groups of users who act as operators but only
+on a limited set of domains.
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+(cherry picked from commit 29b5167417483ef80f6c3fce12811b59a1e2bd55)
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1115289
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ Makefile.am                       |   2 +-
+ configure.ac                      |   1 +
+ docs/aclpolkit.html.in            |   6 ++
+ examples/polkit/Makefile.am       |  17 +++++
+ examples/polkit/libvirt-acl.rules | 130 ++++++++++++++++++++++++++++++++++++++
+ libvirt.spec.in                   |   3 +
+ 6 files changed, 158 insertions(+), 1 deletion(-)
+ create mode 100644 examples/polkit/Makefile.am
+ create mode 100644 examples/polkit/libvirt-acl.rules
+
+diff --git a/Makefile.am b/Makefile.am
+index 91b943b..d338d5a 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -23,7 +23,7 @@ SUBDIRS = . gnulib/lib include src daemon tools docs gnulib/tests \
+   tests po examples/object-events examples/hellolibvirt \
+   examples/dominfo examples/domsuspend examples/apparmor \
+   examples/xml/nwfilter examples/openauth examples/systemtap \
+-  tools/wireshark examples/dommigrate \
++  tools/wireshark examples/dommigrate examples/polkit \
+   examples/lxcconvert examples/domtop
+ 
+ ACLOCAL_AMFLAGS = -I m4
+diff --git a/configure.ac b/configure.ac
+index f3ae6ca..b28d990 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -2811,6 +2811,7 @@ AC_CONFIG_FILES([\
+         examples/systemtap/Makefile \
+         examples/xml/nwfilter/Makefile \
+         examples/lxcconvert/Makefile \
++        examples/polkit/Makefile \
+         tools/wireshark/Makefile \
+         tools/wireshark/src/Makefile])
+ AC_OUTPUT
+diff --git a/docs/aclpolkit.html.in b/docs/aclpolkit.html.in
+index e5a9b16..dae0814 100644
+--- a/docs/aclpolkit.html.in
++++ b/docs/aclpolkit.html.in
+@@ -348,6 +348,12 @@
+       <code>lookup</code> method.
+     </p>
+ 
++    <p>
++    See
++    <a href="http://libvirt.org/git/?p=libvirt.git;a=tree;f=examples/polkit;hb=HEAD">source code</a>
++    for a more complex example.
++    </p>
++
+     <h3><a name="exconnect">Example: restricting ability to connect to drivers</a></h3>
+ 
+     <p>
+diff --git a/examples/polkit/Makefile.am b/examples/polkit/Makefile.am
+new file mode 100644
+index 0000000..4d213e8
+--- /dev/null
++++ b/examples/polkit/Makefile.am
+@@ -0,0 +1,17 @@
++## Copyright (C) 2015 Red Hat, Inc.
++##
++## This library is free software; you can redistribute it and/or
++## modify it under the terms of the GNU Lesser General Public
++## License as published by the Free Software Foundation; either
++## version 2.1 of the License, or (at your option) any later version.
++##
++## This library is distributed in the hope that it will be useful,
++## but WITHOUT ANY WARRANTY; without even the implied warranty of
++## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++## Lesser General Public License for more details.
++##
++## You should have received a copy of the GNU Lesser General Public
++## License along with this library.  If not, see
++## <http://www.gnu.org/licenses/>.
++
++EXTRA_DIST = libvirt-acl.rules
+diff --git a/examples/polkit/libvirt-acl.rules b/examples/polkit/libvirt-acl.rules
+new file mode 100644
+index 0000000..dd68365
+--- /dev/null
++++ b/examples/polkit/libvirt-acl.rules
+@@ -0,0 +1,130 @@
++/*
++ * This example defines two groups of roles any user/group can be assigned to.
++ * An "admin" role which grants full access to all APIs on all objects to its
++ * members, and other roles which allows their members to all APIs defined in
++ * restrictedActions on domains matching a regular expressions assigned to
++ * each role. (Jump below the Role class definition to see them.) Users who
++ * belong to an "operator" role can act on any domain (matching ".*" RE),
++ * while members of "userA", "userB", and "userC" roles are limited by more
++ * specific REs.
++ *
++ * A virtualization host admin would define domains with names prefixed by
++ * customer names and create a separate role for each customer restricting
++ * its members to manage only domains with the corresponding prefix.
++ */
++
++function Role(name) {
++    this.name = name;
++
++    this.users = [];
++    this.groups = [];
++
++    this.check = function(subject, api, domain) {
++        var validUser = false
++
++        if (this.users.indexOf(subject.user) >= 0) {
++            validUser = true;
++        } else {
++            for (var i = 0; i < subject.groups.length; i++) {
++                if (this.groups.indexOf(subject.groups[i]) >= 0) {
++                    validUser = true;
++                    break;
++                }
++            }
++        }
++
++        if (validUser &&
++            (this.name == "admin" ||
++             !domain ||
++             (this.domains && domain.match(this.domains)))) {
++            var msg = "Access granted: " +
++                      "user = " + subject.user +
++                      ", groups = [" + subject.groups + "]" +
++                      ", role = " + this.name +
++                      ", api = " + api;
++            if (domain)
++                msg += ", domain = " + domain;
++            polkit.log(msg);
++            return true
++        }
++
++        return false;
++    };
++}
++
++
++/* Basic operations and monitoring on a limited set of domains. */
++var userA = new Role("userA");
++userA.domains = /^a/;
++userA.users = ["userA1", "userA2", "userA3", "multiUser"];
++userA.groups = ["groupA1", "groupA2"];
++
++var userB = new Role("userB");
++userB.domains = /^b/;
++userB.users = ["userB1", "userB2", "userB3", "multiUser"];
++userB.groups = ["groupB1", "groupB2", "multiGroup"];
++
++var userC = new Role("userC");
++userC.domains = /^c/;
++userC.users = ["userC1", "userC2", "userC3"];
++userC.groups = ["groupC1", "groupC2", "multiGroup"];
++
++/* Same as users but on any domain. */
++var operator = new Role("operator");
++operator.domains = /.*/;
++operator.users = ["powerUser1", "powerUser2"];
++operator.groups = ["powerGroup1", "powerGroup2", "powerGroup3"];
++
++var users = [operator, userA, userB, userC];
++
++/* Full access. */
++var admin = new Role("admin");
++admin.users = ["adminUser1"];
++admin.groups = ["adminGroup1"];
++
++
++restrictedActions = [
++    "domain.core-dump",
++    "domain.fs-freeze",
++    "domain.fs-trim",
++    "domain.getattr",
++    "domain.hibernate",
++    "domain.init-control",
++    "domain.inject-nmi",
++    "domain.open-device",
++    "domain.open-graphics",
++    "domain.pm-control",
++    "domain.read",
++    "domain.reset",
++    "domain.save",
++    "domain.screenshot",
++    "domain.send-input",
++    "domain.send-signal",
++    "domain.set-password",
++    "domain.set-time",
++    "domain.snapshot",
++    "domain.start",
++    "domain.stop",
++    "domain.suspend"
++];
++
++polkit.addRule(function(action, subject) {
++    if (action.id.indexOf("org.libvirt.api.") != 0)
++        return polkit.Result.NOT_HANDLED;
++
++    var api = action.id.replace("org.libvirt.api.", "");
++    var domain = action.lookup("domain_name");
++
++    if (admin.check(subject, api, domain))
++        return polkit.Result.YES;
++
++    if (restrictedActions.indexOf(api) < 0)
++        return polkit.Result.NOT_HANDLED;
++
++    for (var i = 0; i < users.length; i++) {
++        if (users[i].check(subject, api, domain))
++            return polkit.Result.YES;
++    }
++
++    return polkit.Result.NO;
++});

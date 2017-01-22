@@ -1,0 +1,32 @@
+From 6d44afeba685e5c38fb81d256b0625b758f8f19e Mon Sep 17 00:00:00 2001
+Message-Id: <6d44afeba685e5c38fb81d256b0625b758f8f19e@dist-git>
+From: =?UTF-8?q?J=C3=A1n=20Tomko?= <jtomko@redhat.com>
+Date: Wed, 8 Jul 2015 15:56:48 +0200
+Subject: [PATCH] Add rhel machine types to qemuDomainMachineNeedsFDC
+
+RHEL-only.
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1227880
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_domain.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index 6590cf0..e3793bd 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -3257,6 +3257,9 @@ qemuDomainMachineNeedsFDC(const virDomainDef *def)
+             STRPREFIX(p, "2.2") ||
+             STRPREFIX(p, "2.3"))
+             return false;
++        if (STRPREFIX(p, "rhel-7.0.0") ||
++            STRPREFIX(p, "rhel-7.1.0"))
++            return false;
+         return true;
+     }
+     return false;
+-- 
+2.4.5
+

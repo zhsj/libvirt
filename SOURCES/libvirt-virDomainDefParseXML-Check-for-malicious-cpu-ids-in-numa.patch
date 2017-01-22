@@ -1,0 +1,50 @@
+From dd119a69ea174b96a8e60755ec75c7ed718aa9b9 Mon Sep 17 00:00:00 2001
+Message-Id: <dd119a69ea174b96a8e60755ec75c7ed718aa9b9@dist-git>
+From: Michal Privoznik <mprivozn@redhat.com>
+Date: Fri, 7 Aug 2015 17:30:17 +0200
+Subject: [PATCH] virDomainDefParseXML: Check for malicious cpu ids in <numa/>
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1176020
+
+Some users think this is a good idea:
+
+      <vcpu placement='static'>4</vcpu>
+      <cpu mode='host-model'>
+        <model fallback='allow'/>
+        <numa>
+          <cell id='0' cpus='0-1' memory='1048576' unit='KiB'/>
+          <cell id='1' cpus='9-10' memory='2097152' unit='KiB'/>
+        </numa>
+      </cpu>
+
+It's not. Lets therefore introduce a check and discourage them in
+doing so.
+
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+(cherry picked from commit 82af954c527e88111b05d50953b80eb4afde4d9a)
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/conf/domain_conf.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
+index 4fe38ae..54d0651 100644
+--- a/src/conf/domain_conf.c
++++ b/src/conf/domain_conf.c
+@@ -15047,6 +15047,12 @@ virDomainDefParseXML(xmlDocPtr xml,
+         goto error;
+     }
+ 
++    if (virDomainNumaGetMaxCPUID(def->numa) >= def->maxvcpus) {
++        virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
++                       _("CPU IDs in <numa> exceed the <vcpu> count"));
++        goto error;
++    }
++
+     if (virDomainNumatuneParseXML(def->numa,
+                                   def->placement_mode ==
+                                   VIR_DOMAIN_CPU_PLACEMENT_MODE_STATIC,
+-- 
+2.5.0
+

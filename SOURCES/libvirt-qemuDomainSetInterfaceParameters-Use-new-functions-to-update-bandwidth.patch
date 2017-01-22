@@ -1,0 +1,83 @@
+From 97db8e9056749a76419e87339d2d368b29a9098a Mon Sep 17 00:00:00 2001
+Message-Id: <97db8e9056749a76419e87339d2d368b29a9098a@dist-git>
+From: Michal Privoznik <mprivozn@redhat.com>
+Date: Fri, 14 Aug 2015 16:06:33 +0200
+Subject: [PATCH] qemuDomainSetInterfaceParameters: Use new functions to update
+ bandwidth
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1252473
+
+As sketched in previous commits, imagine the following scenario:
+
+  virsh # domiftune gentoo vnet0
+  inbound.average: 100
+  inbound.peak   : 0
+  inbound.burst  : 0
+  outbound.average: 100
+  outbound.peak  : 0
+  outbound.burst : 0
+
+  virsh # domiftune gentoo vnet0 --inbound 0
+
+  virsh # shutdown gentoo
+  Domain gentoo is being shutdown
+
+  virsh # list --all
+  error: Failed to list domains
+  error: Cannot recv data: Connection reset by peer
+
+  Program received signal SIGSEGV, Segmentation fault.
+  0x00007fffe80ea221 in networkUnplugBandwidth (net=0x7fff9400c1a0, iface=0x7fff940ea3e0) at network/bridge_driver.c:4881
+  4881            net->floor_sum -= ifaceBand->in->floor;
+
+This is rather unfortunate. We should not SIGSEGV here. The
+problem is, that while in the second step the inbound QoS was
+cleared out, the network part of it was not updated (moreover, we
+don't report that vnet0 had inbound.floor set). Internal
+structure therefore still had some fragments left (e.g.
+class_id). So when qemuProcessStop() started to clean up the
+environment it got to networkUnplugBandwidth(). Here, class_id is
+set therefore function assumes that there is an inbound QoS. This
+actually is a fair assumption to make, there's no need for a
+special QoS box in network's QoS when there's no QoS to set.
+Anyway, the problem is not the networkUnplugBandwidth() rather
+than qemuDomainSetInterfaceParameters() which completely forgot
+about QoS being disperse (some parts are set directly on
+interface itself, some on bridge the interface is plugged into).
+
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+(cherry picked from commit 5ee6d243fc5f2ba840ba43e4c9bd85cb5cb745a0)
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_driver.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index ec61bb5..e1ceb98 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -100,6 +100,7 @@
+ #include "vircgroup.h"
+ #include "virnuma.h"
+ #include "dirname.h"
++#include "network/bridge_driver.h"
+ 
+ #define VIR_FROM_THIS VIR_FROM_QEMU
+ 
+@@ -11323,7 +11324,11 @@ qemuDomainSetInterfaceParameters(virDomainPtr dom,
+                    sizeof(*newBandwidth->out));
+         }
+ 
+-        if (virNetDevBandwidthSet(net->ifname, newBandwidth, false) < 0) {
++        if (!networkBandwidthChangeAllowed(net, newBandwidth))
++            goto endjob;
++
++        if (virNetDevBandwidthSet(net->ifname, newBandwidth, false) < 0 ||
++            networkBandwidthUpdate(net, newBandwidth) < 0) {
+             ignore_value(virNetDevBandwidthSet(net->ifname,
+                                                net->bandwidth,
+                                                false));
+-- 
+2.5.0
+

@@ -1,0 +1,164 @@
+From a72b20b3cb4837a87cdeb50fd625ccfe7a6c76a7 Mon Sep 17 00:00:00 2001
+Message-Id: <a72b20b3cb4837a87cdeb50fd625ccfe7a6c76a7@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Thu, 28 May 2015 13:35:52 +0200
+Subject: [PATCH] qemu_monitor: Wire up MIGRATION event
+
+Thanks to Juan's work QEMU finally emits an event whenever migration
+state changes.
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+(cherry picked from commit a60ee613c499c255faf7c36e7cd8582b5a79ca57)
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1212077
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_capabilities.c |  2 ++
+ src/qemu/qemu_capabilities.h |  1 +
+ src/qemu/qemu_monitor.c      | 14 ++++++++++++++
+ src/qemu/qemu_monitor.h      |  8 ++++++++
+ src/qemu/qemu_monitor_json.c | 23 +++++++++++++++++++++++
+ 5 files changed, 48 insertions(+)
+
+diff --git a/src/qemu/qemu_capabilities.c b/src/qemu/qemu_capabilities.c
+index 89d63e5..b4a6961 100644
+--- a/src/qemu/qemu_capabilities.c
++++ b/src/qemu/qemu_capabilities.c
+@@ -287,6 +287,7 @@ VIR_ENUM_IMPL(virQEMUCaps, QEMU_CAPS_LAST,
+               "aarch64-off",
+ 
+               "vhost-user-multiqueue", /* 190 */
++              "migration-event",
+     );
+ 
+ 
+@@ -1506,6 +1507,7 @@ struct virQEMUCapsStringFlags virQEMUCapsEvents[] = {
+     { "BALLOON_CHANGE", QEMU_CAPS_BALLOON_EVENT },
+     { "SPICE_MIGRATE_COMPLETED", QEMU_CAPS_SEAMLESS_MIGRATION },
+     { "DEVICE_DELETED", QEMU_CAPS_DEVICE_DEL_EVENT },
++    { "MIGRATION", QEMU_CAPS_MIGRATION_EVENT },
+ };
+ 
+ struct virQEMUCapsStringFlags virQEMUCapsObjectTypes[] = {
+diff --git a/src/qemu/qemu_capabilities.h b/src/qemu/qemu_capabilities.h
+index 30aa504..f77bd06 100644
+--- a/src/qemu/qemu_capabilities.h
++++ b/src/qemu/qemu_capabilities.h
+@@ -230,6 +230,7 @@ typedef enum {
+     QEMU_CAPS_DEVICE_PCI_SERIAL  = 188, /* -device pci-serial */
+     QEMU_CAPS_CPU_AARCH64_OFF    = 189, /* -cpu ...,aarch64=off */
+     QEMU_CAPS_VHOSTUSER_MULTIQUEUE = 190, /* vhost-user with -netdev queues= */
++    QEMU_CAPS_MIGRATION_EVENT    = 191, /* MIGRATION event */
+ 
+     QEMU_CAPS_LAST,                   /* this must always be the last item */
+ } virQEMUCapsFlags;
+diff --git a/src/qemu/qemu_monitor.c b/src/qemu/qemu_monitor.c
+index 9c70211..dd742cf 100644
+--- a/src/qemu/qemu_monitor.c
++++ b/src/qemu/qemu_monitor.c
+@@ -1498,6 +1498,20 @@ qemuMonitorEmitSpiceMigrated(qemuMonitorPtr mon)
+ 
+ 
+ int
++qemuMonitorEmitMigrationStatus(qemuMonitorPtr mon,
++                               int status)
++{
++    int ret = -1;
++    VIR_DEBUG("mon=%p, status=%s",
++              mon, NULLSTR(qemuMonitorMigrationStatusTypeToString(status)));
++
++    QEMU_MONITOR_CALLBACK(mon, ret, domainMigrationStatus, mon->vm, status);
++
++    return ret;
++}
++
++
++int
+ qemuMonitorSetCapabilities(qemuMonitorPtr mon)
+ {
+     QEMU_CHECK_MONITOR(mon);
+diff --git a/src/qemu/qemu_monitor.h b/src/qemu/qemu_monitor.h
+index 87167e3..d2b2f94 100644
+--- a/src/qemu/qemu_monitor.h
++++ b/src/qemu/qemu_monitor.h
+@@ -186,6 +186,11 @@ typedef int (*qemuMonitorDomainSpiceMigratedCallback)(qemuMonitorPtr mon,
+                                                       virDomainObjPtr vm,
+                                                       void *opaque);
+ 
++typedef int (*qemuMonitorDomainMigrationStatusCallback)(qemuMonitorPtr mon,
++                                                        virDomainObjPtr vm,
++                                                        int status,
++                                                        void *opaque);
++
+ typedef struct _qemuMonitorCallbacks qemuMonitorCallbacks;
+ typedef qemuMonitorCallbacks *qemuMonitorCallbacksPtr;
+ struct _qemuMonitorCallbacks {
+@@ -214,6 +219,7 @@ struct _qemuMonitorCallbacks {
+     qemuMonitorDomainNicRxFilterChangedCallback domainNicRxFilterChanged;
+     qemuMonitorDomainSerialChangeCallback domainSerialChange;
+     qemuMonitorDomainSpiceMigratedCallback domainSpiceMigrated;
++    qemuMonitorDomainMigrationStatusCallback domainMigrationStatus;
+ };
+ 
+ char *qemuMonitorEscapeArg(const char *in);
+@@ -313,6 +319,8 @@ int qemuMonitorEmitSerialChange(qemuMonitorPtr mon,
+                                 const char *devAlias,
+                                 bool connected);
+ int qemuMonitorEmitSpiceMigrated(qemuMonitorPtr mon);
++int qemuMonitorEmitMigrationStatus(qemuMonitorPtr mon,
++                                   int status);
+ 
+ int qemuMonitorStartCPUs(qemuMonitorPtr mon,
+                          virConnectPtr conn);
+diff --git a/src/qemu/qemu_monitor_json.c b/src/qemu/qemu_monitor_json.c
+index 065c7fe..4323c2a 100644
+--- a/src/qemu/qemu_monitor_json.c
++++ b/src/qemu/qemu_monitor_json.c
+@@ -84,6 +84,7 @@ static void qemuMonitorJSONHandleDeviceDeleted(qemuMonitorPtr mon, virJSONValueP
+ static void qemuMonitorJSONHandleNicRxFilterChanged(qemuMonitorPtr mon, virJSONValuePtr data);
+ static void qemuMonitorJSONHandleSerialChange(qemuMonitorPtr mon, virJSONValuePtr data);
+ static void qemuMonitorJSONHandleSpiceMigrated(qemuMonitorPtr mon, virJSONValuePtr data);
++static void qemuMonitorJSONHandleMigrationStatus(qemuMonitorPtr mon, virJSONValuePtr data);
+ 
+ typedef struct {
+     const char *type;
+@@ -99,6 +100,7 @@ static qemuEventHandler eventHandlers[] = {
+     { "DEVICE_DELETED", qemuMonitorJSONHandleDeviceDeleted, },
+     { "DEVICE_TRAY_MOVED", qemuMonitorJSONHandleTrayChange, },
+     { "GUEST_PANICKED", qemuMonitorJSONHandleGuestPanic, },
++    { "MIGRATION", qemuMonitorJSONHandleMigrationStatus, },
+     { "NIC_RX_FILTER_CHANGED", qemuMonitorJSONHandleNicRxFilterChanged, },
+     { "POWERDOWN", qemuMonitorJSONHandlePowerdown, },
+     { "RESET", qemuMonitorJSONHandleReset, },
+@@ -990,6 +992,27 @@ qemuMonitorJSONHandleSpiceMigrated(qemuMonitorPtr mon,
+ }
+ 
+ 
++static void
++qemuMonitorJSONHandleMigrationStatus(qemuMonitorPtr mon,
++                                     virJSONValuePtr data)
++{
++    const char *str;
++    int status;
++
++    if (!(str = virJSONValueObjectGetString(data, "status"))) {
++        VIR_WARN("missing status in migration event");
++        return;
++    }
++
++    if ((status = qemuMonitorMigrationStatusTypeFromString(str)) == -1) {
++        VIR_WARN("unknown status '%s' in migration event", str);
++        return;
++    }
++
++    qemuMonitorEmitMigrationStatus(mon, status);
++}
++
++
+ int
+ qemuMonitorJSONHumanCommandWithFd(qemuMonitorPtr mon,
+                                   const char *cmd_str,
+-- 
+2.4.5
+

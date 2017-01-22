@@ -1,0 +1,72 @@
+From cc4d319a6eb8213079f32119714b7f686e4bf7ba Mon Sep 17 00:00:00 2001
+Message-Id: <cc4d319a6eb8213079f32119714b7f686e4bf7ba@dist-git>
+From: Matthias Bolte <matthias.bolte@googlemail.com>
+Date: Tue, 8 Sep 2015 09:52:58 +0200
+Subject: [PATCH] vmx: The virVMXParseDisk deviceType can be NULL, add some
+ missing checks
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1172544
+
+(cherry picked from commit 7c959e0dc036c0e9d4429ec5528c693b5e5e9929)
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/vmx/vmx.c | 21 ++++++++++-----------
+ 1 file changed, 10 insertions(+), 11 deletions(-)
+
+diff --git a/src/vmx/vmx.c b/src/vmx/vmx.c
+index 3b23c0d..799668c 100644
+--- a/src/vmx/vmx.c
++++ b/src/vmx/vmx.c
+@@ -2176,8 +2176,9 @@ virVMXParseDisk(virVMXContext *ctx, virDomainXMLOptionPtr xmlopt, virConfPtr con
+                 (*def)->transient = STRCASEEQ(mode,
+                                               "independent-nonpersistent");
+         } else if (virFileHasSuffix(fileName, ".iso") ||
+-                   STRCASEEQ(deviceType, "atapi-cdrom") ||
+-                   STRCASEEQ(deviceType, "cdrom-raw")) {
++                   (deviceType &&
++                    (STRCASEEQ(deviceType, "atapi-cdrom") ||
++                     STRCASEEQ(deviceType, "cdrom-raw")))) {
+             /*
+              * This function was called in order to parse a harddisk device,
+              * but .iso files, 'atapi-cdrom', and 'cdrom-raw' devices are for
+@@ -2197,13 +2198,11 @@ virVMXParseDisk(virVMXContext *ctx, virDomainXMLOptionPtr xmlopt, virConfPtr con
+         if (virFileHasSuffix(fileName, ".iso")) {
+             char *tmp;
+ 
+-            if (deviceType != NULL) {
+-                if (STRCASENEQ(deviceType, "cdrom-image")) {
+-                    virReportError(VIR_ERR_INTERNAL_ERROR,
+-                                   _("Expecting VMX entry '%s' to be 'cdrom-image' "
+-                                     "but found '%s'"), deviceType_name, deviceType);
+-                    goto cleanup;
+-                }
++            if (deviceType && STRCASENEQ(deviceType, "cdrom-image")) {
++                virReportError(VIR_ERR_INTERNAL_ERROR,
++                               _("Expecting VMX entry '%s' to be 'cdrom-image' "
++                                 "but found '%s'"), deviceType_name, deviceType);
++                goto cleanup;
+             }
+ 
+             virDomainDiskSetType(*def, VIR_STORAGE_TYPE_FILE);
+@@ -2222,7 +2221,7 @@ virVMXParseDisk(virVMXContext *ctx, virDomainXMLOptionPtr xmlopt, virConfPtr con
+              * handle it.
+              */
+             goto ignore;
+-        } else if (STRCASEEQ(deviceType, "atapi-cdrom")) {
++        } else if (deviceType && STRCASEEQ(deviceType, "atapi-cdrom")) {
+             virDomainDiskSetType(*def, VIR_STORAGE_TYPE_BLOCK);
+ 
+             if (STRCASEEQ(fileName, "auto detect")) {
+@@ -2231,7 +2230,7 @@ virVMXParseDisk(virVMXContext *ctx, virDomainXMLOptionPtr xmlopt, virConfPtr con
+             } else if (virDomainDiskSetSource(*def, fileName) < 0) {
+                 goto cleanup;
+             }
+-        } else if (STRCASEEQ(deviceType, "cdrom-raw")) {
++        } else if (deviceType && STRCASEEQ(deviceType, "cdrom-raw")) {
+             /* Raw access CD-ROMs actually are device='lun' */
+             (*def)->device = VIR_DOMAIN_DISK_DEVICE_LUN;
+             virDomainDiskSetType(*def, VIR_STORAGE_TYPE_BLOCK);
+-- 
+2.5.2
+

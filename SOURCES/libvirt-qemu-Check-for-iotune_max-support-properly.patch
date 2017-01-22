@@ -1,0 +1,58 @@
+From 314408b2a7fea6400ba6d5dda4c6031b7c7bde4e Mon Sep 17 00:00:00 2001
+Message-Id: <314408b2a7fea6400ba6d5dda4c6031b7c7bde4e@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Tue, 4 Aug 2015 13:11:29 +0200
+Subject: [PATCH] qemu: Check for iotune_max support properly
+
+Commit d506a51aeb2a7a7b0c963f760e32b94376ea7173 meant to check for
+QEMU_CAPS_DRIVE_IOTUNE_MAX, but checked for QEMU_CAPS_DRIVE_IOTUNE
+instead.  That's clearly visible from the diff, but it got in.  Because
+of that, we were supplying information unknown for QEMU if it wasn't new
+enough and we couldn't even properly handle the error, leading to
+"Unexpected error".  Also iops_size came at the same time with all the
+other "_max" options, so check whether we're not setting that either if
+QEMU_CAPS_DRIVE_IOTUNE_MAX is not supported.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1224053
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit ba167186cf7753cf662697ab67a4b10e9b3d4096)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_driver.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index fbe37c2..c59186d 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -17666,7 +17666,8 @@ qemuDomainSetBlockIoTune(virDomainPtr dom,
+     }
+ 
+     if (flags & VIR_DOMAIN_AFFECT_LIVE) {
+-        supportMaxOptions = virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_DRIVE_IOTUNE);
++        supportMaxOptions = virQEMUCapsGet(priv->qemuCaps,
++                                           QEMU_CAPS_DRIVE_IOTUNE_MAX);
+         if (!virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_DRIVE_IOTUNE)) {
+             virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
+                        _("block I/O throttling not supported with this "
+@@ -17674,12 +17675,13 @@ qemuDomainSetBlockIoTune(virDomainPtr dom,
+             goto endjob;
+         }
+ 
+-        if (!supportMaxOptions && (set_iops_max || set_bytes_max)) {
++        if (!supportMaxOptions &&
++            (set_iops_max || set_bytes_max || set_size_iops)) {
+             virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
+                            _("a block I/O throttling parameter is not "
+                              "supported with this QEMU binary"));
+              goto endjob;
+-         }
++        }
+ 
+         if (!(device = qemuDiskPathToAlias(vm, disk, &idx)))
+             goto endjob;
+-- 
+2.5.0
+

@@ -1,0 +1,87 @@
+From fa55eec14a4739ff3ab0a9e2c97319abb47168e6 Mon Sep 17 00:00:00 2001
+Message-Id: <fa55eec14a4739ff3ab0a9e2c97319abb47168e6@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Wed, 5 Aug 2015 18:18:26 +0200
+Subject: [PATCH] nodeinfo: Remove out parameter from nodeGetCPUBitmap()
+
+Not all users of this API will need the size of the returned
+bitmap; those who do can simply call virBitmapSize() themselves.
+
+(cherry picked from commit ccd0ea7ef58130c46599453925e8f6716d310d5c)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/nodeinfo.c | 12 +++++-------
+ src/nodeinfo.h |  2 +-
+ 2 files changed, 6 insertions(+), 8 deletions(-)
+
+diff --git a/src/nodeinfo.c b/src/nodeinfo.c
+index ceb517a..69c15fc 100644
+--- a/src/nodeinfo.c
++++ b/src/nodeinfo.c
+@@ -1324,8 +1324,7 @@ nodeGetPresentCPUBitmap(const char *sysfs_prefix ATTRIBUTE_UNUSED)
+ }
+ 
+ virBitmapPtr
+-nodeGetCPUBitmap(const char *sysfs_prefix ATTRIBUTE_UNUSED,
+-                 int *max_id ATTRIBUTE_UNUSED)
++nodeGetCPUBitmap(const char *sysfs_prefix ATTRIBUTE_UNUSED)
+ {
+ #ifdef __linux__
+     const char *prefix = sysfs_prefix ? sysfs_prefix : SYSFS_SYSTEM_PATH;
+@@ -1363,8 +1362,7 @@ nodeGetCPUBitmap(const char *sysfs_prefix ATTRIBUTE_UNUSED,
+                 ignore_value(virBitmapSetBit(cpumap, i));
+         }
+     }
+-    if (max_id && cpumap)
+-        *max_id = present;
++
+  cleanup:
+     VIR_FREE(online_path);
+     VIR_FREE(cpudir);
+@@ -1685,7 +1683,6 @@ nodeGetCPUMap(const char *sysfs_prefix,
+               unsigned int flags)
+ {
+     virBitmapPtr cpus = NULL;
+-    int maxpresent;
+     int ret = -1;
+     int dummy;
+ 
+@@ -1694,7 +1691,7 @@ nodeGetCPUMap(const char *sysfs_prefix,
+     if (!cpumap && !online)
+         return nodeGetCPUCount(sysfs_prefix);
+ 
+-    if (!(cpus = nodeGetCPUBitmap(sysfs_prefix, &maxpresent)))
++    if (!(cpus = nodeGetCPUBitmap(sysfs_prefix)))
+         goto cleanup;
+ 
+     if (cpumap && virBitmapToData(cpus, cpumap, &dummy) < 0)
+@@ -1702,7 +1699,8 @@ nodeGetCPUMap(const char *sysfs_prefix,
+     if (online)
+         *online = virBitmapCountBits(cpus);
+ 
+-    ret = maxpresent;
++    ret = virBitmapSize(cpus);
++
+  cleanup:
+     if (ret < 0 && cpumap)
+         VIR_FREE(*cpumap);
+diff --git a/src/nodeinfo.h b/src/nodeinfo.h
+index 4f983c2..02af9c5 100644
+--- a/src/nodeinfo.h
++++ b/src/nodeinfo.h
+@@ -45,7 +45,7 @@ int nodeGetMemory(unsigned long long *mem,
+                   unsigned long long *freeMem);
+ 
+ virBitmapPtr nodeGetPresentCPUBitmap(const char *sysfs_prefix);
+-virBitmapPtr nodeGetCPUBitmap(const char *sysfs_prefix, int *max_id);
++virBitmapPtr nodeGetCPUBitmap(const char *sysfs_prefix);
+ int nodeGetCPUCount(const char *sysfs_prefix);
+ 
+ int nodeGetMemoryParameters(virTypedParameterPtr params,
+-- 
+2.5.0
+

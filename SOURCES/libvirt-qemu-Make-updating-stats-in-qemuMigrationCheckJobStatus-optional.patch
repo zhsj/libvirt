@@ -1,0 +1,90 @@
+From 71a02a994244ade016cadf1cc51b0cfa32482b8c Mon Sep 17 00:00:00 2001
+Message-Id: <71a02a994244ade016cadf1cc51b0cfa32482b8c@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Mon, 5 Oct 2015 14:32:58 +0200
+Subject: [PATCH] qemu: Make updating stats in qemuMigrationCheckJobStatus
+ optional
+
+With new QEMU which supports migration events,
+qemuMigrationCheckJobStatus needs to explicitly query QEMU for migration
+statistics once migration is completed to make sure the caller sees
+up-to-date statistics with both old and new QEMU. However, some callers
+are not interested in the statistics at all and once we start waiting
+for a completed migration on the destination host too, checking the
+statistics would even fail. Let's push the decision whether to update
+the statistics or not to the caller.
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+(cherry picked from commit 829c62b7a5268a639116bc1cea51d1c6598f4bf4)
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1265902
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_migration.c | 14 +++++++++-----
+ 1 file changed, 9 insertions(+), 5 deletions(-)
+
+diff --git a/src/qemu/qemu_migration.c b/src/qemu/qemu_migration.c
+index 17c1276..83614f5 100644
+--- a/src/qemu/qemu_migration.c
++++ b/src/qemu/qemu_migration.c
+@@ -2562,7 +2562,8 @@ qemuMigrationUpdateJobStatus(virQEMUDriverPtr driver,
+ static int
+ qemuMigrationCheckJobStatus(virQEMUDriverPtr driver,
+                             virDomainObjPtr vm,
+-                            qemuDomainAsyncJob asyncJob)
++                            qemuDomainAsyncJob asyncJob,
++                            bool updateJobStats)
+ {
+     qemuDomainObjPrivatePtr priv = vm->privateData;
+     qemuDomainJobInfoPtr jobInfo = priv->job.current;
+@@ -2592,7 +2593,7 @@ qemuMigrationCheckJobStatus(virQEMUDriverPtr driver,
+ 
+     case VIR_DOMAIN_JOB_COMPLETED:
+         /* Fetch statistics of a completed migration */
+-        if (events &&
++        if (events && updateJobStats &&
+             qemuMigrationUpdateJobStatus(driver, vm, asyncJob) < 0)
+             return -1;
+         break;
+@@ -2609,6 +2610,7 @@ qemuMigrationCheckJobStatus(virQEMUDriverPtr driver,
+ enum qemuMigrationCompletedFlags {
+     QEMU_MIGRATION_COMPLETED_ABORT_ON_ERROR = (1 << 0),
+     QEMU_MIGRATION_COMPLETED_CHECK_STORAGE  = (1 << 1),
++    QEMU_MIGRATION_COMPLETED_UPDATE_STATS   = (1 << 2),
+ };
+ 
+ /**
+@@ -2627,8 +2629,9 @@ qemuMigrationCompleted(virQEMUDriverPtr driver,
+     qemuDomainObjPrivatePtr priv = vm->privateData;
+     qemuDomainJobInfoPtr jobInfo = priv->job.current;
+     int pauseReason;
++    bool updateStats = !!(flags & QEMU_MIGRATION_COMPLETED_UPDATE_STATS);
+ 
+-    if (qemuMigrationCheckJobStatus(driver, vm, asyncJob) < 0)
++    if (qemuMigrationCheckJobStatus(driver, vm, asyncJob, updateStats) < 0)
+         goto error;
+ 
+     if (flags & QEMU_MIGRATION_COMPLETED_CHECK_STORAGE &&
+@@ -2682,7 +2685,7 @@ qemuMigrationWaitForCompletion(virQEMUDriverPtr driver,
+     qemuDomainObjPrivatePtr priv = vm->privateData;
+     qemuDomainJobInfoPtr jobInfo = priv->job.current;
+     bool events = virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_MIGRATION_EVENT);
+-    unsigned int flags = 0;
++    unsigned int flags = QEMU_MIGRATION_COMPLETED_UPDATE_STATS;
+     int rv;
+ 
+     if (abort_on_error)
+@@ -4352,7 +4355,8 @@ qemuMigrationRun(virQEMUDriverPtr driver,
+          * connection from qemu which may never be initiated.
+          */
+         if (qemuMigrationCheckJobStatus(driver, vm,
+-                                        QEMU_ASYNC_JOB_MIGRATION_OUT) < 0)
++                                        QEMU_ASYNC_JOB_MIGRATION_OUT,
++                                        false) < 0)
+             goto cancel;
+ 
+         while ((fd = accept(spec->dest.unix_socket.sock, NULL, NULL)) < 0) {
+-- 
+2.6.1
+

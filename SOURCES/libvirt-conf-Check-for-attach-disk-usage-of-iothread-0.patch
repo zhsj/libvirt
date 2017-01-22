@@ -1,0 +1,37 @@
+From 17254fa42facf18071c99604472aa0b878ac904a Mon Sep 17 00:00:00 2001
+Message-Id: <17254fa42facf18071c99604472aa0b878ac904a@dist-git>
+From: John Ferlan <jferlan@redhat.com>
+Date: Thu, 20 Aug 2015 12:23:49 -0400
+Subject: [PATCH] conf: Check for attach disk usage of iothread=0
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1253108
+
+Since iothreadid = 0 is invalid, we need to check for it when attempting
+to add a disk; otherwise, someone would think/believe their attempt to
+add an IOThread to the disk would succeed. Luckily other code ignored
+things when ->iothread == 0...
+
+(cherry picked from commit cb5d0193aa13bf922136bb0fc7520f97b0af52f9)
+Signed-off-by: John Ferlan <jferlan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/conf/domain_conf.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
+index 9aee04f..b4503c3 100644
+--- a/src/conf/domain_conf.c
++++ b/src/conf/domain_conf.c
+@@ -7321,7 +7321,8 @@ virDomainDiskDefParseXML(virDomainXMLOptionPtr xmlopt,
+     }
+ 
+     if (driverIOThread) {
+-        if (virStrToLong_uip(driverIOThread, NULL, 10, &def->iothread) < 0) {
++        if (virStrToLong_uip(driverIOThread, NULL, 10, &def->iothread) < 0 ||
++            def->iothread == 0) {
+             virReportError(VIR_ERR_XML_ERROR,
+                            _("Invalid iothread attribute in disk driver "
+                              "element: %s"), driverIOThread);
+-- 
+2.5.0
+

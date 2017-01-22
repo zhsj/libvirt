@@ -1,0 +1,2302 @@
+From 427ff80757207fe9eb3b566cc853d7ee42d8698b Mon Sep 17 00:00:00 2001
+Message-Id: <427ff80757207fe9eb3b566cc853d7ee42d8698b@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Wed, 5 Aug 2015 18:18:16 +0200
+Subject: [PATCH] tests: Add nodeinfo test for non-present CPUs
+
+Some of the possible CPUs in a system might not be present, eg. they
+might be defective or might have been deconfigured from the ASM console
+in a Power system. Due to this fact, Linux keeps track of what CPUs are
+possible and what are present separately.
+
+This test uses the data from a system where not all the possible CPUs
+are present to make sure libvirt handles this situation correctly.
+
+(cherry picked from commit f8b784a8ef457a58f7821d9f86ef41ecba1f47b3)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ .../linux-deconfigured-cpus/cpu/cpu0/online        |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu1/online        |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu10/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu100/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu101/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu102/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu103/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu104/online      |  1 +
+ .../cpu/cpu104/topology/core_id                    |  1 +
+ .../cpu/cpu104/topology/core_siblings              |  1 +
+ .../cpu/cpu104/topology/core_siblings_list         |  1 +
+ .../cpu/cpu104/topology/physical_package_id        |  1 +
+ .../cpu/cpu104/topology/thread_siblings            |  1 +
+ .../cpu/cpu104/topology/thread_siblings_list       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu105/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu106/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu107/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu108/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu109/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu11/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu110/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu111/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu112/online      |  1 +
+ .../cpu/cpu112/topology/core_id                    |  1 +
+ .../cpu/cpu112/topology/core_siblings              |  1 +
+ .../cpu/cpu112/topology/core_siblings_list         |  1 +
+ .../cpu/cpu112/topology/physical_package_id        |  1 +
+ .../cpu/cpu112/topology/thread_siblings            |  1 +
+ .../cpu/cpu112/topology/thread_siblings_list       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu113/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu114/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu115/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu116/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu117/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu118/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu119/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu12/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu120/online      |  1 +
+ .../cpu/cpu120/topology/core_id                    |  1 +
+ .../cpu/cpu120/topology/core_siblings              |  1 +
+ .../cpu/cpu120/topology/core_siblings_list         |  1 +
+ .../cpu/cpu120/topology/physical_package_id        |  1 +
+ .../cpu/cpu120/topology/thread_siblings            |  1 +
+ .../cpu/cpu120/topology/thread_siblings_list       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu121/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu122/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu123/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu124/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu125/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu126/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu127/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu128/online      |  1 +
+ .../cpu/cpu128/topology/core_id                    |  1 +
+ .../cpu/cpu128/topology/core_siblings              |  1 +
+ .../cpu/cpu128/topology/core_siblings_list         |  1 +
+ .../cpu/cpu128/topology/physical_package_id        |  1 +
+ .../cpu/cpu128/topology/thread_siblings            |  1 +
+ .../cpu/cpu128/topology/thread_siblings_list       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu129/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu13/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu130/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu131/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu132/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu133/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu134/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu135/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu136/online      |  1 +
+ .../cpu/cpu136/topology/core_id                    |  1 +
+ .../cpu/cpu136/topology/core_siblings              |  1 +
+ .../cpu/cpu136/topology/core_siblings_list         |  1 +
+ .../cpu/cpu136/topology/physical_package_id        |  1 +
+ .../cpu/cpu136/topology/thread_siblings            |  1 +
+ .../cpu/cpu136/topology/thread_siblings_list       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu137/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu138/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu139/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu14/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu140/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu141/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu142/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu143/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu144/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu145/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu146/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu147/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu148/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu149/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu15/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu150/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu151/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu152/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu153/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu154/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu155/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu156/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu157/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu158/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu159/online      |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu16/online       |  1 +
+ .../cpu/cpu16/topology/core_id                     |  1 +
+ .../cpu/cpu16/topology/core_siblings               |  1 +
+ .../cpu/cpu16/topology/core_siblings_list          |  1 +
+ .../cpu/cpu16/topology/physical_package_id         |  1 +
+ .../cpu/cpu16/topology/thread_siblings             |  1 +
+ .../cpu/cpu16/topology/thread_siblings_list        |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu17/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu18/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu19/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu2/online        |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu20/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu21/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu22/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu23/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu24/online       |  1 +
+ .../cpu/cpu24/topology/core_id                     |  1 +
+ .../cpu/cpu24/topology/core_siblings               |  1 +
+ .../cpu/cpu24/topology/core_siblings_list          |  1 +
+ .../cpu/cpu24/topology/physical_package_id         |  1 +
+ .../cpu/cpu24/topology/thread_siblings             |  1 +
+ .../cpu/cpu24/topology/thread_siblings_list        |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu25/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu26/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu27/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu28/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu29/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu3/online        |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu30/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu31/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu32/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu33/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu34/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu35/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu36/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu37/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu38/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu39/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu4/online        |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu40/online       |  1 +
+ .../cpu/cpu40/topology/core_id                     |  1 +
+ .../cpu/cpu40/topology/core_siblings               |  1 +
+ .../cpu/cpu40/topology/core_siblings_list          |  1 +
+ .../cpu/cpu40/topology/physical_package_id         |  1 +
+ .../cpu/cpu40/topology/thread_siblings             |  1 +
+ .../cpu/cpu40/topology/thread_siblings_list        |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu41/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu42/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu43/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu44/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu45/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu46/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu47/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu48/online       |  1 +
+ .../cpu/cpu48/topology/core_id                     |  1 +
+ .../cpu/cpu48/topology/core_siblings               |  1 +
+ .../cpu/cpu48/topology/core_siblings_list          |  1 +
+ .../cpu/cpu48/topology/physical_package_id         |  1 +
+ .../cpu/cpu48/topology/thread_siblings             |  1 +
+ .../cpu/cpu48/topology/thread_siblings_list        |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu49/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu5/online        |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu50/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu51/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu52/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu53/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu54/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu55/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu56/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu57/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu58/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu59/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu6/online        |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu60/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu61/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu62/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu63/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu64/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu65/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu66/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu67/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu68/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu69/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu7/online        |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu70/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu71/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu72/online       |  1 +
+ .../cpu/cpu72/topology/core_id                     |  1 +
+ .../cpu/cpu72/topology/core_siblings               |  1 +
+ .../cpu/cpu72/topology/core_siblings_list          |  1 +
+ .../cpu/cpu72/topology/physical_package_id         |  1 +
+ .../cpu/cpu72/topology/thread_siblings             |  1 +
+ .../cpu/cpu72/topology/thread_siblings_list        |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu73/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu74/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu75/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu76/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu77/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu78/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu79/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu8/online        |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu80/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu81/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu82/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu83/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu84/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu85/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu86/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu87/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu88/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu89/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu9/online        |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu90/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu91/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu92/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu93/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu94/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu95/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu96/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu97/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu98/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/cpu99/online       |  1 +
+ .../linux-deconfigured-cpus/cpu/kernel_max         |  1 +
+ .../linux-deconfigured-cpus/cpu/offline            |  1 +
+ .../linux-deconfigured-cpus/cpu/online             |  1 +
+ .../linux-deconfigured-cpus/cpu/possible           |  1 +
+ .../linux-deconfigured-cpus/cpu/present            |  1 +
+ .../linux-deconfigured-cpus/node/node0/meminfo     | 29 ++++++++++++
+ .../linux-deconfigured-cpus/node/node1/meminfo     | 29 ++++++++++++
+ .../linux-deconfigured-cpus/node/node16/meminfo    | 29 ++++++++++++
+ .../linux-deconfigured-cpus/node/node17/meminfo    | 29 ++++++++++++
+ .../linux-deconfigured-cpus/node/online            |  1 +
+ .../linux-deconfigured-cpus/node/possible          |  1 +
+ .../linux-ppc64-deconfigured-cpus.cpuinfo          | 55 ++++++++++++++++++++++
+ .../linux-ppc64-deconfigured-cpus.expected         |  1 +
+ tests/nodeinfotest.c                               |  1 +
+ 234 files changed, 400 insertions(+)
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu0/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu1/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu10/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu100/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu101/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu102/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu103/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/core_id
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/core_siblings
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/core_siblings_list
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/physical_package_id
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/thread_siblings
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/thread_siblings_list
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu105/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu106/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu107/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu108/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu109/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu11/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu110/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu111/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/core_id
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/core_siblings
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/core_siblings_list
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/physical_package_id
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/thread_siblings
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/thread_siblings_list
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu113/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu114/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu115/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu116/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu117/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu118/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu119/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu12/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/core_id
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/core_siblings
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/core_siblings_list
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/physical_package_id
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/thread_siblings
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/thread_siblings_list
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu121/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu122/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu123/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu124/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu125/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu126/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu127/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/core_id
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/core_siblings
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/core_siblings_list
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/physical_package_id
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/thread_siblings
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/thread_siblings_list
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu129/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu13/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu130/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu131/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu132/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu133/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu134/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu135/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/core_id
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/core_siblings
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/core_siblings_list
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/physical_package_id
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/thread_siblings
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/thread_siblings_list
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu137/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu138/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu139/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu14/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu140/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu141/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu142/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu143/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu144/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu145/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu146/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu147/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu148/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu149/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu15/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu150/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu151/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu152/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu153/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu154/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu155/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu156/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu157/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu158/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu159/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/core_id
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/core_siblings
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/core_siblings_list
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/physical_package_id
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/thread_siblings
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/thread_siblings_list
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu17/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu18/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu19/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu2/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu20/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu21/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu22/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu23/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/core_id
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/core_siblings
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/core_siblings_list
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/physical_package_id
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/thread_siblings
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/thread_siblings_list
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu25/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu26/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu27/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu28/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu29/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu3/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu30/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu31/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu32/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu33/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu34/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu35/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu36/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu37/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu38/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu39/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu4/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/core_id
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/core_siblings
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/core_siblings_list
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/physical_package_id
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/thread_siblings
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/thread_siblings_list
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu41/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu42/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu43/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu44/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu45/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu46/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu47/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/core_id
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/core_siblings
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/core_siblings_list
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/physical_package_id
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/thread_siblings
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/thread_siblings_list
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu49/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu5/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu50/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu51/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu52/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu53/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu54/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu55/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu56/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu57/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu58/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu59/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu6/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu60/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu61/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu62/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu63/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu64/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu65/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu66/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu67/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu68/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu69/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu7/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu70/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu71/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/core_id
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/core_siblings
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/core_siblings_list
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/physical_package_id
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/thread_siblings
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/thread_siblings_list
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu73/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu74/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu75/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu76/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu77/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu78/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu79/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu8/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu80/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu81/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu82/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu83/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu84/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu85/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu86/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu87/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu88/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu89/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu9/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu90/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu91/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu92/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu93/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu94/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu95/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu96/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu97/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu98/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu99/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/kernel_max
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/offline
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/possible
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/cpu/present
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/node/node0/meminfo
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/node/node1/meminfo
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/node/node16/meminfo
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/node/node17/meminfo
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/node/online
+ create mode 100644 tests/nodeinfodata/linux-deconfigured-cpus/node/possible
+ create mode 100644 tests/nodeinfodata/linux-ppc64-deconfigured-cpus.cpuinfo
+ create mode 100644 tests/nodeinfodata/linux-ppc64-deconfigured-cpus.expected
+
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu0/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu0/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu0/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu1/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu1/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu1/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu10/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu10/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu10/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu100/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu100/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu100/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu101/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu101/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu101/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu102/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu102/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu102/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu103/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu103/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu103/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/online
+new file mode 100644
+index 0000000..d00491f
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/online
+@@ -0,0 +1 @@
++1
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/core_id b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/core_id
+new file mode 100644
+index 0000000..9bb71ca
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/core_id
+@@ -0,0 +1 @@
++2152
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/core_siblings b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/core_siblings
+new file mode 100644
+index 0000000..267b161
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/core_siblings
+@@ -0,0 +1 @@
++00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00010100,00000000,00000000,00000000
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/core_siblings_list b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/core_siblings_list
+new file mode 100644
+index 0000000..d11f5b7
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/core_siblings_list
+@@ -0,0 +1 @@
++104,112
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/physical_package_id b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/physical_package_id
+new file mode 100644
+index 0000000..b6a7d89
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/physical_package_id
+@@ -0,0 +1 @@
++16
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/thread_siblings b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/thread_siblings
+new file mode 100644
+index 0000000..b4fa391
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/thread_siblings
+@@ -0,0 +1 @@
++00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000100,00000000,00000000,00000000
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/thread_siblings_list b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/thread_siblings_list
+new file mode 100644
+index 0000000..b16e5f7
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu104/topology/thread_siblings_list
+@@ -0,0 +1 @@
++104
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu105/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu105/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu105/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu106/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu106/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu106/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu107/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu107/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu107/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu108/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu108/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu108/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu109/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu109/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu109/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu11/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu11/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu11/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu110/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu110/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu110/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu111/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu111/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu111/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/online
+new file mode 100644
+index 0000000..d00491f
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/online
+@@ -0,0 +1 @@
++1
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/core_id b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/core_id
+new file mode 100644
+index 0000000..317509b
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/core_id
+@@ -0,0 +1 @@
++2160
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/core_siblings b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/core_siblings
+new file mode 100644
+index 0000000..267b161
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/core_siblings
+@@ -0,0 +1 @@
++00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00010100,00000000,00000000,00000000
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/core_siblings_list b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/core_siblings_list
+new file mode 100644
+index 0000000..d11f5b7
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/core_siblings_list
+@@ -0,0 +1 @@
++104,112
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/physical_package_id b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/physical_package_id
+new file mode 100644
+index 0000000..b6a7d89
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/physical_package_id
+@@ -0,0 +1 @@
++16
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/thread_siblings b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/thread_siblings
+new file mode 100644
+index 0000000..968e322
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/thread_siblings
+@@ -0,0 +1 @@
++00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00010000,00000000,00000000,00000000
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/thread_siblings_list b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/thread_siblings_list
+new file mode 100644
+index 0000000..194b81c
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu112/topology/thread_siblings_list
+@@ -0,0 +1 @@
++112
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu113/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu113/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu113/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu114/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu114/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu114/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu115/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu115/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu115/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu116/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu116/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu116/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu117/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu117/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu117/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu118/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu118/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu118/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu119/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu119/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu119/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu12/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu12/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu12/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/online
+new file mode 100644
+index 0000000..d00491f
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/online
+@@ -0,0 +1 @@
++1
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/core_id b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/core_id
+new file mode 100644
+index 0000000..b17e4bd
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/core_id
+@@ -0,0 +1 @@
++2208
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/core_siblings b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/core_siblings
+new file mode 100644
+index 0000000..99374e8
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/core_siblings
+@@ -0,0 +1 @@
++00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000101,01000000,00000000,00000000,00000000
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/core_siblings_list b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/core_siblings_list
+new file mode 100644
+index 0000000..9764eab
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/core_siblings_list
+@@ -0,0 +1 @@
++120,128,136
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/physical_package_id b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/physical_package_id
+new file mode 100644
+index 0000000..98d9bcb
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/physical_package_id
+@@ -0,0 +1 @@
++17
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/thread_siblings b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/thread_siblings
+new file mode 100644
+index 0000000..13eaaf3
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/thread_siblings
+@@ -0,0 +1 @@
++00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,01000000,00000000,00000000,00000000
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/thread_siblings_list b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/thread_siblings_list
+new file mode 100644
+index 0000000..52bd8e4
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu120/topology/thread_siblings_list
+@@ -0,0 +1 @@
++120
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu121/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu121/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu121/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu122/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu122/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu122/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu123/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu123/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu123/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu124/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu124/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu124/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu125/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu125/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu125/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu126/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu126/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu126/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu127/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu127/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu127/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/online
+new file mode 100644
+index 0000000..d00491f
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/online
+@@ -0,0 +1 @@
++1
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/core_id b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/core_id
+new file mode 100644
+index 0000000..6edc5b6
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/core_id
+@@ -0,0 +1 @@
++2224
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/core_siblings b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/core_siblings
+new file mode 100644
+index 0000000..99374e8
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/core_siblings
+@@ -0,0 +1 @@
++00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000101,01000000,00000000,00000000,00000000
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/core_siblings_list b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/core_siblings_list
+new file mode 100644
+index 0000000..9764eab
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/core_siblings_list
+@@ -0,0 +1 @@
++120,128,136
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/physical_package_id b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/physical_package_id
+new file mode 100644
+index 0000000..98d9bcb
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/physical_package_id
+@@ -0,0 +1 @@
++17
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/thread_siblings b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/thread_siblings
+new file mode 100644
+index 0000000..7e18bfb
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/thread_siblings
+@@ -0,0 +1 @@
++00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000001,00000000,00000000,00000000,00000000
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/thread_siblings_list b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/thread_siblings_list
+new file mode 100644
+index 0000000..a949a93
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu128/topology/thread_siblings_list
+@@ -0,0 +1 @@
++128
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu129/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu129/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu129/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu13/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu13/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu13/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu130/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu130/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu130/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu131/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu131/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu131/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu132/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu132/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu132/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu133/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu133/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu133/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu134/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu134/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu134/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu135/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu135/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu135/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/online
+new file mode 100644
+index 0000000..d00491f
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/online
+@@ -0,0 +1 @@
++1
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/core_id b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/core_id
+new file mode 100644
+index 0000000..9813cea
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/core_id
+@@ -0,0 +1 @@
++2272
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/core_siblings b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/core_siblings
+new file mode 100644
+index 0000000..99374e8
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/core_siblings
+@@ -0,0 +1 @@
++00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000101,01000000,00000000,00000000,00000000
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/core_siblings_list b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/core_siblings_list
+new file mode 100644
+index 0000000..9764eab
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/core_siblings_list
+@@ -0,0 +1 @@
++120,128,136
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/physical_package_id b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/physical_package_id
+new file mode 100644
+index 0000000..98d9bcb
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/physical_package_id
+@@ -0,0 +1 @@
++17
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/thread_siblings b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/thread_siblings
+new file mode 100644
+index 0000000..c05c51e
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/thread_siblings
+@@ -0,0 +1 @@
++00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000100,00000000,00000000,00000000,00000000
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/thread_siblings_list b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/thread_siblings_list
+new file mode 100644
+index 0000000..7296f25
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu136/topology/thread_siblings_list
+@@ -0,0 +1 @@
++136
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu137/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu137/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu137/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu138/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu138/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu138/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu139/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu139/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu139/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu14/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu14/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu14/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu140/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu140/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu140/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu141/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu141/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu141/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu142/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu142/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu142/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu143/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu143/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu143/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu144/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu144/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu144/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu145/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu145/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu145/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu146/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu146/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu146/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu147/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu147/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu147/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu148/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu148/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu148/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu149/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu149/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu149/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu15/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu15/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu15/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu150/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu150/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu150/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu151/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu151/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu151/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu152/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu152/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu152/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu153/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu153/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu153/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu154/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu154/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu154/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu155/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu155/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu155/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu156/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu156/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu156/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu157/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu157/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu157/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu158/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu158/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu158/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu159/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu159/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu159/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/online
+new file mode 100644
+index 0000000..d00491f
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/online
+@@ -0,0 +1 @@
++1
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/core_id b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/core_id
+new file mode 100644
+index 0000000..f906e18
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/core_id
+@@ -0,0 +1 @@
++96
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/core_siblings b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/core_siblings
+new file mode 100644
+index 0000000..94bd366
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/core_siblings
+@@ -0,0 +1 @@
++00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,01010000
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/core_siblings_list b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/core_siblings_list
+new file mode 100644
+index 0000000..2887d7b
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/core_siblings_list
+@@ -0,0 +1 @@
++16,24
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/physical_package_id b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/physical_package_id
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/physical_package_id
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/thread_siblings b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/thread_siblings
+new file mode 100644
+index 0000000..f15bff6
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/thread_siblings
+@@ -0,0 +1 @@
++00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00010000
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/thread_siblings_list b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/thread_siblings_list
+new file mode 100644
+index 0000000..b6a7d89
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu16/topology/thread_siblings_list
+@@ -0,0 +1 @@
++16
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu17/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu17/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu17/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu18/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu18/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu18/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu19/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu19/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu19/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu2/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu2/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu2/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu20/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu20/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu20/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu21/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu21/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu21/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu22/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu22/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu22/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu23/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu23/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu23/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/online
+new file mode 100644
+index 0000000..d00491f
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/online
+@@ -0,0 +1 @@
++1
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/core_id b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/core_id
+new file mode 100644
+index 0000000..b16e5f7
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/core_id
+@@ -0,0 +1 @@
++104
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/core_siblings b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/core_siblings
+new file mode 100644
+index 0000000..94bd366
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/core_siblings
+@@ -0,0 +1 @@
++00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,01010000
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/core_siblings_list b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/core_siblings_list
+new file mode 100644
+index 0000000..2887d7b
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/core_siblings_list
+@@ -0,0 +1 @@
++16,24
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/physical_package_id b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/physical_package_id
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/physical_package_id
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/thread_siblings b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/thread_siblings
+new file mode 100644
+index 0000000..c20308b
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/thread_siblings
+@@ -0,0 +1 @@
++00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,01000000
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/thread_siblings_list b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/thread_siblings_list
+new file mode 100644
+index 0000000..a45fd52
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu24/topology/thread_siblings_list
+@@ -0,0 +1 @@
++24
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu25/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu25/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu25/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu26/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu26/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu26/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu27/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu27/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu27/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu28/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu28/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu28/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu29/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu29/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu29/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu3/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu3/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu3/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu30/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu30/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu30/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu31/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu31/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu31/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu32/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu32/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu32/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu33/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu33/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu33/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu34/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu34/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu34/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu35/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu35/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu35/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu36/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu36/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu36/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu37/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu37/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu37/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu38/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu38/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu38/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu39/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu39/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu39/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu4/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu4/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu4/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/online
+new file mode 100644
+index 0000000..d00491f
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/online
+@@ -0,0 +1 @@
++1
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/core_id b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/core_id
+new file mode 100644
+index 0000000..a762560
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/core_id
+@@ -0,0 +1 @@
++160
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/core_siblings b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/core_siblings
+new file mode 100644
+index 0000000..24976fc
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/core_siblings
+@@ -0,0 +1 @@
++00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000100,00010100,00000000
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/core_siblings_list b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/core_siblings_list
+new file mode 100644
+index 0000000..b7a5a65
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/core_siblings_list
+@@ -0,0 +1 @@
++40,48,72
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/physical_package_id b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/physical_package_id
+new file mode 100644
+index 0000000..d00491f
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/physical_package_id
+@@ -0,0 +1 @@
++1
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/thread_siblings b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/thread_siblings
+new file mode 100644
+index 0000000..d98f0b4
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/thread_siblings
+@@ -0,0 +1 @@
++00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000100,00000000
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/thread_siblings_list b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/thread_siblings_list
+new file mode 100644
+index 0000000..425151f
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu40/topology/thread_siblings_list
+@@ -0,0 +1 @@
++40
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu41/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu41/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu41/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu42/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu42/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu42/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu43/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu43/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu43/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu44/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu44/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu44/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu45/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu45/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu45/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu46/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu46/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu46/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu47/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu47/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu47/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/online
+new file mode 100644
+index 0000000..d00491f
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/online
+@@ -0,0 +1 @@
++1
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/core_id b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/core_id
+new file mode 100644
+index 0000000..1057e9a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/core_id
+@@ -0,0 +1 @@
++176
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/core_siblings b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/core_siblings
+new file mode 100644
+index 0000000..24976fc
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/core_siblings
+@@ -0,0 +1 @@
++00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000100,00010100,00000000
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/core_siblings_list b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/core_siblings_list
+new file mode 100644
+index 0000000..b7a5a65
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/core_siblings_list
+@@ -0,0 +1 @@
++40,48,72
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/physical_package_id b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/physical_package_id
+new file mode 100644
+index 0000000..d00491f
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/physical_package_id
+@@ -0,0 +1 @@
++1
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/thread_siblings b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/thread_siblings
+new file mode 100644
+index 0000000..943a83a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/thread_siblings
+@@ -0,0 +1 @@
++00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00010000,00000000
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/thread_siblings_list b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/thread_siblings_list
+new file mode 100644
+index 0000000..21e72e8
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu48/topology/thread_siblings_list
+@@ -0,0 +1 @@
++48
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu49/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu49/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu49/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu5/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu5/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu5/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu50/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu50/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu50/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu51/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu51/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu51/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu52/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu52/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu52/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu53/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu53/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu53/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu54/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu54/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu54/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu55/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu55/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu55/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu56/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu56/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu56/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu57/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu57/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu57/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu58/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu58/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu58/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu59/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu59/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu59/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu6/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu6/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu6/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu60/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu60/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu60/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu61/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu61/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu61/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu62/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu62/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu62/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu63/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu63/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu63/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu64/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu64/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu64/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu65/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu65/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu65/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu66/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu66/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu66/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu67/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu67/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu67/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu68/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu68/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu68/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu69/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu69/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu69/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu7/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu7/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu7/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu70/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu70/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu70/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu71/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu71/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu71/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/online
+new file mode 100644
+index 0000000..d00491f
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/online
+@@ -0,0 +1 @@
++1
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/core_id b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/core_id
+new file mode 100644
+index 0000000..eb08bc0
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/core_id
+@@ -0,0 +1 @@
++240
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/core_siblings b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/core_siblings
+new file mode 100644
+index 0000000..24976fc
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/core_siblings
+@@ -0,0 +1 @@
++00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000100,00010100,00000000
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/core_siblings_list b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/core_siblings_list
+new file mode 100644
+index 0000000..b7a5a65
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/core_siblings_list
+@@ -0,0 +1 @@
++40,48,72
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/physical_package_id b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/physical_package_id
+new file mode 100644
+index 0000000..d00491f
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/physical_package_id
+@@ -0,0 +1 @@
++1
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/thread_siblings b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/thread_siblings
+new file mode 100644
+index 0000000..b85a0fd
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/thread_siblings
+@@ -0,0 +1 @@
++00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000100,00000000,00000000
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/thread_siblings_list b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/thread_siblings_list
+new file mode 100644
+index 0000000..ea70ce0
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu72/topology/thread_siblings_list
+@@ -0,0 +1 @@
++72
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu73/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu73/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu73/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu74/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu74/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu74/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu75/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu75/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu75/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu76/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu76/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu76/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu77/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu77/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu77/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu78/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu78/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu78/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu79/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu79/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu79/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu8/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu8/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu8/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu80/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu80/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu80/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu81/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu81/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu81/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu82/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu82/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu82/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu83/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu83/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu83/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu84/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu84/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu84/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu85/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu85/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu85/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu86/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu86/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu86/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu87/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu87/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu87/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu88/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu88/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu88/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu89/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu89/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu89/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu9/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu9/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu9/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu90/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu90/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu90/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu91/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu91/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu91/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu92/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu92/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu92/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu93/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu93/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu93/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu94/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu94/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu94/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu95/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu95/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu95/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu96/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu96/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu96/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu97/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu97/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu97/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu98/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu98/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu98/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu99/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu99/online
+new file mode 100644
+index 0000000..573541a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/cpu99/online
+@@ -0,0 +1 @@
++0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/kernel_max b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/kernel_max
+new file mode 100644
+index 0000000..b6ac305
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/kernel_max
+@@ -0,0 +1 @@
++2047
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/offline b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/offline
+new file mode 100644
+index 0000000..b74672a
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/offline
+@@ -0,0 +1 @@
++0-15,17-23,25-39,41-47,49-71,73-103,105-111,113-119,121-127,129-135,137-159
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/online b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/online
+new file mode 100644
+index 0000000..dbb065f
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/online
+@@ -0,0 +1 @@
++16,24,40,48,72,104,112,120,128,136
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/possible b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/possible
+new file mode 100644
+index 0000000..7a662d6
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/possible
+@@ -0,0 +1 @@
++0-159
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/cpu/present b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/present
+new file mode 100644
+index 0000000..4acfa9b
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/cpu/present
+@@ -0,0 +1 @@
++16-31,40-55,72-79,104-143
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/node/node0/meminfo b/tests/nodeinfodata/linux-deconfigured-cpus/node/node0/meminfo
+new file mode 100644
+index 0000000..1033a39
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/node/node0/meminfo
+@@ -0,0 +1,29 @@
++Node 0 MemTotal:       67108864 kB
++Node 0 MemFree:        61726720 kB
++Node 0 MemUsed:         5382144 kB
++Node 0 Active:           276544 kB
++Node 0 Inactive:         174848 kB
++Node 0 Active(anon):     100928 kB
++Node 0 Inactive(anon):     9152 kB
++Node 0 Active(file):     175616 kB
++Node 0 Inactive(file):   165696 kB
++Node 0 Unevictable:           0 kB
++Node 0 Mlocked:               0 kB
++Node 0 Dirty:             69824 kB
++Node 0 Writeback:             0 kB
++Node 0 FilePages:        360256 kB
++Node 0 Mapped:            42752 kB
++Node 0 AnonPages:         93312 kB
++Node 0 Shmem:             16768 kB
++Node 0 KernelStack:       10208 kB
++Node 0 PageTables:         1472 kB
++Node 0 NFS_Unstable:          0 kB
++Node 0 Bounce:                0 kB
++Node 0 WritebackTmp:          0 kB
++Node 0 Slab:             184576 kB
++Node 0 SReclaimable:      57152 kB
++Node 0 SUnreclaim:       127424 kB
++Node 0 AnonHugePages:         0 kB
++Node 0 HugePages_Total:     0
++Node 0 HugePages_Free:      0
++Node 0 HugePages_Surp:      0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/node/node1/meminfo b/tests/nodeinfodata/linux-deconfigured-cpus/node/node1/meminfo
+new file mode 100644
+index 0000000..600841b
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/node/node1/meminfo
+@@ -0,0 +1,29 @@
++Node 1 MemTotal:       67108864 kB
++Node 1 MemFree:        66225792 kB
++Node 1 MemUsed:          883072 kB
++Node 1 Active:           247040 kB
++Node 1 Inactive:          82752 kB
++Node 1 Active(anon):      52800 kB
++Node 1 Inactive(anon):      192 kB
++Node 1 Active(file):     194240 kB
++Node 1 Inactive(file):    82560 kB
++Node 1 Unevictable:           0 kB
++Node 1 Mlocked:               0 kB
++Node 1 Dirty:                64 kB
++Node 1 Writeback:             0 kB
++Node 1 FilePages:        281344 kB
++Node 1 Mapped:            19264 kB
++Node 1 AnonPages:         49088 kB
++Node 1 Shmem:              4352 kB
++Node 1 KernelStack:        2960 kB
++Node 1 PageTables:          448 kB
++Node 1 NFS_Unstable:          0 kB
++Node 1 Bounce:                0 kB
++Node 1 WritebackTmp:          0 kB
++Node 1 Slab:             106368 kB
++Node 1 SReclaimable:      16448 kB
++Node 1 SUnreclaim:        89920 kB
++Node 1 AnonHugePages:         0 kB
++Node 1 HugePages_Total:     0
++Node 1 HugePages_Free:      0
++Node 1 HugePages_Surp:      0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/node/node16/meminfo b/tests/nodeinfodata/linux-deconfigured-cpus/node/node16/meminfo
+new file mode 100644
+index 0000000..78350e1
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/node/node16/meminfo
+@@ -0,0 +1,29 @@
++Node 16 MemTotal:       67108864 kB
++Node 16 MemFree:        66296832 kB
++Node 16 MemUsed:          812032 kB
++Node 16 Active:           145792 kB
++Node 16 Inactive:         131904 kB
++Node 16 Active(anon):      36352 kB
++Node 16 Inactive(anon):      320 kB
++Node 16 Active(file):     109440 kB
++Node 16 Inactive(file):   131584 kB
++Node 16 Unevictable:           0 kB
++Node 16 Mlocked:               0 kB
++Node 16 Dirty:             48256 kB
++Node 16 Writeback:             0 kB
++Node 16 FilePages:        246720 kB
++Node 16 Mapped:             7744 kB
++Node 16 AnonPages:         35968 kB
++Node 16 Shmem:               704 kB
++Node 16 KernelStack:        3232 kB
++Node 16 PageTables:          512 kB
++Node 16 NFS_Unstable:          0 kB
++Node 16 Bounce:                0 kB
++Node 16 WritebackTmp:          0 kB
++Node 16 Slab:              61760 kB
++Node 16 SReclaimable:      28736 kB
++Node 16 SUnreclaim:        33024 kB
++Node 16 AnonHugePages:         0 kB
++Node 16 HugePages_Total:     0
++Node 16 HugePages_Free:      0
++Node 16 HugePages_Surp:      0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/node/node17/meminfo b/tests/nodeinfodata/linux-deconfigured-cpus/node/node17/meminfo
+new file mode 100644
+index 0000000..3e691f2
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/node/node17/meminfo
+@@ -0,0 +1,29 @@
++Node 17 MemTotal:       67108864 kB
++Node 17 MemFree:        65890688 kB
++Node 17 MemUsed:         1218176 kB
++Node 17 Active:           250752 kB
++Node 17 Inactive:         181184 kB
++Node 17 Active(anon):     100544 kB
++Node 17 Inactive(anon):      320 kB
++Node 17 Active(file):     150208 kB
++Node 17 Inactive(file):   180864 kB
++Node 17 Unevictable:           0 kB
++Node 17 Mlocked:               0 kB
++Node 17 Dirty:             97856 kB
++Node 17 Writeback:             0 kB
++Node 17 FilePages:        341824 kB
++Node 17 Mapped:             2304 kB
++Node 17 AnonPages:        100736 kB
++Node 17 Shmem:               576 kB
++Node 17 KernelStack:        3088 kB
++Node 17 PageTables:          768 kB
++Node 17 NFS_Unstable:          0 kB
++Node 17 Bounce:                0 kB
++Node 17 WritebackTmp:          0 kB
++Node 17 Slab:              61760 kB
++Node 17 SReclaimable:      14912 kB
++Node 17 SUnreclaim:        46848 kB
++Node 17 AnonHugePages:     49152 kB
++Node 17 HugePages_Total:     0
++Node 17 HugePages_Free:      0
++Node 17 HugePages_Surp:      0
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/node/online b/tests/nodeinfodata/linux-deconfigured-cpus/node/online
+new file mode 100644
+index 0000000..a41eb32
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/node/online
+@@ -0,0 +1 @@
++0-1,16-17
+diff --git a/tests/nodeinfodata/linux-deconfigured-cpus/node/possible b/tests/nodeinfodata/linux-deconfigured-cpus/node/possible
+new file mode 100644
+index 0000000..8d232c7
+--- /dev/null
++++ b/tests/nodeinfodata/linux-deconfigured-cpus/node/possible
+@@ -0,0 +1 @@
++0-255
+diff --git a/tests/nodeinfodata/linux-ppc64-deconfigured-cpus.cpuinfo b/tests/nodeinfodata/linux-ppc64-deconfigured-cpus.cpuinfo
+new file mode 100644
+index 0000000..e5560e2
+--- /dev/null
++++ b/tests/nodeinfodata/linux-ppc64-deconfigured-cpus.cpuinfo
+@@ -0,0 +1,55 @@
++processor	: 16
++cpu		: POWER8E (raw), altivec supported
++clock		: 3690.000000MHz
++revision	: 2.1 (pvr 004b 0201)
++
++processor	: 24
++cpu		: POWER8E (raw), altivec supported
++clock		: 3690.000000MHz
++revision	: 2.1 (pvr 004b 0201)
++
++processor	: 40
++cpu		: POWER8E (raw), altivec supported
++clock		: 3690.000000MHz
++revision	: 2.1 (pvr 004b 0201)
++
++processor	: 48
++cpu		: POWER8E (raw), altivec supported
++clock		: 3690.000000MHz
++revision	: 2.1 (pvr 004b 0201)
++
++processor	: 72
++cpu		: POWER8E (raw), altivec supported
++clock		: 3690.000000MHz
++revision	: 2.1 (pvr 004b 0201)
++
++processor	: 104
++cpu		: POWER8E (raw), altivec supported
++clock		: 3690.000000MHz
++revision	: 2.1 (pvr 004b 0201)
++
++processor	: 112
++cpu		: POWER8E (raw), altivec supported
++clock		: 3690.000000MHz
++revision	: 2.1 (pvr 004b 0201)
++
++processor	: 120
++cpu		: POWER8E (raw), altivec supported
++clock		: 3690.000000MHz
++revision	: 2.1 (pvr 004b 0201)
++
++processor	: 128
++cpu		: POWER8E (raw), altivec supported
++clock		: 3690.000000MHz
++revision	: 2.1 (pvr 004b 0201)
++
++processor	: 136
++cpu		: POWER8E (raw), altivec supported
++clock		: 3690.000000MHz
++revision	: 2.1 (pvr 004b 0201)
++
++timebase	: 512000000
++platform	: PowerNV
++model		: 8247-22L
++machine		: PowerNV 8247-22L
++firmware	: OPAL v3
+diff --git a/tests/nodeinfodata/linux-ppc64-deconfigured-cpus.expected b/tests/nodeinfodata/linux-ppc64-deconfigured-cpus.expected
+new file mode 100644
+index 0000000..304f423
+--- /dev/null
++++ b/tests/nodeinfodata/linux-ppc64-deconfigured-cpus.expected
+@@ -0,0 +1 @@
++CPUs: 10/80, MHz: 3690, Nodes: 1, Sockets: 1, Cores: 80, Threads: 1
+diff --git a/tests/nodeinfotest.c b/tests/nodeinfotest.c
+index 8d0a06f..be099f0 100644
+--- a/tests/nodeinfotest.c
++++ b/tests/nodeinfotest.c
+@@ -234,6 +234,7 @@ mymain(void)
+         {"raspberrypi", VIR_ARCH_ARMV6L},
+         {"f21-mustang", VIR_ARCH_AARCH64},
+         {"rhelsa-3.19.0-mustang", VIR_ARCH_AARCH64},
++        {"deconfigured-cpus", VIR_ARCH_PPC64},
+     };
+ 
+     if (virInitialize() < 0)
+-- 
+2.5.0
+

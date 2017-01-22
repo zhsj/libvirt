@@ -1,0 +1,46 @@
+From 429baeb240d7d34abe27d87a76971311029a0704 Mon Sep 17 00:00:00 2001
+Message-Id: <429baeb240d7d34abe27d87a76971311029a0704@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Tue, 11 Aug 2015 17:15:52 +0200
+Subject: [PATCH] cpu: Indentation changes in the ppc64 driver
+
+(cherry picked from commit 4ff3e939e7225f7a502e029067c848855815b569)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1250977
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/cpu/cpu_ppc64.c | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/src/cpu/cpu_ppc64.c b/src/cpu/cpu_ppc64.c
+index 7a48903..c3a51fb 100644
+--- a/src/cpu/cpu_ppc64.c
++++ b/src/cpu/cpu_ppc64.c
+@@ -340,7 +340,8 @@ ppc64LoadMap(void)
+ }
+ 
+ static virCPUDataPtr
+-ppc64MakeCPUData(virArch arch, struct cpuPPC64Data *data)
++ppc64MakeCPUData(virArch arch,
++                 struct cpuPPC64Data *data)
+ {
+     virCPUDataPtr cpuData;
+ 
+@@ -695,9 +696,9 @@ ppc64GetModels(char ***models)
+ }
+ 
+ struct cpuArchDriver cpuDriverPPC64 = {
+-    .name = "ppc64",
+-    .arch = archs,
+-    .narch = ARRAY_CARDINALITY(archs),
++    .name       = "ppc64",
++    .arch       = archs,
++    .narch      = ARRAY_CARDINALITY(archs),
+     .compare    = ppc64Compare,
+     .decode     = ppc64Decode,
+     .encode     = NULL,
+-- 
+2.5.0
+

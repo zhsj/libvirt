@@ -1,0 +1,197 @@
+From 8fd08f800670d5e6ca2e1013d6ffbbf210b5aff4 Mon Sep 17 00:00:00 2001
+Message-Id: <8fd08f800670d5e6ca2e1013d6ffbbf210b5aff4@dist-git>
+From: John Ferlan <jferlan@redhat.com>
+Date: Wed, 5 Aug 2015 18:18:08 +0200
+Subject: [PATCH] nodeinfo: Add sysfs_prefix to nodeGetCPUCount
+
+Add the sysfs_prefix argument to the call to allow for setting the
+path for tests to something other than SYSFS_SYSTEM_PATH.
+
+(cherry picked from commit f1a43a0f91d80ccbbd9e084de17673e48c2e60f4)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/lxc/lxc_controller.c |  2 +-
+ src/nodeinfo.c           | 20 +++++++++++++-------
+ src/nodeinfo.h           |  2 +-
+ src/qemu/qemu_driver.c   |  6 +++---
+ src/qemu/qemu_process.c  |  2 +-
+ src/vz/vz_sdk.c          |  2 +-
+ tests/vircgrouptest.c    |  4 ++--
+ 7 files changed, 22 insertions(+), 16 deletions(-)
+
+diff --git a/src/lxc/lxc_controller.c b/src/lxc/lxc_controller.c
+index 828b8a8..27e2e3a 100644
+--- a/src/lxc/lxc_controller.c
++++ b/src/lxc/lxc_controller.c
+@@ -705,7 +705,7 @@ static int virLXCControllerSetupCpuAffinity(virLXCControllerPtr ctrl)
+ 
+     /* setaffinity fails if you set bits for CPUs which
+      * aren't present, so we have to limit ourselves */
+-    if ((hostcpus = nodeGetCPUCount()) < 0)
++    if ((hostcpus = nodeGetCPUCount(NULL)) < 0)
+         return -1;
+ 
+     if (maxcpu > hostcpus)
+diff --git a/src/nodeinfo.c b/src/nodeinfo.c
+index f3e3108..409f922 100644
+--- a/src/nodeinfo.c
++++ b/src/nodeinfo.c
+@@ -1195,7 +1195,7 @@ int nodeGetMemoryStats(int cellNum ATTRIBUTE_UNUSED,
+ }
+ 
+ int
+-nodeGetCPUCount(void)
++nodeGetCPUCount(const char *sysfs_prefix ATTRIBUTE_UNUSED)
+ {
+ #if defined(__linux__)
+     /* To support older kernels that lack cpu/present, such as 2.6.18
+@@ -1204,21 +1204,27 @@ nodeGetCPUCount(void)
+      * will be consecutive.
+      */
+     char *present_path = NULL;
++    const char *prefix = sysfs_prefix ? sysfs_prefix : SYSFS_SYSTEM_PATH;
+     char *cpupath = NULL;
+     int ncpu = -1;
+ 
+-    if (!(present_path = linuxGetCPUPresentPath(NULL)))
++    if (!(present_path = linuxGetCPUPresentPath(prefix)))
+         return -1;
+ 
+     if (virFileExists(present_path)) {
+         ncpu = linuxParseCPUmax(present_path);
+-    } else if (virFileExists(SYSFS_SYSTEM_PATH "/cpu/cpu0")) {
++        goto cleanup;
++    }
++
++    if (virAsprintf(&cpupath, "%s/cpu/cpu0", prefix) < 0)
++        goto cleanup;
++    if (virFileExists(cpupath)) {
+         ncpu = 0;
+         do {
+             ncpu++;
+             VIR_FREE(cpupath);
+             if (virAsprintf(&cpupath, "%s/cpu/cpu%d",
+-                            SYSFS_SYSTEM_PATH, ncpu) < 0) {
++                            prefix, ncpu) < 0) {
+                 ncpu = -1;
+                 goto cleanup;
+             }
+@@ -1251,7 +1257,7 @@ nodeGetPresentCPUBitmap(void)
+     virBitmapPtr bitmap = NULL;
+ #endif
+ 
+-    if ((max_present = nodeGetCPUCount()) < 0)
++    if ((max_present = nodeGetCPUCount(NULL)) < 0)
+         return NULL;
+ 
+ #ifdef __linux__
+@@ -1274,7 +1280,7 @@ nodeGetCPUBitmap(int *max_id ATTRIBUTE_UNUSED)
+     virBitmapPtr cpumap;
+     int present;
+ 
+-    present = nodeGetCPUCount();
++    present = nodeGetCPUCount(NULL);
+     if (present < 0)
+         return NULL;
+ 
+@@ -1621,7 +1627,7 @@ nodeGetCPUMap(unsigned char **cpumap,
+     virCheckFlags(0, -1);
+ 
+     if (!cpumap && !online)
+-        return nodeGetCPUCount();
++        return nodeGetCPUCount(NULL);
+ 
+     if (!(cpus = nodeGetCPUBitmap(&maxpresent)))
+         goto cleanup;
+diff --git a/src/nodeinfo.h b/src/nodeinfo.h
+index 047bd5c..4f9699e 100644
+--- a/src/nodeinfo.h
++++ b/src/nodeinfo.h
+@@ -45,7 +45,7 @@ int nodeGetMemory(unsigned long long *mem,
+ 
+ virBitmapPtr nodeGetPresentCPUBitmap(void);
+ virBitmapPtr nodeGetCPUBitmap(int *max_id);
+-int nodeGetCPUCount(void);
++int nodeGetCPUCount(const char *sysfs_prefix);
+ 
+ int nodeGetMemoryParameters(virTypedParameterPtr params,
+                             int *nparams,
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index 8f5e4fb..e30a02d 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -5253,7 +5253,7 @@ qemuDomainGetVcpuPinInfo(virDomainPtr dom,
+     if (!(def = virDomainObjGetOneDef(vm, flags)))
+         goto cleanup;
+ 
+-    if ((hostcpus = nodeGetCPUCount()) < 0)
++    if ((hostcpus = nodeGetCPUCount(NULL)) < 0)
+         goto cleanup;
+ 
+     if (!(allcpumap = virBitmapNew(hostcpus)))
+@@ -5441,7 +5441,7 @@ qemuDomainGetEmulatorPinInfo(virDomainPtr dom,
+     if (!(def = virDomainObjGetOneDef(vm, flags)))
+         goto cleanup;
+ 
+-    if ((hostcpus = nodeGetCPUCount()) < 0)
++    if ((hostcpus = nodeGetCPUCount(NULL)) < 0)
+         goto cleanup;
+ 
+     if (def->cputune.emulatorpin) {
+@@ -5684,7 +5684,7 @@ qemuDomainGetIOThreadsConfig(virDomainDefPtr targetDef,
+     if (targetDef->iothreads == 0)
+         return 0;
+ 
+-    if ((hostcpus = nodeGetCPUCount()) < 0)
++    if ((hostcpus = nodeGetCPUCount(NULL)) < 0)
+         goto cleanup;
+ 
+     if (VIR_ALLOC_N(info_ret, targetDef->iothreads) < 0)
+diff --git a/src/qemu/qemu_process.c b/src/qemu/qemu_process.c
+index f41fd9d..e1c7f0b 100644
+--- a/src/qemu/qemu_process.c
++++ b/src/qemu/qemu_process.c
+@@ -2408,7 +2408,7 @@ qemuProcessInitCpuAffinity(virDomainObjPtr vm)
+ 
+             /* setaffinity fails if you set bits for CPUs which
+              * aren't present, so we have to limit ourselves */
+-            if ((hostcpus = nodeGetCPUCount()) < 0)
++            if ((hostcpus = nodeGetCPUCount(NULL)) < 0)
+                 goto cleanup;
+ 
+             if (hostcpus > QEMUD_CPUMASK_LEN)
+diff --git a/src/vz/vz_sdk.c b/src/vz/vz_sdk.c
+index f27098c..a584940 100644
+--- a/src/vz/vz_sdk.c
++++ b/src/vz/vz_sdk.c
+@@ -1141,7 +1141,7 @@ prlsdkConvertCpuInfo(PRL_HANDLE sdkdom,
+     PRL_RESULT pret;
+     int ret = -1;
+ 
+-    if ((hostcpus = nodeGetCPUCount()) < 0)
++    if ((hostcpus = nodeGetCPUCount(NULL)) < 0)
+         goto cleanup;
+ 
+     /* get number of CPUs */
+diff --git a/tests/vircgrouptest.c b/tests/vircgrouptest.c
+index dddf33a..7a87640 100644
+--- a/tests/vircgrouptest.c
++++ b/tests/vircgrouptest.c
+@@ -649,8 +649,8 @@ static int testCgroupGetPercpuStats(const void *args ATTRIBUTE_UNUSED)
+         goto cleanup;
+     }
+ 
+-    if (nodeGetCPUCount() != EXPECTED_NCPUS) {
+-        fprintf(stderr, "Unexpected: nodeGetCPUCount() yields: %d\n", nodeGetCPUCount());
++    if (nodeGetCPUCount(NULL) != EXPECTED_NCPUS) {
++        fprintf(stderr, "Unexpected: nodeGetCPUCount() yields: %d\n", nodeGetCPUCount(NULL));
+         goto cleanup;
+     }
+ 
+-- 
+2.5.0
+

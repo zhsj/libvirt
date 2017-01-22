@@ -1,0 +1,37 @@
+From f1ae475d996a4943d25ad7a540364be6d4f6fa32 Mon Sep 17 00:00:00 2001
+Message-Id: <f1ae475d996a4943d25ad7a540364be6d4f6fa32@dist-git>
+From: =?UTF-8?q?Guido=20G=C3=BCnther?= <agx@sigxcpu.org>
+Date: Thu, 9 Jul 2015 19:08:49 +0200
+Subject: [PATCH] qemu: don't use initialized ret in qemuRemoveSharedDevice
+
+This fixes
+
+  CC     qemu/libvirt_driver_qemu_impl_la-qemu_conf.lo
+  qemu/qemu_conf.c: In function 'qemuRemoveSharedDevice':
+  qemu/qemu_conf.c:1384:9: error: 'ret' may be used uninitialized in this function [-Werror=maybe-uninitialized]
+
+(cherry picked from commit c6f9ddf9099d08732acf2501b73c6817d8feb882)
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1072736
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_conf.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/qemu/qemu_conf.c b/src/qemu/qemu_conf.c
+index 965d34d..030261e 100644
+--- a/src/qemu/qemu_conf.c
++++ b/src/qemu/qemu_conf.c
+@@ -1396,7 +1396,7 @@ qemuRemoveSharedHostdev(virQEMUDriverPtr driver,
+ {
+     char *dev_path = NULL;
+     char *key = NULL;
+-    int ret;
++    int ret = -1;
+ 
+     if (!qemuIsSharedHostdev(hostdev))
+         return 0;
+-- 
+2.5.1
+

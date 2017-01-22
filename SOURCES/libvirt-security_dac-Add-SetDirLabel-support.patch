@@ -1,0 +1,55 @@
+From 34526e81d64c72c7a562774d110c552eb864dba0 Mon Sep 17 00:00:00 2001
+Message-Id: <34526e81d64c72c7a562774d110c552eb864dba0@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Mon, 24 Aug 2015 13:04:50 +0200
+Subject: [PATCH] security_dac: Add SetDirLabel support
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1146886
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit f4c60dfbf2ec606a5fc148b4c6ff1cd17ffd79ec)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/security/security_dac.c | 20 ++++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+
+diff --git a/src/security/security_dac.c b/src/security/security_dac.c
+index bed23c3..864d75b 100644
+--- a/src/security/security_dac.c
++++ b/src/security/security_dac.c
+@@ -1394,6 +1394,24 @@ virSecurityDACGetBaseLabel(virSecurityManagerPtr mgr,
+     return priv->baselabel;
+ }
+ 
++static int
++virSecurityDACDomainSetDirLabel(virSecurityManagerPtr mgr,
++                                virDomainDefPtr def,
++                                const char *path)
++{
++    virSecurityDACDataPtr priv = virSecurityManagerGetPrivateData(mgr);
++    virSecurityLabelDefPtr seclabel;
++    uid_t user;
++    gid_t group;
++
++    seclabel = virDomainDefGetSecurityLabelDef(def, SECURITY_DAC_NAME);
++
++    if (virSecurityDACGetIds(seclabel, priv, &user, &group, NULL, NULL) < 0)
++        return -1;
++
++    return virSecurityDACSetOwnership(path, user, group);
++}
++
+ virSecurityDriver virSecurityDriverDAC = {
+     .privateDataLen                     = sizeof(virSecurityDACData),
+     .name                               = SECURITY_DAC_NAME,
+@@ -1441,4 +1459,6 @@ virSecurityDriver virSecurityDriverDAC = {
+     .domainGetSecurityMountOptions      = virSecurityDACGetMountOptions,
+ 
+     .getBaseLabel                       = virSecurityDACGetBaseLabel,
++
++    .domainSetDirLabel                  = virSecurityDACDomainSetDirLabel,
+ };
+-- 
+2.5.1
+

@@ -1,0 +1,137 @@
+From fa7357fcc523ba9e2f40ee80c769060f5772eacb Mon Sep 17 00:00:00 2001
+Message-Id: <fa7357fcc523ba9e2f40ee80c769060f5772eacb@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Tue, 18 Aug 2015 17:28:02 -0700
+Subject: [PATCH] qemu: Sync BlkioDevice values when setting them in cgroups
+
+The problem here is that there are some values that kernel accepts, but
+does not set them, for example 18446744073709551615 which acts the same
+way as zero.  Let's do the same thing we do with other tuning options
+and re-read them right after they are set in order to keep our internal
+structures up-to-date.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1165580
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 7b5acf9461d3917cac12688fae9fbe5f67bf788b)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_cgroup.c | 20 +++++++++++++++-----
+ src/qemu/qemu_driver.c | 25 ++++++++++++++++++++-----
+ 2 files changed, 35 insertions(+), 10 deletions(-)
+
+diff --git a/src/qemu/qemu_cgroup.c b/src/qemu/qemu_cgroup.c
+index e1a2827..0da6c02 100644
+--- a/src/qemu/qemu_cgroup.c
++++ b/src/qemu/qemu_cgroup.c
+@@ -436,27 +436,37 @@ qemuSetupBlkioCgroup(virDomainObjPtr vm)
+             virBlkioDevicePtr dev = &vm->def->blkio.devices[i];
+             if (dev->weight &&
+                 (virCgroupSetBlkioDeviceWeight(priv->cgroup, dev->path,
+-                                               dev->weight) < 0))
++                                               dev->weight) < 0 ||
++                 virCgroupGetBlkioDeviceWeight(priv->cgroup, dev->path,
++                                               &dev->weight) < 0))
+                 return -1;
+ 
+             if (dev->riops &&
+                 (virCgroupSetBlkioDeviceReadIops(priv->cgroup, dev->path,
+-                                                 dev->riops) < 0))
++                                                 dev->riops) < 0 ||
++                 virCgroupGetBlkioDeviceReadIops(priv->cgroup, dev->path,
++                                                 &dev->riops) < 0))
+                 return -1;
+ 
+             if (dev->wiops &&
+                 (virCgroupSetBlkioDeviceWriteIops(priv->cgroup, dev->path,
+-                                                  dev->wiops) < 0))
++                                                  dev->wiops) < 0 ||
++                 virCgroupGetBlkioDeviceWriteIops(priv->cgroup, dev->path,
++                                                  &dev->wiops) < 0))
+                 return -1;
+ 
+             if (dev->rbps &&
+                 (virCgroupSetBlkioDeviceReadBps(priv->cgroup, dev->path,
+-                                                dev->rbps) < 0))
++                                                dev->rbps) < 0 ||
++                 virCgroupGetBlkioDeviceReadBps(priv->cgroup, dev->path,
++                                                &dev->rbps) < 0))
+                 return -1;
+ 
+             if (dev->wbps &&
+                 (virCgroupSetBlkioDeviceWriteBps(priv->cgroup, dev->path,
+-                                                 dev->wbps) < 0))
++                                                 dev->wbps) < 0 ||
++                 virCgroupGetBlkioDeviceWriteBps(priv->cgroup, dev->path,
++                                                 &dev->wbps) < 0))
+                 return -1;
+         }
+     }
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index e1ceb98..e85506e 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -9286,7 +9286,10 @@ qemuDomainSetBlkioParameters(virDomainPtr dom,
+                     for (j = 0; j < ndevices; j++) {
+                         if (virCgroupSetBlkioDeviceWeight(priv->cgroup,
+                                                           devices[j].path,
+-                                                          devices[j].weight) < 0) {
++                                                          devices[j].weight) < 0 ||
++                            virCgroupGetBlkioDeviceWeight(priv->cgroup,
++                                                          devices[j].path,
++                                                          &devices[j].weight) < 0) {
+                             ret = -1;
+                             break;
+                         }
+@@ -9295,7 +9298,10 @@ qemuDomainSetBlkioParameters(virDomainPtr dom,
+                     for (j = 0; j < ndevices; j++) {
+                         if (virCgroupSetBlkioDeviceReadIops(priv->cgroup,
+                                                             devices[j].path,
+-                                                            devices[j].riops) < 0) {
++                                                            devices[j].riops) < 0 ||
++                            virCgroupGetBlkioDeviceReadIops(priv->cgroup,
++                                                            devices[j].path,
++                                                            &devices[j].riops) < 0) {
+                             ret = -1;
+                             break;
+                         }
+@@ -9304,7 +9310,10 @@ qemuDomainSetBlkioParameters(virDomainPtr dom,
+                     for (j = 0; j < ndevices; j++) {
+                         if (virCgroupSetBlkioDeviceWriteIops(priv->cgroup,
+                                                              devices[j].path,
+-                                                             devices[j].wiops) < 0) {
++                                                             devices[j].wiops) < 0 ||
++                            virCgroupGetBlkioDeviceWriteIops(priv->cgroup,
++                                                             devices[j].path,
++                                                             &devices[j].wiops) < 0) {
+                             ret = -1;
+                             break;
+                         }
+@@ -9313,7 +9322,10 @@ qemuDomainSetBlkioParameters(virDomainPtr dom,
+                     for (j = 0; j < ndevices; j++) {
+                         if (virCgroupSetBlkioDeviceReadBps(priv->cgroup,
+                                                            devices[j].path,
+-                                                           devices[j].rbps) < 0) {
++                                                           devices[j].rbps) < 0 ||
++                            virCgroupGetBlkioDeviceReadBps(priv->cgroup,
++                                                           devices[j].path,
++                                                           &devices[j].rbps) < 0) {
+                             ret = -1;
+                             break;
+                         }
+@@ -9322,7 +9334,10 @@ qemuDomainSetBlkioParameters(virDomainPtr dom,
+                     for (j = 0; j < ndevices; j++) {
+                         if (virCgroupSetBlkioDeviceWriteBps(priv->cgroup,
+                                                             devices[j].path,
+-                                                            devices[j].wbps) < 0) {
++                                                            devices[j].wbps) < 0 ||
++                            virCgroupGetBlkioDeviceWriteBps(priv->cgroup,
++                                                            devices[j].path,
++                                                            &devices[j].wbps) < 0) {
+                             ret = -1;
+                             break;
+                         }
+-- 
+2.5.1
+

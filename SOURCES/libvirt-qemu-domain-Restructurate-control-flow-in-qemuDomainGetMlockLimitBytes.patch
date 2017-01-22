@@ -1,0 +1,49 @@
+From edd55b5cb27f6b1f5738a354f59624795a049d73 Mon Sep 17 00:00:00 2001
+Message-Id: <edd55b5cb27f6b1f5738a354f59624795a049d73@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Thu, 12 Nov 2015 08:40:44 +0100
+Subject: [PATCH] qemu: domain: Restructurate control flow in
+ qemuDomainGetMlockLimitBytes
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1280420
+
+Break early when hard limit is set so that it's not intermixed by other
+logic for determining the limit.
+
+(cherry picked from commit e7b91c510e9831b2741469809465bb68a87c8362)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_domain.c | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index 1f206fa..fd4449d 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -3439,14 +3439,18 @@ qemuDomainGetMlockLimitBytes(virDomainDefPtr def)
+ {
+     unsigned long long memKB;
+ 
++    /* prefer the hard limit */
++    if (virMemoryLimitIsSet(def->mem.hard_limit)) {
++        memKB = def->mem.hard_limit;
++        goto done;
++    }
++
+     /* VFIO requires all of the guest's memory to be locked resident, plus some
+      * amount for IO space. Alex Williamson suggested adding 1GiB for IO space
+      * just to be safe (some finer tuning might be nice, though). */
+-    if (virMemoryLimitIsSet(def->mem.hard_limit))
+-        memKB = def->mem.hard_limit;
+-    else
+-        memKB = virDomainDefGetMemoryActual(def) + 1024 * 1024;
++    memKB = virDomainDefGetMemoryActual(def) + 1024 * 1024;
+ 
++ done:
+     return memKB << 10;
+ }
+ 
+-- 
+2.6.3
+

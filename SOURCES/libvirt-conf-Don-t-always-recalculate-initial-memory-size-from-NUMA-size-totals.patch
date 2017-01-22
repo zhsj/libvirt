@@ -1,0 +1,151 @@
+From ab98ed58d652aff099c8ed1269d01ed23ea81342 Mon Sep 17 00:00:00 2001
+Message-Id: <ab98ed58d652aff099c8ed1269d01ed23ea81342@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Tue, 22 Sep 2015 16:59:45 +0200
+Subject: [PATCH] conf: Don't always recalculate initial memory size from NUMA
+ size totals
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1252685
+
+When implementing memory hotplug I've opted to recalculate the initial
+memory size (contents of the <memory> element) as a sum of the sizes of
+NUMA nodes when NUMA was enabled. This was based on an assumption that
+qemu did not allow starting when the NUMA node size total didn't equal
+to the initial memory size. Unfortunately the check was introduced to
+qemu just lately.
+
+This patch uses the new XML parser flag to decide whether it's safe to
+update the memory size total from the NUMA cell sizes or not.
+
+As an additional improvement we now report an error in case when the
+size of hotplug memory would exceed the total memory size.
+
+The rest of the changes assures that the function is called with correct
+flags.
+
+(cherry picked from commit 0fed5a7bc79865fe00fd5a328a2e520934c52ff7)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/conf/domain_conf.c  | 37 +++++++++++++++++++++++++++++--------
+ src/conf/domain_conf.h  |  1 +
+ src/qemu/qemu_command.c |  3 ++-
+ 3 files changed, 32 insertions(+), 9 deletions(-)
+
+diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
+index 3625310..f5320fe 100644
+--- a/src/conf/domain_conf.c
++++ b/src/conf/domain_conf.c
+@@ -3640,15 +3640,34 @@ virDomainDefRemoveDuplicateMetadata(virDomainDefPtr def)
+ 
+ 
+ static int
+-virDomainDefPostParseMemory(virDomainDefPtr def)
++virDomainDefPostParseMemory(virDomainDefPtr def,
++                            unsigned int parseFlags)
+ {
+     size_t i;
++    unsigned long long numaMemory = 0;
++    unsigned long long hotplugMemory = 0;
+ 
+-    if ((def->mem.initial_memory = virDomainNumaGetMemorySize(def->numa)) == 0) {
+-        def->mem.initial_memory = def->mem.total_memory;
++    /* Attempt to infer the initial memory size from the sum NUMA memory sizes
++     * in case ABI updates are allowed or the <memory> element wasn't specified */
++    if (def->mem.total_memory == 0 ||
++        parseFlags & VIR_DOMAIN_DEF_PARSE_ABI_UPDATE)
++        numaMemory = virDomainNumaGetMemorySize(def->numa);
+ 
++    if (numaMemory) {
++        virDomainDefSetMemoryInitial(def, numaMemory);
++    } else {
++        /* calculate the sizes of hotplug memory */
+         for (i = 0; i < def->nmems; i++)
+-            def->mem.initial_memory -= def->mems[i]->size;
++            hotplugMemory += def->mems[i]->size;
++
++        if (hotplugMemory > def->mem.total_memory) {
++            virReportError(VIR_ERR_XML_ERROR, "%s",
++                           _("Total size of memory devices exceeds the total "
++                             "memory size"));
++            return -1;
++        }
++
++        virDomainDefSetMemoryInitial(def, def->mem.total_memory - hotplugMemory);
+     }
+ 
+     if (virDomainDefGetMemoryInitial(def) == 0) {
+@@ -3684,7 +3703,8 @@ virDomainDefPostParseMemory(virDomainDefPtr def)
+ 
+ static int
+ virDomainDefPostParseInternal(virDomainDefPtr def,
+-                              virCapsPtr caps ATTRIBUTE_UNUSED)
++                              virCapsPtr caps ATTRIBUTE_UNUSED,
++                              unsigned int parseFlags)
+ {
+     size_t i;
+ 
+@@ -3695,7 +3715,7 @@ virDomainDefPostParseInternal(virDomainDefPtr def,
+         return -1;
+     }
+ 
+-    if (virDomainDefPostParseMemory(def) < 0)
++    if (virDomainDefPostParseMemory(def, parseFlags) < 0)
+         return -1;
+ 
+     /*
+@@ -3993,6 +4013,7 @@ virDomainDefPostParseDeviceIterator(virDomainDefPtr def ATTRIBUTE_UNUSED,
+ int
+ virDomainDefPostParse(virDomainDefPtr def,
+                       virCapsPtr caps,
++                      unsigned int parseFlags,
+                       virDomainXMLOptionPtr xmlopt)
+ {
+     int ret;
+@@ -4018,7 +4039,7 @@ virDomainDefPostParse(virDomainDefPtr def,
+         return ret;
+ 
+ 
+-    if ((ret = virDomainDefPostParseInternal(def, caps)) < 0)
++    if ((ret = virDomainDefPostParseInternal(def, caps, parseFlags)) < 0)
+         return ret;
+ 
+     return 0;
+@@ -16278,7 +16299,7 @@ virDomainDefParseXML(xmlDocPtr xml,
+         goto error;
+ 
+     /* callback to fill driver specific domain aspects */
+-    if (virDomainDefPostParse(def, caps, xmlopt) < 0)
++    if (virDomainDefPostParse(def, caps, flags, xmlopt) < 0)
+         goto error;
+ 
+     /* Auto-add any implied controllers which aren't present */
+diff --git a/src/conf/domain_conf.h b/src/conf/domain_conf.h
+index 61bf963..e322adf 100644
+--- a/src/conf/domain_conf.h
++++ b/src/conf/domain_conf.h
+@@ -2423,6 +2423,7 @@ virDomainXMLOptionGetNamespace(virDomainXMLOptionPtr xmlopt)
+ int
+ virDomainDefPostParse(virDomainDefPtr def,
+                       virCapsPtr caps,
++                      unsigned int parseFlags,
+                       virDomainXMLOptionPtr xmlopt);
+ 
+ static inline bool
+diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
+index 3fd695b..701ccc3 100644
+--- a/src/qemu/qemu_command.c
++++ b/src/qemu/qemu_command.c
+@@ -13672,7 +13672,8 @@ qemuParseCommandLine(virCapsPtr qemuCaps,
+     if (virDomainDefAddImplicitControllers(def) < 0)
+         goto error;
+ 
+-    if (virDomainDefPostParse(def, qemuCaps, xmlopt) < 0)
++    if (virDomainDefPostParse(def, qemuCaps, VIR_DOMAIN_DEF_PARSE_ABI_UPDATE,
++                              xmlopt) < 0)
+         goto error;
+ 
+     if (cmd->num_args || cmd->num_env) {
+-- 
+2.5.3
+

@@ -1,0 +1,80 @@
+From 64eebe80b8722e3abb3c51a9b7282ae7445fef58 Mon Sep 17 00:00:00 2001
+Message-Id: <64eebe80b8722e3abb3c51a9b7282ae7445fef58@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Wed, 23 Sep 2015 14:06:01 +0200
+Subject: [PATCH] qemu: Align memory module sizes to 2MiB
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1252685
+
+My original implementation was based on a qemu version that still did
+not have all the checks in place. Using sizes that would align to odd
+megabyte increments will produce the following error:
+
+qemu-kvm: -device pc-dimm,node=0,memdev=memdimm0,id=dimm0: backend memory size must be multiple of 0x200000
+qemu-kvm: -device pc-dimm,node=0,memdev=memdimm0,id=dimm0: Device 'pc-dimm' could not be initialized
+
+Introduce an alignment retrieval function for memory devices and use it
+to align the devices separately and modify a test case to verify it.
+
+(cherry picked from commit 624ec1c2f9157082db415711cd3b347d1af7f5c4)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_domain.c                                | 19 ++++++++++++++++++-
+ .../qemuxml2argv-memory-hotplug-dimm.xml              |  2 +-
+ 2 files changed, 19 insertions(+), 2 deletions(-)
+
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index a47535e..1528cfd 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -3173,6 +3173,21 @@ qemuDomainGetMemorySizeAlignment(virDomainDefPtr def)
+ }
+ 
+ 
++static unsigned long long
++qemuDomainGetMemoryModuleSizeAlignment(const virDomainDef *def,
++                                       const virDomainMemoryDef *mem ATTRIBUTE_UNUSED)
++{
++    /* PPC requires the memory sizes to be rounded to 256MiB increments, so
++     * round them to the size always. */
++    if (ARCH_IS_PPC64(def->os.arch))
++        return 256 * 1024;
++
++    /* dimm memory modules require 2MiB alignment rather than the 1MiB we are
++     * using elsewhere. */
++    return 2048;
++}
++
++
+ int
+ qemuDomainAlignMemorySizes(virDomainDefPtr def)
+ {
+@@ -3199,8 +3214,10 @@ qemuDomainAlignMemorySizes(virDomainDefPtr def)
+     def->mem.max_memory = VIR_ROUND_UP(def->mem.max_memory, align);
+ 
+     /* Align memory module sizes */
+-    for (i = 0; i < def->nmems; i++)
++    for (i = 0; i < def->nmems; i++) {
++        align = qemuDomainGetMemoryModuleSizeAlignment(def, def->mems[i]);
+         def->mems[i]->size = VIR_ROUND_UP(def->mems[i]->size, align);
++    }
+ 
+     return 0;
+ }
+diff --git a/tests/qemuxml2argvdata/qemuxml2argv-memory-hotplug-dimm.xml b/tests/qemuxml2argvdata/qemuxml2argv-memory-hotplug-dimm.xml
+index 3f468ec..fbcac84 100644
+--- a/tests/qemuxml2argvdata/qemuxml2argv-memory-hotplug-dimm.xml
++++ b/tests/qemuxml2argvdata/qemuxml2argv-memory-hotplug-dimm.xml
+@@ -36,7 +36,7 @@
+     <memballoon model='virtio'/>
+     <memory model='dimm'>
+       <target>
+-        <size unit='KiB'>524287</size>
++        <size unit='KiB'>523264</size>
+         <node>0</node>
+       </target>
+     </memory>
+-- 
+2.5.3
+

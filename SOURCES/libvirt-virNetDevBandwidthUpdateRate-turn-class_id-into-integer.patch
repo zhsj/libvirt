@@ -1,0 +1,107 @@
+From 36a6bec33e026d7a66edfe95e640562fc7b49aaf Mon Sep 17 00:00:00 2001
+Message-Id: <36a6bec33e026d7a66edfe95e640562fc7b49aaf@dist-git>
+From: Michal Privoznik <mprivozn@redhat.com>
+Date: Fri, 14 Aug 2015 16:06:30 +0200
+Subject: [PATCH] virNetDevBandwidthUpdateRate: turn class_id into integer
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1252473
+
+This is no functional change. It's just that later in the series we
+will need to pass class_id as an integer.
+
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+(cherry picked from commit 45090449c476d328541225f79d040345a781121a)
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/network/bridge_driver.c   |  4 ++--
+ src/util/virnetdevbandwidth.c | 10 +++++++---
+ src/util/virnetdevbandwidth.h |  5 ++---
+ 3 files changed, 11 insertions(+), 8 deletions(-)
+
+diff --git a/src/network/bridge_driver.c b/src/network/bridge_driver.c
+index 3d6721b..17fc430 100644
+--- a/src/network/bridge_driver.c
++++ b/src/network/bridge_driver.c
+@@ -4840,7 +4840,7 @@ networkPlugBandwidth(virNetworkObjPtr net,
+     }
+     /* update rate for non guaranteed NICs */
+     new_rate -= net->floor_sum;
+-    if (virNetDevBandwidthUpdateRate(net->def->bridge, "1:2",
++    if (virNetDevBandwidthUpdateRate(net->def->bridge, 2,
+                                      net->def->bandwidth, new_rate) < 0)
+         VIR_WARN("Unable to update rate for 1:2 class on %s bridge",
+                  net->def->bridge);
+@@ -4891,7 +4891,7 @@ networkUnplugBandwidth(virNetworkObjPtr net,
+         }
+         /* update rate for non guaranteed NICs */
+         new_rate -= net->floor_sum;
+-        if (virNetDevBandwidthUpdateRate(net->def->bridge, "1:2",
++        if (virNetDevBandwidthUpdateRate(net->def->bridge, 2,
+                                          net->def->bandwidth, new_rate) < 0)
+             VIR_WARN("Unable to update rate for 1:2 class on %s bridge",
+                      net->def->bridge);
+diff --git a/src/util/virnetdevbandwidth.c b/src/util/virnetdevbandwidth.c
+index 6ae0877..da3a0d3 100644
+--- a/src/util/virnetdevbandwidth.c
++++ b/src/util/virnetdevbandwidth.c
+@@ -638,7 +638,8 @@ virNetDevBandwidthUnplug(const char *brname,
+ /**
+  * virNetDevBandwidthUpdateRate:
+  * @ifname: interface name
+- * @classid: ID of class to update
++ * @id: unique identifier
++ * @bandwidth: used to derive 'ceil' of class with @id
+  * @new_rate: new rate
+  *
+  * This function updates the 'rate' attribute of HTB class.
+@@ -650,16 +651,18 @@ virNetDevBandwidthUnplug(const char *brname,
+  */
+ int
+ virNetDevBandwidthUpdateRate(const char *ifname,
+-                             const char *class_id,
++                             unsigned int id,
+                              virNetDevBandwidthPtr bandwidth,
+                              unsigned long long new_rate)
+ {
+     int ret = -1;
+     virCommandPtr cmd = NULL;
++    char *class_id = NULL;
+     char *rate = NULL;
+     char *ceil = NULL;
+ 
+-    if (virAsprintf(&rate, "%llukbps", new_rate) < 0 ||
++    if (virAsprintf(&class_id, "1:%x", id) < 0 ||
++        virAsprintf(&rate, "%llukbps", new_rate) < 0 ||
+         virAsprintf(&ceil, "%llukbps", bandwidth->in->peak ?
+                     bandwidth->in->peak :
+                     bandwidth->in->average) < 0)
+@@ -677,6 +680,7 @@ virNetDevBandwidthUpdateRate(const char *ifname,
+ 
+  cleanup:
+     virCommandFree(cmd);
++    VIR_FREE(class_id);
+     VIR_FREE(rate);
+     VIR_FREE(ceil);
+     return ret;
+diff --git a/src/util/virnetdevbandwidth.h b/src/util/virnetdevbandwidth.h
+index 9b1d2a6..bceac2e 100644
+--- a/src/util/virnetdevbandwidth.h
++++ b/src/util/virnetdevbandwidth.h
+@@ -68,11 +68,10 @@ int virNetDevBandwidthUnplug(const char *brname,
+     ATTRIBUTE_NONNULL(1) ATTRIBUTE_RETURN_CHECK;
+ 
+ int virNetDevBandwidthUpdateRate(const char *ifname,
+-                                 const char *class_id,
++                                 unsigned int id,
+                                  virNetDevBandwidthPtr bandwidth,
+                                  unsigned long long new_rate)
+-    ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2)
+-    ATTRIBUTE_RETURN_CHECK;
++    ATTRIBUTE_NONNULL(1) ATTRIBUTE_RETURN_CHECK;
+ 
+ int virNetDevBandwidthUpdateFilter(const char *ifname,
+                                    const virMacAddr *ifmac_ptr,
+-- 
+2.5.0
+

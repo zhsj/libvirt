@@ -1,0 +1,159 @@
+From dfdc5b0fc1fdf8c6d122df9578912ed90bfbabb4 Mon Sep 17 00:00:00 2001
+Message-Id: <dfdc5b0fc1fdf8c6d122df9578912ed90bfbabb4@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Thu, 12 Nov 2015 08:40:43 +0100
+Subject: [PATCH] qemu: hotplug: Fix mlock limit handling on memory hotplug
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1280420
+
+If mlock is required either due to use of VFIO hostdevs or due to the
+fact that it's enabled it needs to be tweaked prior to adding new memory
+or after removing a module. Add a helper to determine when it's
+necessary and reuse it both on hotplug and hotunplug.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1273491
+(cherry picked from commit ec90b34acf7cf7d06a63908c39e21b63382a1967)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_domain.c  | 27 +++++++++++++++++++++++++++
+ src/qemu/qemu_domain.h  |  1 +
+ src/qemu/qemu_hotplug.c | 41 ++++++++++++++++++++++++++++++++++-------
+ 3 files changed, 62 insertions(+), 7 deletions(-)
+
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index 944817d..1f206fa 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -3449,3 +3449,30 @@ qemuDomainGetMlockLimitBytes(virDomainDefPtr def)
+ 
+     return memKB << 10;
+ }
++
++
++/**
++ * @def: domain definition
++ *
++ * Returns ture if the locked memory limit needs to be set or updated due to
++ * configuration or passthrough devices.
++ * */
++bool
++qemuDomainRequiresMlock(virDomainDefPtr def)
++{
++    size_t i;
++
++    if (def->mem.locked)
++        return true;
++
++    for (i = 0; i < def->nhostdevs; i++) {
++        virDomainHostdevDefPtr dev = def->hostdevs[i];
++
++        if (dev->mode == VIR_DOMAIN_HOSTDEV_MODE_SUBSYS &&
++            dev->source.subsys.type == VIR_DOMAIN_HOSTDEV_SUBSYS_TYPE_PCI &&
++            dev->source.subsys.u.pci.backend == VIR_DOMAIN_HOSTDEV_PCI_BACKEND_VFIO)
++            return true;
++    }
++
++    return false;
++}
+diff --git a/src/qemu/qemu_domain.h b/src/qemu/qemu_domain.h
+index 54e7cd9..32f713b 100644
+--- a/src/qemu/qemu_domain.h
++++ b/src/qemu/qemu_domain.h
+@@ -476,5 +476,6 @@ int qemuDomainUpdateCurrentMemorySize(virQEMUDriverPtr driver,
+                                       virDomainObjPtr vm);
+ 
+ unsigned long long qemuDomainGetMlockLimitBytes(virDomainDefPtr def);
++bool qemuDomainRequiresMlock(virDomainDefPtr def);
+ 
+ #endif /* __QEMU_DOMAIN_H__ */
+diff --git a/src/qemu/qemu_hotplug.c b/src/qemu/qemu_hotplug.c
+index d96f572..70aece4 100644
+--- a/src/qemu/qemu_hotplug.c
++++ b/src/qemu/qemu_hotplug.c
+@@ -1768,6 +1768,7 @@ qemuDomainAttachMemory(virQEMUDriverPtr driver,
+     virJSONValuePtr props = NULL;
+     virObjectEventPtr event;
+     bool fix_balloon = false;
++    bool mlock = false;
+     int id;
+     int ret = -1;
+ 
+@@ -1802,16 +1803,26 @@ qemuDomainAttachMemory(virQEMUDriverPtr driver,
+         goto cleanup;
+     }
+ 
++    mlock = qemuDomainRequiresMlock(vm->def);
++
++    if (mlock &&
++        virProcessSetMaxMemLock(vm->pid,
++                                qemuDomainGetMlockLimitBytes(vm->def)) < 0) {
++        mlock = false;
++        virJSONValueFree(props);
++        goto removedef;
++    }
++
+     qemuDomainObjEnterMonitor(driver, vm);
+     if (qemuMonitorAddObject(priv->mon, backendType, objalias, props) < 0)
+-        goto removedef;
++        goto exit_monitor;
+ 
+     if (qemuMonitorAddDevice(priv->mon, devstr) < 0) {
+         virErrorPtr err = virSaveLastError();
+         ignore_value(qemuMonitorDelObject(priv->mon, objalias));
+         virSetError(err);
+         virFreeError(err);
+-        goto removedef;
++        goto exit_monitor;
+     }
+ 
+     if (qemuDomainObjExitMonitor(driver, vm) < 0) {
+@@ -1846,17 +1857,27 @@ qemuDomainAttachMemory(virQEMUDriverPtr driver,
+     virDomainMemoryDefFree(mem);
+     return ret;
+ 
++ exit_monitor:
++    if (qemuDomainObjExitMonitor(driver, vm) < 0) {
++        mem = NULL;
++        goto audit;
++    }
++
+  removedef:
+-    if (qemuDomainObjExitMonitor(driver, vm) < 0) {
+-        mem = NULL;
+-        goto audit;
+-    }
+-
+     if ((id = virDomainMemoryFindByDef(vm->def, mem)) >= 0)
+         mem = virDomainMemoryRemove(vm->def, id);
+     else
+         mem = NULL;
+ 
++    /* reset the mlock limit */
++    if (mlock) {
++        virErrorPtr err = virSaveLastError();
++        ignore_value(virProcessSetMaxMemLock(vm->pid,
++                                             qemuDomainGetMlockLimitBytes(vm->def)));
++        virSetError(err);
++        virFreeError(err);
++    }
++
+     goto audit;
+ }
+ 
+@@ -2952,6 +2973,12 @@ qemuDomainRemoveMemoryDevice(virQEMUDriverPtr driver,
+         virDomainMemoryRemove(vm->def, idx);
+ 
+     virDomainMemoryDefFree(mem);
++
++    /* decrease the mlock limit after memory unplug if necessary */
++    if (qemuDomainRequiresMlock(vm->def))
++        ignore_value(virProcessSetMaxMemLock(vm->pid,
++                                             qemuDomainGetMlockLimitBytes(vm->def)));
++
+     return 0;
+ }
+ 
+-- 
+2.6.3
+

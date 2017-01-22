@@ -1,0 +1,260 @@
+From 42d7166762dd388b6c235430734f9ead5a40afd5 Mon Sep 17 00:00:00 2001
+Message-Id: <42d7166762dd388b6c235430734f9ead5a40afd5@dist-git>
+From: Laine Stump <laine@laine.org>
+Date: Thu, 3 Sep 2015 12:08:24 -0400
+Subject: [PATCH] util: make virNetDev(Replace|Restore)MacAddress public
+ functions
+
+These functions were made static as a part of commit cbfe38c since
+they were no longer called from outside virnetdev.c. We once again
+need to call them from another file, so this patch makes them once
+again public.
+
+Prerequisite for the fix for:
+
+   https://bugzilla.redhat.com/show_bug.cgi?id=1257004
+
+(cherry picked from commit 3ce08fab8477da2c76918329523a5e6a312cef06)
+
+Conflicts:
+	src/util/virnetdev.c - one extra blank line in white space
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/libvirt_private.syms |   2 +
+ src/util/virnetdev.c     | 173 ++++++++++++++++++++++++-----------------------
+ src/util/virnetdev.h     |  10 +++
+ 3 files changed, 99 insertions(+), 86 deletions(-)
+
+diff --git a/src/libvirt_private.syms b/src/libvirt_private.syms
+index 434bbf3..9332194 100644
+--- a/src/libvirt_private.syms
++++ b/src/libvirt_private.syms
+@@ -1765,7 +1765,9 @@ virNetDevGetVirtualFunctions;
+ virNetDevGetVLanID;
+ virNetDevIsVirtualFunction;
+ virNetDevLinkDump;
++virNetDevReplaceMacAddress;
+ virNetDevReplaceNetConfig;
++virNetDevRestoreMacAddress;
+ virNetDevRestoreNetConfig;
+ virNetDevRxFilterFree;
+ virNetDevRxFilterModeTypeFromString;
+diff --git a/src/util/virnetdev.c b/src/util/virnetdev.c
+index e4fcd81..a1a4ea1 100644
+--- a/src/util/virnetdev.c
++++ b/src/util/virnetdev.c
+@@ -350,6 +350,92 @@ int virNetDevGetMAC(const char *ifname,
+ #endif
+ 
+ 
++/**
++ * virNetDevReplaceMacAddress:
++ * @macaddress: new MAC address for interface
++ * @linkdev: name of interface
++ * @stateDir: directory to store old MAC address
++ *
++ * Returns 0 on success, -1 on failure
++ *
++ */
++int
++virNetDevReplaceMacAddress(const char *linkdev,
++                           const virMacAddr *macaddress,
++                           const char *stateDir)
++{
++    virMacAddr oldmac;
++    char *path = NULL;
++    char macstr[VIR_MAC_STRING_BUFLEN];
++    int ret = -1;
++
++    if (virNetDevGetMAC(linkdev, &oldmac) < 0)
++        return -1;
++
++    if (virAsprintf(&path, "%s/%s",
++                    stateDir,
++                    linkdev) < 0)
++        return -1;
++    virMacAddrFormat(&oldmac, macstr);
++    if (virFileWriteStr(path, macstr, O_CREAT|O_TRUNC|O_WRONLY) < 0) {
++        virReportSystemError(errno, _("Unable to preserve mac for %s"),
++                             linkdev);
++        goto cleanup;
++    }
++
++    if (virNetDevSetMAC(linkdev, macaddress) < 0)
++        goto cleanup;
++
++    ret = 0;
++ cleanup:
++    VIR_FREE(path);
++    return ret;
++}
++
++/**
++ * virNetDevRestoreMacAddress:
++ * @linkdev: name of interface
++ * @stateDir: directory containing old MAC address
++ *
++ * Returns 0 on success, -errno on failure.
++ *
++ */
++int
++virNetDevRestoreMacAddress(const char *linkdev,
++                           const char *stateDir)
++{
++    int rc = -1;
++    char *oldmacname = NULL;
++    char *macstr = NULL;
++    char *path = NULL;
++    virMacAddr oldmac;
++
++    if (virAsprintf(&path, "%s/%s",
++                    stateDir,
++                    linkdev) < 0)
++        return -1;
++
++    if (virFileReadAll(path, VIR_MAC_STRING_BUFLEN, &macstr) < 0)
++        goto cleanup;
++
++    if (virMacAddrParse(macstr, &oldmac) != 0) {
++        virReportError(VIR_ERR_INTERNAL_ERROR,
++                       _("Cannot parse MAC address from '%s'"),
++                       oldmacname);
++        goto cleanup;
++    }
++
++    /*reset mac and remove file-ignore results*/
++    rc = virNetDevSetMAC(linkdev, &oldmac);
++    ignore_value(unlink(path));
++
++ cleanup:
++    VIR_FREE(macstr);
++    VIR_FREE(path);
++    return rc;
++}
++
++
+ #if defined(SIOCGIFMTU) && defined(HAVE_STRUCT_IFREQ)
+ /**
+  * virNetDevGetMTU:
+@@ -1828,95 +1914,10 @@ virNetDevSysfsFile(char **pf_sysfs_device_link ATTRIBUTE_UNUSED,
+     return -1;
+ }
+ 
++
+ #endif /* !__linux__ */
+ #if defined(__linux__) && defined(HAVE_LIBNL) && defined(IFLA_VF_MAX)
+ 
+-/**
+- * virNetDevReplaceMacAddress:
+- * @macaddress: new MAC address for interface
+- * @linkdev: name of interface
+- * @stateDir: directory to store old MAC address
+- *
+- * Returns 0 on success, -1 on failure
+- *
+- */
+-static int
+-virNetDevReplaceMacAddress(const char *linkdev,
+-                           const virMacAddr *macaddress,
+-                           const char *stateDir)
+-{
+-    virMacAddr oldmac;
+-    char *path = NULL;
+-    char macstr[VIR_MAC_STRING_BUFLEN];
+-    int ret = -1;
+-
+-    if (virNetDevGetMAC(linkdev, &oldmac) < 0)
+-        return -1;
+-
+-    if (virAsprintf(&path, "%s/%s",
+-                    stateDir,
+-                    linkdev) < 0)
+-        return -1;
+-    virMacAddrFormat(&oldmac, macstr);
+-    if (virFileWriteStr(path, macstr, O_CREAT|O_TRUNC|O_WRONLY) < 0) {
+-        virReportSystemError(errno, _("Unable to preserve mac for %s"),
+-                             linkdev);
+-        goto cleanup;
+-    }
+-
+-    if (virNetDevSetMAC(linkdev, macaddress) < 0)
+-        goto cleanup;
+-
+-    ret = 0;
+-
+- cleanup:
+-    VIR_FREE(path);
+-    return ret;
+-}
+-
+-/**
+- * virNetDevRestoreMacAddress:
+- * @linkdev: name of interface
+- * @stateDir: directory containing old MAC address
+- *
+- * Returns 0 on success, -errno on failure.
+- *
+- */
+-static int
+-virNetDevRestoreMacAddress(const char *linkdev,
+-                           const char *stateDir)
+-{
+-    int rc = -1;
+-    char *oldmacname = NULL;
+-    char *macstr = NULL;
+-    char *path = NULL;
+-    virMacAddr oldmac;
+-
+-    if (virAsprintf(&path, "%s/%s",
+-                    stateDir,
+-                    linkdev) < 0)
+-        return -1;
+-
+-    if (virFileReadAll(path, VIR_MAC_STRING_BUFLEN, &macstr) < 0)
+-        goto cleanup;
+-
+-    if (virMacAddrParse(macstr, &oldmac) != 0) {
+-        virReportError(VIR_ERR_INTERNAL_ERROR,
+-                       _("Cannot parse MAC address from '%s'"),
+-                       oldmacname);
+-        goto cleanup;
+-    }
+-
+-    /*reset mac and remove file-ignore results*/
+-    rc = virNetDevSetMAC(linkdev, &oldmac);
+-    ignore_value(unlink(path));
+-
+- cleanup:
+-    VIR_FREE(macstr);
+-    VIR_FREE(path);
+-    return rc;
+-}
+-
+ 
+ static struct nla_policy ifla_vf_policy[IFLA_VF_MAX+1] = {
+     [IFLA_VF_MAC]       = { .type = NLA_UNSPEC,
+diff --git a/src/util/virnetdev.h b/src/util/virnetdev.h
+index 190b70e..3568724 100644
+--- a/src/util/virnetdev.h
++++ b/src/util/virnetdev.h
+@@ -114,6 +114,16 @@ int virNetDevGetMAC(const char *ifname,
+                     virMacAddrPtr macaddr)
+     ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2) ATTRIBUTE_RETURN_CHECK;
+ 
++int virNetDevReplaceMacAddress(const char *linkdev,
++                               const virMacAddr *macaddress,
++                               const char *stateDir)
++    ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2) ATTRIBUTE_NONNULL(3)
++    ATTRIBUTE_RETURN_CHECK;
++
++int virNetDevRestoreMacAddress(const char *linkdev,
++                               const char *stateDir)
++    ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2) ATTRIBUTE_RETURN_CHECK;
++
+ int virNetDevSetMTU(const char *ifname,
+                     int mtu)
+     ATTRIBUTE_NONNULL(1) ATTRIBUTE_RETURN_CHECK;
+-- 
+2.5.1
+

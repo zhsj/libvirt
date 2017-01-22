@@ -1,0 +1,355 @@
+From b26bd9a4f71598c17a09b7148aa82773b480b8b5 Mon Sep 17 00:00:00 2001
+Message-Id: <b26bd9a4f71598c17a09b7148aa82773b480b8b5@dist-git>
+From: Laine Stump <laine@laine.org>
+Date: Sat, 8 Aug 2015 19:36:40 -0400
+Subject: [PATCH] conf: more useful error message when pci function is out of
+ range
+
+If a pci address had a function number out of range, the error message
+would be:
+
+  Insufficient specification for PCI address
+
+which is logged by virDevicePCIAddressParseXML() after
+virDevicePCIAddressIsValid returns a failure.
+
+This patch enhances virDevicePCIAddressIsValid() to optionally report
+the error itself (since it is the place that decides which part of the
+address is "invalid"), and uses that feature when calling from
+virDevicePCIAddressParseXML(), so that the error will be more useful,
+e.g.:
+
+  Invalid PCI address function=0x8, must be <= 7
+
+Previously, virDevicePCIAddressIsValid didn't check for the
+theoretical limits of domain or bus, only for slot or function. While
+adding log messages, we also correct that ommission. (The RNG for PCI
+addresses already enforces this limit, which by the way means that we
+can't add any negative tests for this - as far as I know our
+domainschematest has no provisions for passing XML that is supposed to
+fail).
+
+Note that virDevicePCIAddressIsValid() can only check against the
+absolute maximum attribute values for *any* possible PCI controller,
+not for the actual maximums of the specific controller that this
+device is attaching to; fortunately there is later more specific
+validation for guest-side PCI addresses when building the set of
+assigned PCI addresses. For host-side PCI addresses (e.g. for
+<hostdev> and for network device pools), we rely on the error that
+will be logged when it is found that the device doesn't actually
+exist.
+
+This resolves:
+
+  https://bugzilla.redhat.com/show_bug.cgi?id=1004596
+
+(cherry picked from commit f8fe8f03455783afcd62d79db7ce4120f514c629)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/conf/device_conf.c                             | 52 ++++++++++++++++++----
+ src/conf/device_conf.h                             |  5 ++-
+ src/conf/domain_conf.c                             |  2 +-
+ .../qemuxml2argv-pci-bus-invalid.xml               | 33 ++++++++++++++
+ .../qemuxml2argv-pci-domain-invalid.xml            | 33 ++++++++++++++
+ .../qemuxml2argv-pci-function-invalid.xml          | 33 ++++++++++++++
+ .../qemuxml2argv-pci-slot-invalid.xml              | 33 ++++++++++++++
+ tests/qemuxml2argvtest.c                           |  6 +++
+ 8 files changed, 185 insertions(+), 12 deletions(-)
+ create mode 100644 tests/qemuxml2argvdata/qemuxml2argv-pci-bus-invalid.xml
+ create mode 100644 tests/qemuxml2argvdata/qemuxml2argv-pci-domain-invalid.xml
+ create mode 100644 tests/qemuxml2argvdata/qemuxml2argv-pci-function-invalid.xml
+ create mode 100644 tests/qemuxml2argvdata/qemuxml2argv-pci-slot-invalid.xml
+
+diff --git a/src/conf/device_conf.c b/src/conf/device_conf.c
+index 98808e2..5bf903c 100644
+--- a/src/conf/device_conf.c
++++ b/src/conf/device_conf.c
+@@ -1,7 +1,7 @@
+ /*
+  * device_conf.c: device XML handling
+  *
+- * Copyright (C) 2006-2012 Red Hat, Inc.
++ * Copyright (C) 2006-2015 Red Hat, Inc.
+  *
+  * This library is free software; you can redistribute it and/or
+  * modify it under the terms of the GNU Lesser General Public
+@@ -53,12 +53,49 @@ VIR_ENUM_IMPL(virNetDevFeature,
+               "ntuple",
+               "rxhash")
+ 
+-int virDevicePCIAddressIsValid(virDevicePCIAddressPtr addr)
++int virDevicePCIAddressIsValid(virDevicePCIAddressPtr addr,
++                               bool report)
+ {
+-    /* PCI bus has 32 slots and 8 functions per slot */
+-    if (addr->slot >= 32 || addr->function >= 8)
++    if (addr->domain > 0xFFFF) {
++        if (report)
++            virReportError(VIR_ERR_XML_ERROR,
++                           _("Invalid PCI address domain='0x%x', "
++                             "must be <= 0xFFFF"),
++                           addr->domain);
+         return 0;
+-    return addr->domain || addr->bus || addr->slot;
++    }
++    if (addr->bus > 0xFF) {
++        if (report)
++            virReportError(VIR_ERR_XML_ERROR,
++                           _("Invalid PCI address bus='0x%x', "
++                             "must be <= 0xFF"),
++                           addr->bus);
++        return 0;
++    }
++    if (addr->slot > 0x1F) {
++        if (report)
++            virReportError(VIR_ERR_XML_ERROR,
++                           _("Invalid PCI address slot='0x%x', "
++                             "must be <= 0x1F"),
++                           addr->slot);
++        return 0;
++    }
++    if (addr->function > 7) {
++        if (report)
++            virReportError(VIR_ERR_XML_ERROR,
++                           _("Invalid PCI address function=0x%x, "
++                             "must be <= 7"),
++                           addr->function);
++        return 0;
++    }
++    if (!(addr->domain || addr->bus || addr->slot)) {
++        if (report)
++            virReportError(VIR_ERR_XML_ERROR, "%s",
++                           _("Invalid PCI address 0000:00:00, at least "
++                             "one of domain, bus, or slot must be > 0"));
++        return 0;
++    }
++    return 1;
+ }
+ 
+ 
+@@ -113,11 +150,8 @@ virDevicePCIAddressParseXML(xmlNodePtr node,
+         goto cleanup;
+ 
+     }
+-    if (!virDevicePCIAddressIsValid(addr)) {
+-        virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+-                       _("Insufficient specification for PCI address"));
++    if (!virDevicePCIAddressIsValid(addr, true))
+         goto cleanup;
+-    }
+ 
+     ret = 0;
+ 
+diff --git a/src/conf/device_conf.h b/src/conf/device_conf.h
+index 7ea90f6..d3d3739 100644
+--- a/src/conf/device_conf.h
++++ b/src/conf/device_conf.h
+@@ -1,7 +1,7 @@
+ /*
+  * device_conf.h: device XML handling entry points
+  *
+- * Copyright (C) 2006-2012 Red Hat, Inc.
++ * Copyright (C) 2006-2012, 2014-2015 Red Hat, Inc.
+  *
+  * This library is free software; you can redistribute it and/or
+  * modify it under the terms of the GNU Lesser General Public
+@@ -79,7 +79,8 @@ typedef enum {
+ 
+ VIR_ENUM_DECL(virNetDevFeature)
+ 
+-int virDevicePCIAddressIsValid(virDevicePCIAddressPtr addr);
++int virDevicePCIAddressIsValid(virDevicePCIAddressPtr addr,
++                               bool report);
+ 
+ int virDevicePCIAddressParseXML(xmlNodePtr node,
+                                 virDevicePCIAddressPtr addr);
+diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
+index 54d0651..aa1b860 100644
+--- a/src/conf/domain_conf.c
++++ b/src/conf/domain_conf.c
+@@ -3095,7 +3095,7 @@ int virDomainDeviceAddressIsValid(virDomainDeviceInfoPtr info,
+ 
+     switch (info->type) {
+     case VIR_DOMAIN_DEVICE_ADDRESS_TYPE_PCI:
+-        return virDevicePCIAddressIsValid(&info->addr.pci);
++        return virDevicePCIAddressIsValid(&info->addr.pci, false);
+ 
+     case VIR_DOMAIN_DEVICE_ADDRESS_TYPE_DRIVE:
+         return 1;
+diff --git a/tests/qemuxml2argvdata/qemuxml2argv-pci-bus-invalid.xml b/tests/qemuxml2argvdata/qemuxml2argv-pci-bus-invalid.xml
+new file mode 100644
+index 0000000..f6d0901
+--- /dev/null
++++ b/tests/qemuxml2argvdata/qemuxml2argv-pci-bus-invalid.xml
+@@ -0,0 +1,33 @@
++<domain type='qemu'>
++  <name>QEMUGuest1</name>
++  <uuid>c7a5fdbd-edaf-9455-926a-d65c16db1809</uuid>
++  <memory unit='KiB'>219136</memory>
++  <currentMemory unit='KiB'>219136</currentMemory>
++  <vcpu placement='static'>1</vcpu>
++  <os>
++    <type arch='i686' machine='pc'>hvm</type>
++    <boot dev='hd'/>
++  </os>
++  <clock offset='utc'/>
++  <on_poweroff>destroy</on_poweroff>
++  <on_reboot>restart</on_reboot>
++  <on_crash>destroy</on_crash>
++  <devices>
++    <emulator>/usr/bin/qemu</emulator>
++    <disk type='block' device='disk'>
++      <driver name='qemu' type='raw'/>
++      <source dev='/dev/HostVG/QEMUGuest1'/>
++      <target dev='hda' bus='ide'/>
++      <address type='drive' controller='0' bus='0' target='0' unit='0'/>
++    </disk>
++    <controller type='usb' index='0'/>
++    <controller type='ide' index='0'/>
++    <controller type='pci' index='0' model='pci-root'/>
++    <interface type='user'>
++      <mac address='00:11:22:33:44:55'/>
++      <model type='rtl8139'/>
++      <address type='pci' domain='0x0000' bus='0x100' slot='0x05' function='0x0'/>
++    </interface>
++    <memballoon model='none'/>
++  </devices>
++</domain>
+diff --git a/tests/qemuxml2argvdata/qemuxml2argv-pci-domain-invalid.xml b/tests/qemuxml2argvdata/qemuxml2argv-pci-domain-invalid.xml
+new file mode 100644
+index 0000000..a42d796
+--- /dev/null
++++ b/tests/qemuxml2argvdata/qemuxml2argv-pci-domain-invalid.xml
+@@ -0,0 +1,33 @@
++<domain type='qemu'>
++  <name>QEMUGuest1</name>
++  <uuid>c7a5fdbd-edaf-9455-926a-d65c16db1809</uuid>
++  <memory unit='KiB'>219136</memory>
++  <currentMemory unit='KiB'>219136</currentMemory>
++  <vcpu placement='static'>1</vcpu>
++  <os>
++    <type arch='i686' machine='pc'>hvm</type>
++    <boot dev='hd'/>
++  </os>
++  <clock offset='utc'/>
++  <on_poweroff>destroy</on_poweroff>
++  <on_reboot>restart</on_reboot>
++  <on_crash>destroy</on_crash>
++  <devices>
++    <emulator>/usr/bin/qemu</emulator>
++    <disk type='block' device='disk'>
++      <driver name='qemu' type='raw'/>
++      <source dev='/dev/HostVG/QEMUGuest1'/>
++      <target dev='hda' bus='ide'/>
++      <address type='drive' controller='0' bus='0' target='0' unit='0'/>
++    </disk>
++    <controller type='usb' index='0'/>
++    <controller type='ide' index='0'/>
++    <controller type='pci' index='0' model='pci-root'/>
++    <interface type='user'>
++      <mac address='00:11:22:33:44:55'/>
++      <model type='rtl8139'/>
++      <address type='pci' domain='0x10000' bus='0x00' slot='0x05' function='0x0'/>
++    </interface>
++    <memballoon model='none'/>
++  </devices>
++</domain>
+diff --git a/tests/qemuxml2argvdata/qemuxml2argv-pci-function-invalid.xml b/tests/qemuxml2argvdata/qemuxml2argv-pci-function-invalid.xml
+new file mode 100644
+index 0000000..c9ba5a3
+--- /dev/null
++++ b/tests/qemuxml2argvdata/qemuxml2argv-pci-function-invalid.xml
+@@ -0,0 +1,33 @@
++<domain type='qemu'>
++  <name>QEMUGuest1</name>
++  <uuid>c7a5fdbd-edaf-9455-926a-d65c16db1809</uuid>
++  <memory unit='KiB'>219136</memory>
++  <currentMemory unit='KiB'>219136</currentMemory>
++  <vcpu placement='static'>1</vcpu>
++  <os>
++    <type arch='i686' machine='pc'>hvm</type>
++    <boot dev='hd'/>
++  </os>
++  <clock offset='utc'/>
++  <on_poweroff>destroy</on_poweroff>
++  <on_reboot>restart</on_reboot>
++  <on_crash>destroy</on_crash>
++  <devices>
++    <emulator>/usr/bin/qemu</emulator>
++    <disk type='block' device='disk'>
++      <driver name='qemu' type='raw'/>
++      <source dev='/dev/HostVG/QEMUGuest1'/>
++      <target dev='hda' bus='ide'/>
++      <address type='drive' controller='0' bus='0' target='0' unit='0'/>
++    </disk>
++    <controller type='usb' index='0'/>
++    <controller type='ide' index='0'/>
++    <controller type='pci' index='0' model='pci-root'/>
++    <interface type='user'>
++      <mac address='00:11:22:33:44:55'/>
++      <model type='rtl8139'/>
++      <address type='pci' domain='0x0000' bus='0x00' slot='0x1f' function='0x8'/>
++    </interface>
++    <memballoon model='none'/>
++  </devices>
++</domain>
+diff --git a/tests/qemuxml2argvdata/qemuxml2argv-pci-slot-invalid.xml b/tests/qemuxml2argvdata/qemuxml2argv-pci-slot-invalid.xml
+new file mode 100644
+index 0000000..09bab49
+--- /dev/null
++++ b/tests/qemuxml2argvdata/qemuxml2argv-pci-slot-invalid.xml
+@@ -0,0 +1,33 @@
++<domain type='qemu'>
++  <name>QEMUGuest1</name>
++  <uuid>c7a5fdbd-edaf-9455-926a-d65c16db1809</uuid>
++  <memory unit='KiB'>219136</memory>
++  <currentMemory unit='KiB'>219136</currentMemory>
++  <vcpu placement='static'>1</vcpu>
++  <os>
++    <type arch='i686' machine='pc'>hvm</type>
++    <boot dev='hd'/>
++  </os>
++  <clock offset='utc'/>
++  <on_poweroff>destroy</on_poweroff>
++  <on_reboot>restart</on_reboot>
++  <on_crash>destroy</on_crash>
++  <devices>
++    <emulator>/usr/bin/qemu</emulator>
++    <disk type='block' device='disk'>
++      <driver name='qemu' type='raw'/>
++      <source dev='/dev/HostVG/QEMUGuest1'/>
++      <target dev='hda' bus='ide'/>
++      <address type='drive' controller='0' bus='0' target='0' unit='0'/>
++    </disk>
++    <controller type='usb' index='0'/>
++    <controller type='ide' index='0'/>
++    <controller type='pci' index='0' model='pci-root'/>
++    <interface type='user'>
++      <mac address='00:11:22:33:44:55'/>
++      <model type='rtl8139'/>
++      <address type='pci' domain='0x0000' bus='0x00' slot='0x20' function='0x0'/>
++    </interface>
++    <memballoon model='none'/>
++  </devices>
++</domain>
+diff --git a/tests/qemuxml2argvtest.c b/tests/qemuxml2argvtest.c
+index 4290c06..c2657d7 100644
+--- a/tests/qemuxml2argvtest.c
++++ b/tests/qemuxml2argvtest.c
+@@ -1480,6 +1480,12 @@ mymain(void)
+     DO_TEST_PARSE_ERROR("tpm-no-backend-invalid", QEMU_CAPS_DEVICE,
+                         QEMU_CAPS_DEVICE_TPM_PASSTHROUGH, QEMU_CAPS_DEVICE_TPM_TIS);
+ 
++
++    DO_TEST_PARSE_ERROR("pci-domain-invalid", QEMU_CAPS_DEVICE);
++    DO_TEST_PARSE_ERROR("pci-bus-invalid", QEMU_CAPS_DEVICE);
++    DO_TEST_PARSE_ERROR("pci-slot-invalid", QEMU_CAPS_DEVICE);
++    DO_TEST_PARSE_ERROR("pci-function-invalid", QEMU_CAPS_DEVICE);
++
+     DO_TEST("pci-autoadd-addr", QEMU_CAPS_DEVICE, QEMU_CAPS_DEVICE_PCI_BRIDGE);
+     DO_TEST("pci-autoadd-idx", QEMU_CAPS_DEVICE, QEMU_CAPS_DEVICE_PCI_BRIDGE);
+     DO_TEST("pci-many",
+-- 
+2.5.0
+

@@ -1,0 +1,36 @@
+From ea2c6dc03a003bdfe3004fe91eb76ea1f958c898 Mon Sep 17 00:00:00 2001
+Message-Id: <ea2c6dc03a003bdfe3004fe91eb76ea1f958c898@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Fri, 20 Nov 2015 13:29:11 +0100
+Subject: [PATCH] process: Log when limiting the amount of locked memory
+
+This can be useful for debugging.
+
+(cherry picked from commit a6a5ac965056d3949e8fa2b6cb70dc554196d56f)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1283924
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/util/virprocess.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/util/virprocess.c b/src/util/virprocess.c
+index 8fa7a9b..c86b7e9 100644
+--- a/src/util/virprocess.c
++++ b/src/util/virprocess.c
+@@ -761,6 +761,10 @@ virProcessSetMaxMemLock(pid_t pid, unsigned long long bytes)
+             return -1;
+         }
+     }
++
++    VIR_DEBUG("Locked memory for process %lld limited to %llu bytes",
++              (long long int) pid, bytes);
++
+     return 0;
+ }
+ #else /* ! (HAVE_SETRLIMIT && defined(RLIMIT_MEMLOCK)) */
+-- 
+2.6.3
+

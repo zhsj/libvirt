@@ -1,0 +1,267 @@
+From c6f6fd0e71ca74d9e553bb059de1809a4c1789dd Mon Sep 17 00:00:00 2001
+Message-Id: <c6f6fd0e71ca74d9e553bb059de1809a4c1789dd@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Thu, 2 Jul 2015 08:26:48 +0200
+Subject: [PATCH] qemu: Remember incoming migration errors
+
+If QEMU fails during incoming migration, the domain disappears including
+a possibly useful error message read from QEMU log file. Let's remember
+the error in virQEMUDriver so that Finish can report more than just "no
+such domain".
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+(cherry picked from commit e68f395fcbae0267368f9974cc49f582cc83c752)
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1090093
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_conf.h      |  3 +++
+ src/qemu/qemu_driver.c    | 31 ++++++++++++++++++-------
+ src/qemu/qemu_migration.c | 59 ++++++++++++++++++++++++++++++++++++++++++++++-
+ src/qemu/qemu_migration.h |  7 ++++++
+ src/qemu/qemu_monitor.c   | 14 +++++++++++
+ src/qemu/qemu_monitor.h   |  2 ++
+ src/qemu/qemu_process.c   |  4 ++++
+ 7 files changed, 111 insertions(+), 9 deletions(-)
+
+diff --git a/src/qemu/qemu_conf.h b/src/qemu/qemu_conf.h
+index b74c283..3f73929 100644
+--- a/src/qemu/qemu_conf.h
++++ b/src/qemu/qemu_conf.h
+@@ -252,6 +252,9 @@ struct _virQEMUDriver {
+ 
+     /* Immutable pointer, self-clocking APIs */
+     virCloseCallbacksPtr closeCallbacks;
++
++    /* Immutable pointer, self-locking APIs */
++    virHashAtomicPtr migrationErrors;
+ };
+ 
+ typedef struct _qemuDomainCmdlineDef qemuDomainCmdlineDef;
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index 063bedb..fb42dae 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -775,6 +775,9 @@ qemuStateInitialize(bool privileged,
+     if (!(qemu_driver->sharedDevices = virHashCreate(30, qemuSharedDeviceEntryFree)))
+         goto error;
+ 
++    if (qemuMigrationErrorInit(qemu_driver) < 0)
++        goto error;
++
+     if (privileged) {
+         char *channeldir;
+ 
+@@ -1091,6 +1094,7 @@ qemuStateCleanup(void)
+     virObjectUnref(qemu_driver->remotePorts);
+     virObjectUnref(qemu_driver->webSocketPorts);
+     virObjectUnref(qemu_driver->migrationPorts);
++    virObjectUnref(qemu_driver->migrationErrors);
+ 
+     virObjectUnref(qemu_driver->xmlopt);
+ 
+@@ -12199,6 +12203,7 @@ qemuDomainMigrateFinish2(virConnectPtr dconn,
+     if (!vm) {
+         virReportError(VIR_ERR_NO_DOMAIN,
+                        _("no domain with matching name '%s'"), dname);
++        qemuMigrationErrorReport(driver, dname);
+         goto cleanup;
+     }
+ 
+@@ -12648,11 +12653,16 @@ qemuDomainMigrateFinish3(virConnectPtr dconn,
+ 
+     virCheckFlags(QEMU_MIGRATION_FLAGS, NULL);
+ 
+-    if (!dname ||
+-        !(vm = virDomainObjListFindByName(driver->domains, dname))) {
++    if (!dname) {
++        virReportError(VIR_ERR_NO_DOMAIN, "%s", _("missing domain name"));
++        return NULL;
++    }
++
++    vm = virDomainObjListFindByName(driver->domains, dname);
++    if (!vm) {
+         virReportError(VIR_ERR_NO_DOMAIN,
+-                       _("no domain with matching name '%s'"),
+-                       NULLSTR(dname));
++                       _("no domain with matching name '%s'"), dname);
++        qemuMigrationErrorReport(driver, dname);
+         return NULL;
+     }
+ 
+@@ -12691,11 +12701,16 @@ qemuDomainMigrateFinish3Params(virConnectPtr dconn,
+                                 &dname) < 0)
+         return NULL;
+ 
+-    if (!dname ||
+-        !(vm = virDomainObjListFindByName(driver->domains, dname))) {
++    if (!dname) {
++        virReportError(VIR_ERR_NO_DOMAIN, "%s", _("missing domain name"));
++        return NULL;
++    }
++
++    vm = virDomainObjListFindByName(driver->domains, dname);
++    if (!vm) {
+         virReportError(VIR_ERR_NO_DOMAIN,
+-                       _("no domain with matching name '%s'"),
+-                       NULLSTR(dname));
++                       _("no domain with matching name '%s'"), dname);
++        qemuMigrationErrorReport(driver, dname);
+         return NULL;
+     }
+ 
+diff --git a/src/qemu/qemu_migration.c b/src/qemu/qemu_migration.c
+index 7257182..58874ee 100644
+--- a/src/qemu/qemu_migration.c
++++ b/src/qemu/qemu_migration.c
+@@ -5543,8 +5543,10 @@ qemuMigrationFinish(virQEMUDriverPtr driver,
+     if (!(caps = virQEMUDriverGetCapabilities(driver, false)))
+         goto cleanup;
+ 
+-    if (!qemuMigrationJobIsActive(vm, QEMU_ASYNC_JOB_MIGRATION_IN))
++    if (!qemuMigrationJobIsActive(vm, QEMU_ASYNC_JOB_MIGRATION_IN)) {
++        qemuMigrationErrorReport(driver, vm->def->name);
+         goto cleanup;
++    }
+ 
+     qemuMigrationJobStartPhase(driver, vm,
+                                v3proto ? QEMU_MIGRATION_PHASE_FINISH3
+@@ -5570,6 +5572,7 @@ qemuMigrationFinish(virQEMUDriverPtr driver,
+         if (!virDomainObjIsActive(vm) && !(flags & VIR_MIGRATE_OFFLINE)) {
+             virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+                            _("guest unexpectedly quit"));
++            qemuMigrationErrorReport(driver, vm->def->name);
+             goto endjob;
+         }
+ 
+@@ -6094,3 +6097,57 @@ qemuMigrationJobFinish(virQEMUDriverPtr driver, virDomainObjPtr vm)
+ {
+     qemuDomainObjEndAsyncJob(driver, vm);
+ }
++
++
++static void
++qemuMigrationErrorFree(void *data,
++                       const void *name ATTRIBUTE_UNUSED)
++{
++    virErrorPtr err = data;
++    virFreeError(err);
++}
++
++int
++qemuMigrationErrorInit(virQEMUDriverPtr driver)
++{
++    driver->migrationErrors = virHashAtomicNew(64, qemuMigrationErrorFree);
++    if (driver->migrationErrors)
++        return 0;
++    else
++        return -1;
++}
++
++/**
++ * This function consumes @err; the caller should consider the @err pointer
++ * invalid after calling this function.
++ */
++void
++qemuMigrationErrorSave(virQEMUDriverPtr driver,
++                       const char *name,
++                       virErrorPtr err)
++{
++    if (!err)
++        return;
++
++    VIR_DEBUG("Saving incoming migration error for domain %s: %s",
++              name, err->message);
++    if (virHashAtomicUpdate(driver->migrationErrors, name, err) < 0) {
++        VIR_WARN("Failed to save migration error for domain '%s'", name);
++        virFreeError(err);
++    }
++}
++
++void
++qemuMigrationErrorReport(virQEMUDriverPtr driver,
++                         const char *name)
++{
++    virErrorPtr err;
++
++    if (!(err = virHashAtomicSteal(driver->migrationErrors, name)))
++        return;
++
++    VIR_DEBUG("Restoring saved incoming migration error for domain %s: %s",
++              name, err->message);
++    virSetError(err);
++    virFreeError(err);
++}
+diff --git a/src/qemu/qemu_migration.h b/src/qemu/qemu_migration.h
+index 48c2e8c..fa14274 100644
+--- a/src/qemu/qemu_migration.h
++++ b/src/qemu/qemu_migration.h
+@@ -193,4 +193,11 @@ int qemuMigrationFetchJobStatus(virQEMUDriverPtr driver,
+                                 qemuDomainAsyncJob asyncJob,
+                                 qemuDomainJobInfoPtr jobInfo);
+ 
++int qemuMigrationErrorInit(virQEMUDriverPtr driver);
++void qemuMigrationErrorSave(virQEMUDriverPtr driver,
++                            const char *name,
++                            virErrorPtr err);
++void qemuMigrationErrorReport(virQEMUDriverPtr driver,
++                              const char *name);
++
+ #endif /* __QEMU_MIGRATION_H__ */
+diff --git a/src/qemu/qemu_monitor.c b/src/qemu/qemu_monitor.c
+index dabe8e2..7545dbb 100644
+--- a/src/qemu/qemu_monitor.c
++++ b/src/qemu/qemu_monitor.c
+@@ -1057,6 +1057,20 @@ qemuMonitorSend(qemuMonitorPtr mon,
+ }
+ 
+ 
++/**
++ * This function returns a new virError object; the caller is responsible
++ * for freeing it.
++ */
++virErrorPtr
++qemuMonitorLastError(qemuMonitorPtr mon)
++{
++    if (mon->lastError.code == VIR_ERR_OK)
++        return NULL;
++
++    return virErrorCopyNew(&mon->lastError);
++}
++
++
+ virJSONValuePtr
+ qemuMonitorGetOptions(qemuMonitorPtr mon)
+ {
+diff --git a/src/qemu/qemu_monitor.h b/src/qemu/qemu_monitor.h
+index 2ceba28..8ad3b2b 100644
+--- a/src/qemu/qemu_monitor.h
++++ b/src/qemu/qemu_monitor.h
+@@ -240,6 +240,8 @@ qemuMonitorPtr qemuMonitorOpenFD(virDomainObjPtr vm,
+ 
+ void qemuMonitorClose(qemuMonitorPtr mon);
+ 
++virErrorPtr qemuMonitorLastError(qemuMonitorPtr mon);
++
+ int qemuMonitorSetCapabilities(qemuMonitorPtr mon);
+ 
+ int qemuMonitorSetLink(qemuMonitorPtr mon,
+diff --git a/src/qemu/qemu_process.c b/src/qemu/qemu_process.c
+index c5f467b..91ff5f8 100644
+--- a/src/qemu/qemu_process.c
++++ b/src/qemu/qemu_process.c
+@@ -310,6 +310,10 @@ qemuProcessHandleMonitorEOF(qemuMonitorPtr mon ATTRIBUTE_UNUSED,
+         auditReason = "failed";
+     }
+ 
++    if (qemuMigrationJobIsActive(vm, QEMU_ASYNC_JOB_MIGRATION_IN))
++        qemuMigrationErrorSave(driver, vm->def->name,
++                               qemuMonitorLastError(priv->mon));
++
+     event = virDomainEventLifecycleNewFromObj(vm,
+                                      VIR_DOMAIN_EVENT_STOPPED,
+                                      eventReason);
+-- 
+2.4.5
+

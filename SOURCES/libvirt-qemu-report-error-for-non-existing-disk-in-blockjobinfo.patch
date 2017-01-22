@@ -1,0 +1,45 @@
+From aa35a16bdc42e64f646b5fa09cdf5809b98e507f Mon Sep 17 00:00:00 2001
+Message-Id: <aa35a16bdc42e64f646b5fa09cdf5809b98e507f@dist-git>
+From: Luyao Huang <lhuang@redhat.com>
+Date: Fri, 10 Jul 2015 09:27:56 +0200
+Subject: [PATCH] qemu: report error for non-existing disk in blockjobinfo
+
+Before:
+
+ # virsh blockjob r7 vdc
+ error: An error occurred, but the cause is unknown
+
+After:
+
+ # virsh blockjob r7 vdc
+ error: Disk 'vdc' not found in the domain
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1241355
+
+Signed-off-by: Luyao Huang <lhuang@redhat.com>
+(cherry picked from commit b5c2245b0cddbb605fece8d8f3c7075d269e3302)
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_driver.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index b3e9e63..063bedb 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -16515,8 +16515,11 @@ qemuDomainGetBlockJobInfo(virDomainPtr dom,
+     if (qemuDomainSupportsBlockJobs(vm, NULL) < 0)
+         goto endjob;
+ 
+-    if (!(disk = virDomainDiskByName(vm->def, path, true)))
++    if (!(disk = virDomainDiskByName(vm->def, path, true))) {
++        virReportError(VIR_ERR_INVALID_ARG,
++                       _("disk %s not found in the domain"), path);
+         goto endjob;
++    }
+ 
+     qemuDomainObjEnterMonitor(driver, vm);
+     ret = qemuMonitorGetBlockJobInfo(qemuDomainGetMonitor(vm),
+-- 
+2.4.5
+

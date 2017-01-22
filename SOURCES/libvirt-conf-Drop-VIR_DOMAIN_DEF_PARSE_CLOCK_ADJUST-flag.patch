@@ -1,0 +1,72 @@
+From 73ef3128010cfa342184fd47c798673b072cecf4 Mon Sep 17 00:00:00 2001
+Message-Id: <73ef3128010cfa342184fd47c798673b072cecf4@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Tue, 22 Sep 2015 16:59:39 +0200
+Subject: [PATCH] conf: Drop VIR_DOMAIN_DEF_PARSE_CLOCK_ADJUST flag
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1252685
+
+The flag was used only for formatting the XML and once the parser and
+formatter flags were split in 0ecd6851093945dd5ddc78266c61b577c65394ae
+it doesn't make sense any more to have it.
+
+(cherry picked from commit ed94ad9e40a029d552c005a5d5f214af5fc43558)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/conf/domain_conf.c  | 1 -
+ src/conf/domain_conf.h  | 7 +++----
+ tests/qemuxml2xmltest.c | 3 +--
+ 3 files changed, 4 insertions(+), 7 deletions(-)
+
+diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
+index 2dc5912..3a3c238 100644
+--- a/src/conf/domain_conf.c
++++ b/src/conf/domain_conf.c
+@@ -22521,7 +22521,6 @@ virDomainObjListLoadStatus(virDomainObjListPtr doms,
+                                       VIR_DOMAIN_DEF_PARSE_STATUS |
+                                       VIR_DOMAIN_DEF_PARSE_ACTUAL_NET |
+                                       VIR_DOMAIN_DEF_PARSE_PCI_ORIG_STATES |
+-                                      VIR_DOMAIN_DEF_PARSE_CLOCK_ADJUST |
+                                       VIR_DOMAIN_DEF_PARSE_SKIP_OSTYPE_CHECKS)))
+         goto error;
+ 
+diff --git a/src/conf/domain_conf.h b/src/conf/domain_conf.h
+index 902dfb9..e0102db 100644
+--- a/src/conf/domain_conf.h
++++ b/src/conf/domain_conf.h
+@@ -2600,14 +2600,13 @@ typedef enum {
+     VIR_DOMAIN_DEF_PARSE_PCI_ORIG_STATES = 1 << 3,
+     VIR_DOMAIN_DEF_PARSE_ALLOW_ROM       = 1 << 4,
+     VIR_DOMAIN_DEF_PARSE_ALLOW_BOOT      = 1 << 5,
+-    VIR_DOMAIN_DEF_PARSE_CLOCK_ADJUST    = 1 << 6,
+     /* parse only source half of <disk> */
+-    VIR_DOMAIN_DEF_PARSE_DISK_SOURCE     = 1 << 7,
+-    VIR_DOMAIN_DEF_PARSE_VALIDATE        = 1 << 8,
++    VIR_DOMAIN_DEF_PARSE_DISK_SOURCE     = 1 << 6,
++    VIR_DOMAIN_DEF_PARSE_VALIDATE        = 1 << 7,
+     /* don't validate os.type and arch against capabilities. Prevents
+      * VMs from disappearing when qemu is removed and libvirtd is restarted
+      */
+-    VIR_DOMAIN_DEF_PARSE_SKIP_OSTYPE_CHECKS = 1 << 9,
++    VIR_DOMAIN_DEF_PARSE_SKIP_OSTYPE_CHECKS = 1 << 8,
+ } virDomainDefParseFlags;
+ 
+ typedef enum {
+diff --git a/tests/qemuxml2xmltest.c b/tests/qemuxml2xmltest.c
+index d498610..03bfbda 100644
+--- a/tests/qemuxml2xmltest.c
++++ b/tests/qemuxml2xmltest.c
+@@ -180,8 +180,7 @@ testCompareStatusXMLToXMLFiles(const void *opaque)
+                                       driver.caps, driver.xmlopt,
+                                       VIR_DOMAIN_DEF_PARSE_STATUS |
+                                       VIR_DOMAIN_DEF_PARSE_ACTUAL_NET |
+-                                      VIR_DOMAIN_DEF_PARSE_PCI_ORIG_STATES |
+-                                      VIR_DOMAIN_DEF_PARSE_CLOCK_ADJUST))) {
++                                      VIR_DOMAIN_DEF_PARSE_PCI_ORIG_STATES))) {
+         fprintf(stderr, "Failed to parse domain status XML:\n%s", source);
+         goto cleanup;
+     }
+-- 
+2.5.3
+

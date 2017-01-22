@@ -1,0 +1,45 @@
+From bad19eb327daa3ad90674f09587113a2ef6d3620 Mon Sep 17 00:00:00 2001
+Message-Id: <bad19eb327daa3ad90674f09587113a2ef6d3620@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Wed, 5 Aug 2015 18:18:23 +0200
+Subject: [PATCH] nodeinfo: Introduce linuxGetCPUOnlinePath()
+
+(cherry picked from commit 6fecc4017d953d2c4c73b29b0ac6209644585137)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/nodeinfo.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/nodeinfo.c b/src/nodeinfo.c
+index b09a4fd..5459cc6 100644
+--- a/src/nodeinfo.c
++++ b/src/nodeinfo.c
+@@ -976,6 +976,12 @@ linuxGetCPUPresentPath(const char *sysfs_prefix)
+     return linuxGetCPUGlobalPath(sysfs_prefix, "present");
+ }
+ 
++static char *
++linuxGetCPUOnlinePath(const char *sysfs_prefix)
++{
++    return linuxGetCPUGlobalPath(sysfs_prefix, "online");
++}
++
+ /* Determine the maximum cpu id from a Linux sysfs cpu/present file. */
+ static int
+ linuxParseCPUmax(const char *path)
+@@ -1316,7 +1322,7 @@ nodeGetCPUBitmap(const char *sysfs_prefix ATTRIBUTE_UNUSED,
+     if (present < 0)
+         return NULL;
+ 
+-    if (virAsprintf(&online_path, "%s/cpu/online", prefix) < 0)
++    if (!(online_path = linuxGetCPUOnlinePath(sysfs_prefix)))
+         return NULL;
+     if (virFileExists(online_path)) {
+         cpumap = linuxParseCPUmap(present, online_path);
+-- 
+2.5.0
+

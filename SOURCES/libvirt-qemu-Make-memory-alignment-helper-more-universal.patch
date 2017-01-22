@@ -1,0 +1,124 @@
+From a8f30a71dbe0327b945e9a85e561cace913d17a4 Mon Sep 17 00:00:00 2001
+Message-Id: <a8f30a71dbe0327b945e9a85e561cace913d17a4@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Tue, 22 Sep 2015 16:59:38 +0200
+Subject: [PATCH] qemu: Make memory alignment helper more universal
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1252685
+
+Extract the size determination into a separate function and reuse it
+across the memory device alignment functions. Since later we will need
+to decide the alignment size according to architecture let's pass def to
+the functions.
+
+(cherry picked from commit 3fb0819830cef3b269fbcdea217d7f1de4b62e87)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_domain.c  | 26 ++++++++++++++++++--------
+ src/qemu/qemu_domain.h  |  3 ++-
+ src/qemu/qemu_hotplug.c |  4 ++--
+ 3 files changed, 22 insertions(+), 11 deletions(-)
+
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index 9d9fb06..15cdf7b 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -3158,30 +3158,39 @@ qemuDomainAgentAvailable(virDomainObjPtr vm,
+ }
+ 
+ 
++static unsigned long long
++qemuDomainGetMemorySizeAlignment(virDomainDefPtr def ATTRIBUTE_UNUSED)
++{
++    /* Align memory size. QEMU requires rounding to next 4KiB block.
++     * We'll take the "traditional" path and round it to 1MiB*/
++
++    return 1024;
++}
++
++
+ int
+ qemuDomainAlignMemorySizes(virDomainDefPtr def)
+ {
+     unsigned long long mem;
++    unsigned long long align = qemuDomainGetMemorySizeAlignment(def);
+     size_t ncells = virDomainNumaGetNodeCount(def->numa);
+     size_t i;
+ 
+     /* align NUMA cell sizes if relevant */
+     for (i = 0; i < ncells; i++) {
+         mem = virDomainNumaGetNodeMemorySize(def->numa, i);
+-        virDomainNumaSetNodeMemorySize(def->numa, i, VIR_ROUND_UP(mem, 1024));
++        virDomainNumaSetNodeMemorySize(def->numa, i, VIR_ROUND_UP(mem, align));
+     }
+ 
+     /* align initial memory size */
+     mem = virDomainDefGetMemoryInitial(def);
+-    virDomainDefSetMemoryInitial(def, VIR_ROUND_UP(mem, 1024));
++    virDomainDefSetMemoryInitial(def, VIR_ROUND_UP(mem, align));
+ 
+-    /* Align maximum memory size. QEMU requires rounding to next 4KiB block.
+-     * We'll take the "traditional" path and round it to 1MiB*/
+-    def->mem.max_memory = VIR_ROUND_UP(def->mem.max_memory, 1024);
++    def->mem.max_memory = VIR_ROUND_UP(def->mem.max_memory, align);
+ 
+     /* Align memory module sizes */
+     for (i = 0; i < def->nmems; i++)
+-        qemuDomainMemoryDeviceAlignSize(def->mems[i]);
++        def->mems[i]->size = VIR_ROUND_UP(def->mems[i]->size, align);
+ 
+     return 0;
+ }
+@@ -3196,9 +3205,10 @@ qemuDomainAlignMemorySizes(virDomainDefPtr def)
+  * size so this should be safe).
+  */
+ void
+-qemuDomainMemoryDeviceAlignSize(virDomainMemoryDefPtr mem)
++qemuDomainMemoryDeviceAlignSize(virDomainDefPtr def,
++                                virDomainMemoryDefPtr mem)
+ {
+-    mem->size = VIR_ROUND_UP(mem->size, 1024);
++    mem->size = VIR_ROUND_UP(mem->size, qemuDomainGetMemorySizeAlignment(def));
+ }
+ 
+ 
+diff --git a/src/qemu/qemu_domain.h b/src/qemu/qemu_domain.h
+index 91eaea1..e283b58 100644
+--- a/src/qemu/qemu_domain.h
++++ b/src/qemu/qemu_domain.h
+@@ -462,7 +462,8 @@ bool qemuDomainHasBlockjob(virDomainObjPtr vm, bool copy_only)
+     ATTRIBUTE_NONNULL(1);
+ 
+ int qemuDomainAlignMemorySizes(virDomainDefPtr def);
+-void qemuDomainMemoryDeviceAlignSize(virDomainMemoryDefPtr mem);
++void qemuDomainMemoryDeviceAlignSize(virDomainDefPtr def,
++                                     virDomainMemoryDefPtr mem);
+ 
+ virDomainChrSourceDefPtr qemuFindAgentConfig(virDomainDefPtr def);
+ 
+diff --git a/src/qemu/qemu_hotplug.c b/src/qemu/qemu_hotplug.c
+index 31c56ae..f702c9f 100644
+--- a/src/qemu/qemu_hotplug.c
++++ b/src/qemu/qemu_hotplug.c
+@@ -1801,7 +1801,7 @@ qemuDomainAttachMemory(virQEMUDriverPtr driver,
+     if (!(devstr = qemuBuildMemoryDeviceStr(mem, vm->def, priv->qemuCaps)))
+         goto cleanup;
+ 
+-    qemuDomainMemoryDeviceAlignSize(mem);
++    qemuDomainMemoryDeviceAlignSize(vm->def, mem);
+ 
+     if (qemuBuildMemoryBackendStr(mem->size, mem->pagesize,
+                                   mem->targetNode, mem->sourceNodes, NULL,
+@@ -4282,7 +4282,7 @@ qemuDomainDetachMemoryDevice(virQEMUDriverPtr driver,
+         return -1;
+     }
+ 
+-    qemuDomainMemoryDeviceAlignSize(memdef);
++    qemuDomainMemoryDeviceAlignSize(vm->def, memdef);
+ 
+     if ((idx = virDomainMemoryFindByDef(vm->def, memdef)) < 0) {
+         virReportError(VIR_ERR_OPERATION_INVALID, "%s",
+-- 
+2.5.3
+

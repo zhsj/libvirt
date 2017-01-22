@@ -1,0 +1,123 @@
+From ecd0ade9104cecedc1e82fac2b8e025ee98e2cb4 Mon Sep 17 00:00:00 2001
+Message-Id: <ecd0ade9104cecedc1e82fac2b8e025ee98e2cb4@dist-git>
+From: Kothapally Madhu Pavan <kmp@linux.vnet.ibm.com>
+Date: Wed, 5 Aug 2015 18:18:15 +0200
+Subject: [PATCH] nodeinfo: fix to parse present cpus rather than possible cpus
+
+This patch resolves a situation where a core is defective and is not
+in the present mask during boot. Optionally a host can have empty sockets
+could be brought online if the socket is added. In this case the present
+mask contains the cpu's that are actually there in the sockets even though
+they might be offline for some reason. This patch excludes the cpu's that
+are offline because the socket is defective/empty by checking the present
+mask before reading the cpu directory. Otherwise, the nodeinfo on such
+hosts always displays wrong output which includes the defective/empty
+sockets as set of offline cpu's.
+
+Signed-off-by: Kothapally Madhu Pavan <kmp@linux.vnet.ibm.com>
+(cherry picked from commit bb31f4532b285a7392911f420bcdf05a126be8a0)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/nodeinfo.c | 23 ++++++++++++++++++-----
+ 1 file changed, 18 insertions(+), 5 deletions(-)
+
+diff --git a/src/nodeinfo.c b/src/nodeinfo.c
+index ca9cb3a..5158680 100644
+--- a/src/nodeinfo.c
++++ b/src/nodeinfo.c
+@@ -43,6 +43,7 @@
+ #include "c-ctype.h"
+ #include "viralloc.h"
+ #include "nodeinfopriv.h"
++#include "nodeinfo.h"
+ #include "physmem.h"
+ #include "virerror.h"
+ #include "count-one-bits.h"
+@@ -403,20 +404,23 @@ CPU_COUNT(cpu_set_t *set)
+ /* parses a node entry, returning number of processors in the node and
+  * filling arguments */
+ static int
+-ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(3)
++ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2)
+ ATTRIBUTE_NONNULL(4) ATTRIBUTE_NONNULL(5)
+-ATTRIBUTE_NONNULL(6)
+-virNodeParseNode(const char *node,
++ATTRIBUTE_NONNULL(6) ATTRIBUTE_NONNULL(7)
++virNodeParseNode(const char *sysfs_prefix,
++                 const char *node,
+                  virArch arch,
+                  int *sockets,
+                  int *cores,
+                  int *threads,
+                  int *offline)
+ {
++    const char *prefix = sysfs_prefix ? sysfs_prefix : SYSFS_SYSTEM_PATH;
+     int ret = -1;
+     int processors = 0;
+     DIR *cpudir = NULL;
+     struct dirent *cpudirent = NULL;
++    virBitmapPtr present_cpumap = NULL;
+     int sock_max = 0;
+     cpu_set_t sock_map;
+     int sock;
+@@ -437,12 +441,17 @@ virNodeParseNode(const char *node,
+         goto cleanup;
+     }
+ 
++    present_cpumap = nodeGetPresentCPUBitmap(prefix);
++
+     /* enumerate sockets in the node */
+     CPU_ZERO(&sock_map);
+     while ((direrr = virDirRead(cpudir, &cpudirent, node)) > 0) {
+         if (sscanf(cpudirent->d_name, "cpu%u", &cpu) != 1)
+             continue;
+ 
++        if (present_cpumap && !(virBitmapIsBitSet(present_cpumap, cpu)))
++            continue;
++
+         if ((online = virNodeGetCpuValue(node, cpu, "online", 1)) < 0)
+             goto cleanup;
+ 
+@@ -476,6 +485,9 @@ virNodeParseNode(const char *node,
+         if (sscanf(cpudirent->d_name, "cpu%u", &cpu) != 1)
+             continue;
+ 
++        if (present_cpumap && !(virBitmapIsBitSet(present_cpumap, cpu)))
++            continue;
++
+         if ((online = virNodeGetCpuValue(node, cpu, "online", 1)) < 0)
+             goto cleanup;
+ 
+@@ -536,6 +548,7 @@ virNodeParseNode(const char *node,
+         ret = -1;
+     }
+     VIR_FREE(core_maps);
++    virBitmapFree(present_cpumap);
+ 
+     return ret;
+ }
+@@ -657,7 +670,7 @@ int linuxNodeInfoCPUPopulate(FILE *cpuinfo,
+                         sysfs_dir, nodedirent->d_name) < 0)
+             goto cleanup;
+ 
+-        if ((cpus = virNodeParseNode(sysfs_cpudir, arch,
++        if ((cpus = virNodeParseNode(sysfs_dir, sysfs_cpudir, arch,
+                                      &socks, &cores,
+                                      &threads, &offline)) < 0)
+             goto cleanup;
+@@ -688,7 +701,7 @@ int linuxNodeInfoCPUPopulate(FILE *cpuinfo,
+     if (virAsprintf(&sysfs_cpudir, "%s/cpu", sysfs_dir) < 0)
+         goto cleanup;
+ 
+-    if ((cpus = virNodeParseNode(sysfs_cpudir, arch,
++    if ((cpus = virNodeParseNode(sysfs_dir, sysfs_cpudir, arch,
+                                  &socks, &cores,
+                                  &threads, &offline)) < 0)
+         goto cleanup;
+-- 
+2.5.0
+

@@ -1,0 +1,77 @@
+From 7bf87a91878c0a2830be2534430f98527e361cd5 Mon Sep 17 00:00:00 2001
+Message-Id: <7bf87a91878c0a2830be2534430f98527e361cd5@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Fri, 10 Jul 2015 09:20:32 +0200
+Subject: [PATCH] qemu: Check duplicate WWNs also for hotplugged disks
+
+In commit 714b38cb232bcbbd7487af4c058fa6d0999b3326 I tried to avoid
+having two disks with the same WWN in a VM. I forgot to check the
+hotplug paths though which make it possible bypass that check. Reinforce
+the fix by checking the wwn when attaching the disk.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1208009
+(cherry picked from commit 780fe4e4baf7e2f10f65ba1a34f9274fc547cad2)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/conf/domain_conf.c | 37 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 37 insertions(+)
+
+diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
+index f3416cf..535701e 100644
+--- a/src/conf/domain_conf.c
++++ b/src/conf/domain_conf.c
+@@ -22130,6 +22130,34 @@ virDomainDeviceInfoCheckBootIndex(virDomainDefPtr def ATTRIBUTE_UNUSED,
+     return 0;
+ }
+ 
++
++/**
++ * virDomainDefGetDiskByWWN:
++ * @def: domain definition
++ * @wwn: wwn of a disk to find
++ *
++ * Returns a disk definition pointer corresponding to the given WWN identifier
++ * or NULL either if @wwn was NULL or if disk with given WWN is not present in
++ * the domain definition.
++ */
++static virDomainDiskDefPtr
++virDomainDefGetDiskByWWN(virDomainDefPtr def,
++                         const char *wwn)
++{
++    size_t i;
++
++    if (!wwn)
++        return NULL;
++
++    for (i = 0; i < def->ndisks; i++) {
++        if (STREQ_NULLABLE(def->disks[i]->wwn, wwn))
++            return def->disks[i];
++    }
++
++    return NULL;
++}
++
++
+ int
+ virDomainDefCompatibleDevice(virDomainDefPtr def,
+                              virDomainDeviceDefPtr dev,
+@@ -22173,6 +22201,15 @@ virDomainDefCompatibleDevice(virDomainDefPtr def,
+         }
+     }
+ 
++    if (dev->type == VIR_DOMAIN_DEVICE_DISK) {
++        if (!!virDomainDefGetDiskByWWN(def, dev->data.disk->wwn)) {
++            virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
++                           _("Domain already has a disk with wwn '%s'"),
++                           dev->data.disk->wwn);
++            return -1;
++        }
++    }
++
+     return 0;
+ }
+ 
+-- 
+2.4.5
+

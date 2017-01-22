@@ -1,0 +1,134 @@
+From e47ad8b77b309bd6e0cc0016537207a7426df10b Mon Sep 17 00:00:00 2001
+Message-Id: <e47ad8b77b309bd6e0cc0016537207a7426df10b@dist-git>
+From: Luyao Huang <lhuang@redhat.com>
+Date: Tue, 8 Sep 2015 10:43:21 +0200
+Subject: [PATCH] conf: fix crash when parsing a unordered NUMA <cell/>
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1260846
+
+Introduced by 8fedbbdb, if we parse an unordered NUMA cell, will
+get a segfault. This is because of a check for overlapping @cpus
+sets we have there. However, since the array to hold guest NUMA
+cells is allocated upfront and therefore it contains all zeros,
+an out of order cell will break our assumption that cell IDs have
+increasing character. At this point we try to access yet NULL
+bitmap and therefore segfault.
+
+Signed-off-by: Luyao Huang <lhuang@redhat.com>
+(cherry picked from commit 83ae3ee39bd13feddecc49aaad382d5cae72c257)
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/conf/numa_conf.c                               | 10 +++++---
+ .../qemuxml2argv-cpu-numa-disordered.xml           | 26 +++++++++++++++++++
+ .../qemuxml2xmlout-cpu-numa-disordered.xml         | 29 ++++++++++++++++++++++
+ tests/qemuxml2xmltest.c                            |  1 +
+ 4 files changed, 63 insertions(+), 3 deletions(-)
+ create mode 100644 tests/qemuxml2argvdata/qemuxml2argv-cpu-numa-disordered.xml
+ create mode 100644 tests/qemuxml2xmloutdata/qemuxml2xmlout-cpu-numa-disordered.xml
+
+diff --git a/src/conf/numa_conf.c b/src/conf/numa_conf.c
+index 5c123b9..b5963ac 100644
+--- a/src/conf/numa_conf.c
++++ b/src/conf/numa_conf.c
+@@ -759,11 +759,15 @@ virDomainNumaDefCPUParseXML(virDomainNumaPtr def,
+         }
+         VIR_FREE(tmp);
+ 
+-        for (j = 0; j < i; j++) {
++        for (j = 0; j < n; j++) {
++            if (j == cur_cell || !def->mem_nodes[j].cpumask)
++                continue;
++
+             if (virBitmapOverlaps(def->mem_nodes[j].cpumask,
+-                                  def->mem_nodes[i].cpumask)) {
++                                  def->mem_nodes[cur_cell].cpumask)) {
+                 virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
+-                               _("NUMA cells %zu and %zu have overlapping vCPU ids"), i, j);
++                               _("NUMA cells %u and %zu have overlapping vCPU ids"),
++                               cur_cell, j);
+                 goto cleanup;
+             }
+         }
+diff --git a/tests/qemuxml2argvdata/qemuxml2argv-cpu-numa-disordered.xml b/tests/qemuxml2argvdata/qemuxml2argv-cpu-numa-disordered.xml
+new file mode 100644
+index 0000000..ad31607
+--- /dev/null
++++ b/tests/qemuxml2argvdata/qemuxml2argv-cpu-numa-disordered.xml
+@@ -0,0 +1,26 @@
++<domain type='qemu'>
++  <name>QEMUGuest1</name>
++  <uuid>c7a5fdbd-edaf-9455-926a-d65c16db1809</uuid>
++  <memory unit='KiB'>328650</memory>
++  <currentMemory unit='KiB'>328650</currentMemory>
++  <vcpu placement='static'>16</vcpu>
++  <os>
++    <type arch='x86_64' machine='pc'>hvm</type>
++    <boot dev='network'/>
++  </os>
++  <cpu>
++    <topology sockets='2' cores='4' threads='2'/>
++    <numa>
++      <cell id='0' cpus='0-5' memory='109550' unit='KiB'/>
++      <cell id='2' cpus='6-10' memory='109550' unit='KiB'/>
++      <cell id='1' cpus='11-15' memory='109550' unit='KiB'/>
++    </numa>
++  </cpu>
++  <clock offset='utc'/>
++  <on_poweroff>destroy</on_poweroff>
++  <on_reboot>restart</on_reboot>
++  <on_crash>destroy</on_crash>
++  <devices>
++      <emulator>/usr/bin/qemu</emulator>
++  </devices>
++</domain>
+diff --git a/tests/qemuxml2xmloutdata/qemuxml2xmlout-cpu-numa-disordered.xml b/tests/qemuxml2xmloutdata/qemuxml2xmlout-cpu-numa-disordered.xml
+new file mode 100644
+index 0000000..0a76f12
+--- /dev/null
++++ b/tests/qemuxml2xmloutdata/qemuxml2xmlout-cpu-numa-disordered.xml
+@@ -0,0 +1,29 @@
++<domain type='qemu'>
++  <name>QEMUGuest1</name>
++  <uuid>c7a5fdbd-edaf-9455-926a-d65c16db1809</uuid>
++  <memory unit='KiB'>328650</memory>
++  <currentMemory unit='KiB'>328650</currentMemory>
++  <vcpu placement='static'>16</vcpu>
++  <os>
++    <type arch='x86_64' machine='pc'>hvm</type>
++    <boot dev='network'/>
++  </os>
++  <cpu>
++    <topology sockets='2' cores='4' threads='2'/>
++    <numa>
++      <cell id='0' cpus='0-5' memory='109550' unit='KiB'/>
++      <cell id='1' cpus='11-15' memory='109550' unit='KiB'/>
++      <cell id='2' cpus='6-10' memory='109550' unit='KiB'/>
++    </numa>
++  </cpu>
++  <clock offset='utc'/>
++  <on_poweroff>destroy</on_poweroff>
++  <on_reboot>restart</on_reboot>
++  <on_crash>destroy</on_crash>
++  <devices>
++    <emulator>/usr/bin/qemu</emulator>
++    <controller type='usb' index='0'/>
++    <controller type='pci' index='0' model='pci-root'/>
++    <memballoon model='virtio'/>
++  </devices>
++</domain>
+diff --git a/tests/qemuxml2xmltest.c b/tests/qemuxml2xmltest.c
+index 5f88c5d..d498610 100644
+--- a/tests/qemuxml2xmltest.c
++++ b/tests/qemuxml2xmltest.c
+@@ -604,6 +604,7 @@ mymain(void)
+     DO_TEST_DIFFERENT("cpu-numa1");
+     DO_TEST_DIFFERENT("cpu-numa2");
+     DO_TEST_DIFFERENT("cpu-numa-no-memory-element");
++    DO_TEST_DIFFERENT("cpu-numa-disordered");
+     DO_TEST("cpu-numa-disjoint");
+     DO_TEST("cpu-numa-memshared");
+ 
+-- 
+2.5.2
+

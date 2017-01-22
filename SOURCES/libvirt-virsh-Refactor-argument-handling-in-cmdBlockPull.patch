@@ -1,0 +1,77 @@
+From 9941fd1b6bb14fc9f241905c53c8c1ebc9dab5ac Mon Sep 17 00:00:00 2001
+Message-Id: <9941fd1b6bb14fc9f241905c53c8c1ebc9dab5ac@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Tue, 21 Jul 2015 16:18:31 +0200
+Subject: [PATCH] virsh: Refactor argument handling in cmdBlockPull
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1227551
+https://bugzilla.redhat.com/show_bug.cgi?id=1197592
+
+Put all argument parsing together and refactor the argument checking
+code.
+
+(cherry picked from commit 44b18323e5e29206b51fc2488f3c00ec20a6a107)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ tools/virsh-domain.c | 19 ++++++++++---------
+ 1 file changed, 10 insertions(+), 9 deletions(-)
+
+diff --git a/tools/virsh-domain.c b/tools/virsh-domain.c
+index c233eb7..2f6ad46 100644
+--- a/tools/virsh-domain.c
++++ b/tools/virsh-domain.c
+@@ -2654,6 +2654,7 @@ cmdBlockPull(vshControl *ctl, const vshCmd *cmd)
+     bool ret = false;
+     bool blocking = vshCommandOptBool(cmd, "wait");
+     bool verbose = vshCommandOptBool(cmd, "verbose");
++    bool async = vshCommandOptBool(cmd, "async");
+     int timeout = 0;
+     struct sigaction sig_action;
+     struct sigaction old_sig_action;
+@@ -2669,6 +2670,9 @@ cmdBlockPull(vshControl *ctl, const vshCmd *cmd)
+     int cb_id = -1;
+     unsigned int flags = 0;
+ 
++    VSH_REQUIRE_OPTION("verbose", "wait");
++    VSH_REQUIRE_OPTION("async", "wait");
++
+     if (vshCommandOptStringReq(ctl, cmd, "path", &path) < 0)
+         return false;
+ 
+@@ -2678,15 +2682,16 @@ cmdBlockPull(vshControl *ctl, const vshCmd *cmd)
+     if (vshCommandOptULWrap(ctl, cmd, "bandwidth", &bandwidth) < 0)
+         return false;
+ 
++    if (vshCommandOptTimeoutToMs(ctl, cmd, &timeout) < 0)
++        return false;
++
+     if (vshCommandOptBool(cmd, "keep-relative"))
+         flags |= VIR_DOMAIN_BLOCK_REBASE_RELATIVE;
+ 
++    if (async)
++        abort_flags |= VIR_DOMAIN_BLOCK_JOB_ABORT_ASYNC;
++
+     if (blocking) {
+-        if (vshCommandOptTimeoutToMs(ctl, cmd, &timeout) < 0)
+-            return false;
+-        if (vshCommandOptBool(cmd, "async"))
+-            abort_flags |= VIR_DOMAIN_BLOCK_JOB_ABORT_ASYNC;
+-
+         sigemptyset(&sigmask);
+         sigaddset(&sigmask, SIGINT);
+ 
+@@ -2697,10 +2702,6 @@ cmdBlockPull(vshControl *ctl, const vshCmd *cmd)
+         sigaction(SIGINT, &sig_action, &old_sig_action);
+ 
+         GETTIMEOFDAY(&start);
+-    } else if (verbose || vshCommandOptBool(cmd, "timeout") ||
+-               vshCommandOptBool(cmd, "async")) {
+-        vshError(ctl, "%s", _("missing --wait option"));
+-        return false;
+     }
+ 
+     if (!(dom = vshCommandOptDomain(ctl, cmd, NULL)))
+-- 
+2.5.0
+

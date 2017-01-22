@@ -1,0 +1,43 @@
+From b787e0f4846d1175c5ed7dd8aeecb4b78eaf0c47 Mon Sep 17 00:00:00 2001
+Message-Id: <b787e0f4846d1175c5ed7dd8aeecb4b78eaf0c47@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Tue, 11 Aug 2015 17:15:55 +0200
+Subject: [PATCH] cpu: Simplify ppc64ModelFromCPU()
+
+(cherry picked from commit c238d16af4fccfb829274c1a4dbf2748d81f7714)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1250977
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/cpu/cpu_ppc64.c | 11 ++---------
+ 1 file changed, 2 insertions(+), 9 deletions(-)
+
+diff --git a/src/cpu/cpu_ppc64.c b/src/cpu/cpu_ppc64.c
+index 05ff8f2..18dbf86 100644
+--- a/src/cpu/cpu_ppc64.c
++++ b/src/cpu/cpu_ppc64.c
+@@ -163,17 +163,10 @@ ppc64ModelFromCPU(const virCPUDef *cpu,
+     if (!(model = ppc64ModelFind(map, cpu->model))) {
+         virReportError(VIR_ERR_INTERNAL_ERROR,
+                        _("Unknown CPU model %s"), cpu->model);
+-        goto error;
++        return NULL;
+     }
+ 
+-    if (!(model = ppc64ModelCopy(model)))
+-        goto error;
+-
+-    return model;
+-
+- error:
+-    ppc64ModelFree(model);
+-    return NULL;
++    return ppc64ModelCopy(model);
+ }
+ 
+ 
+-- 
+2.5.0
+

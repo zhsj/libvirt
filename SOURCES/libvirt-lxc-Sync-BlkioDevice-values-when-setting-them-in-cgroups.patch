@@ -1,0 +1,137 @@
+From 5055589798e9317ae3d9772d5a774c2578c89a3d Mon Sep 17 00:00:00 2001
+Message-Id: <5055589798e9317ae3d9772d5a774c2578c89a3d@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Tue, 18 Aug 2015 17:28:01 -0700
+Subject: [PATCH] lxc: Sync BlkioDevice values when setting them in cgroups
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1165580
+
+The problem here is that there are some values that kernel accepts, but
+does not set them, for example 18446744073709551615 which acts the same
+way as zero.  Let's do the same thing we do with other tuning options
+and re-read them right after they are set in order to keep our internal
+structures up-to-date.
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 4563c59b5b40f40f90c0579f5e2fcdd29c414265)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/lxc/lxc_cgroup.c | 20 +++++++++++++++-----
+ src/lxc/lxc_driver.c | 25 ++++++++++++++++++++-----
+ 2 files changed, 35 insertions(+), 10 deletions(-)
+
+diff --git a/src/lxc/lxc_cgroup.c b/src/lxc/lxc_cgroup.c
+index e9caa3e..ad254e4 100644
+--- a/src/lxc/lxc_cgroup.c
++++ b/src/lxc/lxc_cgroup.c
+@@ -117,27 +117,37 @@ static int virLXCCgroupSetupBlkioTune(virDomainDefPtr def,
+ 
+             if (dev->weight &&
+                 (virCgroupSetBlkioDeviceWeight(cgroup, dev->path,
+-                                               dev->weight) < 0))
++                                               dev->weight) < 0 ||
++                 virCgroupGetBlkioDeviceWeight(cgroup, dev->path,
++                                               &dev->weight) < 0))
+                 return -1;
+ 
+             if (dev->riops &&
+                 (virCgroupSetBlkioDeviceReadIops(cgroup, dev->path,
+-                                                 dev->riops) < 0))
++                                                 dev->riops) < 0 ||
++                 virCgroupGetBlkioDeviceReadIops(cgroup, dev->path,
++                                                 &dev->riops) < 0))
+                 return -1;
+ 
+             if (dev->wiops &&
+                 (virCgroupSetBlkioDeviceWriteIops(cgroup, dev->path,
+-                                                  dev->wiops) < 0))
++                                                  dev->wiops) < 0 ||
++                 virCgroupGetBlkioDeviceWriteIops(cgroup, dev->path,
++                                                  &dev->wiops) < 0))
+                 return -1;
+ 
+             if (dev->rbps &&
+                 (virCgroupSetBlkioDeviceReadBps(cgroup, dev->path,
+-                                                dev->rbps) < 0))
++                                                dev->rbps) < 0 ||
++                 virCgroupGetBlkioDeviceReadBps(cgroup, dev->path,
++                                                &dev->rbps) < 0))
+                 return -1;
+ 
+             if (dev->wbps &&
+                 (virCgroupSetBlkioDeviceWriteBps(cgroup, dev->path,
+-                                                 dev->wbps) < 0))
++                                                 dev->wbps) < 0 ||
++                 virCgroupGetBlkioDeviceWriteBps(cgroup, dev->path,
++                                                 &dev->wbps) < 0))
+                 return -1;
+         }
+     }
+diff --git a/src/lxc/lxc_driver.c b/src/lxc/lxc_driver.c
+index d8d5119..1a7cc78 100644
+--- a/src/lxc/lxc_driver.c
++++ b/src/lxc/lxc_driver.c
+@@ -2603,7 +2603,10 @@ lxcDomainSetBlkioParameters(virDomainPtr dom,
+                     for (j = 0; j < ndevices; j++) {
+                         if (virCgroupSetBlkioDeviceWeight(priv->cgroup,
+                                                           devices[j].path,
+-                                                          devices[j].weight) < 0) {
++                                                          devices[j].weight) < 0 ||
++                            virCgroupGetBlkioDeviceWeight(priv->cgroup,
++                                                          devices[j].path,
++                                                          &devices[j].weight) < 0) {
+                             ret = -1;
+                             break;
+                         }
+@@ -2612,7 +2615,10 @@ lxcDomainSetBlkioParameters(virDomainPtr dom,
+                     for (j = 0; j < ndevices; j++) {
+                         if (virCgroupSetBlkioDeviceReadIops(priv->cgroup,
+                                                             devices[j].path,
+-                                                            devices[j].riops) < 0) {
++                                                            devices[j].riops) < 0 ||
++                            virCgroupGetBlkioDeviceReadIops(priv->cgroup,
++                                                            devices[j].path,
++                                                            &devices[j].riops) < 0) {
+                             ret = -1;
+                             break;
+                         }
+@@ -2621,7 +2627,10 @@ lxcDomainSetBlkioParameters(virDomainPtr dom,
+                     for (j = 0; j < ndevices; j++) {
+                         if (virCgroupSetBlkioDeviceWriteIops(priv->cgroup,
+                                                              devices[j].path,
+-                                                             devices[j].wiops) < 0) {
++                                                             devices[j].wiops) < 0 ||
++                            virCgroupGetBlkioDeviceWriteIops(priv->cgroup,
++                                                             devices[j].path,
++                                                             &devices[j].wiops) < 0) {
+                             ret = -1;
+                             break;
+                         }
+@@ -2630,7 +2639,10 @@ lxcDomainSetBlkioParameters(virDomainPtr dom,
+                     for (j = 0; j < ndevices; j++) {
+                         if (virCgroupSetBlkioDeviceReadBps(priv->cgroup,
+                                                            devices[j].path,
+-                                                           devices[j].rbps) < 0) {
++                                                           devices[j].rbps) < 0 ||
++                            virCgroupGetBlkioDeviceReadBps(priv->cgroup,
++                                                           devices[j].path,
++                                                           &devices[j].rbps) < 0) {
+                             ret = -1;
+                             break;
+                         }
+@@ -2639,7 +2651,10 @@ lxcDomainSetBlkioParameters(virDomainPtr dom,
+                     for (j = 0; j < ndevices; j++) {
+                         if (virCgroupSetBlkioDeviceWriteBps(priv->cgroup,
+                                                             devices[j].path,
+-                                                            devices[j].wbps) < 0) {
++                                                            devices[j].wbps) < 0 ||
++                            virCgroupGetBlkioDeviceWriteBps(priv->cgroup,
++                                                            devices[j].path,
++                                                            &devices[j].wbps) < 0) {
+                             ret = -1;
+                             break;
+                         }
+-- 
+2.5.1
+

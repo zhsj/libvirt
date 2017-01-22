@@ -1,0 +1,82 @@
+From 767c91832fa9f2497a10603153b980932fc472ec Mon Sep 17 00:00:00 2001
+Message-Id: <767c91832fa9f2497a10603153b980932fc472ec@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Mon, 5 Oct 2015 14:36:15 +0200
+Subject: [PATCH] qemu: Introduce flags in qemuMigrationCompleted
+
+The function already has two bool parameters and we will need to add a
+new one. Let's switch to flags to make the callers readable.
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+(cherry picked from commit 2af983f4c42e8f0af95fe1eb464e14ba52bb1145)
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1265902
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_migration.c | 23 +++++++++++++++++------
+ 1 file changed, 17 insertions(+), 6 deletions(-)
+
+diff --git a/src/qemu/qemu_migration.c b/src/qemu/qemu_migration.c
+index e04459d..17c1276 100644
+--- a/src/qemu/qemu_migration.c
++++ b/src/qemu/qemu_migration.c
+@@ -2606,6 +2606,11 @@ qemuMigrationCheckJobStatus(virQEMUDriverPtr driver,
+ }
+ 
+ 
++enum qemuMigrationCompletedFlags {
++    QEMU_MIGRATION_COMPLETED_ABORT_ON_ERROR = (1 << 0),
++    QEMU_MIGRATION_COMPLETED_CHECK_STORAGE  = (1 << 1),
++};
++
+ /**
+  * Returns 1 if migration completed successfully,
+  *         0 if the domain is still being migrated,
+@@ -2617,8 +2622,7 @@ qemuMigrationCompleted(virQEMUDriverPtr driver,
+                        virDomainObjPtr vm,
+                        qemuDomainAsyncJob asyncJob,
+                        virConnectPtr dconn,
+-                       bool abort_on_error,
+-                       bool storage)
++                       unsigned int flags)
+ {
+     qemuDomainObjPrivatePtr priv = vm->privateData;
+     qemuDomainJobInfoPtr jobInfo = priv->job.current;
+@@ -2627,10 +2631,11 @@ qemuMigrationCompleted(virQEMUDriverPtr driver,
+     if (qemuMigrationCheckJobStatus(driver, vm, asyncJob) < 0)
+         goto error;
+ 
+-    if (storage && qemuMigrationDriveMirrorReady(driver, vm) < 0)
++    if (flags & QEMU_MIGRATION_COMPLETED_CHECK_STORAGE &&
++        qemuMigrationDriveMirrorReady(driver, vm) < 0)
+         goto error;
+ 
+-    if (abort_on_error &&
++    if (flags & QEMU_MIGRATION_COMPLETED_ABORT_ON_ERROR &&
+         virDomainObjGetState(vm, &pauseReason) == VIR_DOMAIN_PAUSED &&
+         pauseReason == VIR_DOMAIN_PAUSED_IOERROR) {
+         virReportError(VIR_ERR_OPERATION_FAILED, _("%s: %s"),
+@@ -2677,11 +2682,17 @@ qemuMigrationWaitForCompletion(virQEMUDriverPtr driver,
+     qemuDomainObjPrivatePtr priv = vm->privateData;
+     qemuDomainJobInfoPtr jobInfo = priv->job.current;
+     bool events = virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_MIGRATION_EVENT);
++    unsigned int flags = 0;
+     int rv;
+ 
++    if (abort_on_error)
++        flags |= QEMU_MIGRATION_COMPLETED_ABORT_ON_ERROR;
++    if (storage)
++        flags |= QEMU_MIGRATION_COMPLETED_CHECK_STORAGE;
++
+     jobInfo->type = VIR_DOMAIN_JOB_UNBOUNDED;
+-    while ((rv = qemuMigrationCompleted(driver, vm, asyncJob, dconn,
+-                                        abort_on_error, storage)) != 1) {
++    while ((rv = qemuMigrationCompleted(driver, vm, asyncJob,
++                                        dconn, flags)) != 1) {
+         if (rv < 0)
+             return rv;
+ 
+-- 
+2.6.1
+

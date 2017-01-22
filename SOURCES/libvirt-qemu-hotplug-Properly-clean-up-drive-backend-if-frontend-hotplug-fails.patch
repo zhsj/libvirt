@@ -1,0 +1,70 @@
+From 8819ee8472dce467407ad40b4a60eb16d16aef66 Mon Sep 17 00:00:00 2001
+Message-Id: <8819ee8472dce467407ad40b4a60eb16d16aef66@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Mon, 14 Sep 2015 09:50:40 +0200
+Subject: [PATCH] qemu: hotplug: Properly clean up drive backend if frontend
+ hotplug fails
+
+Commit 8125113c added code that should remove the disk backend if the
+fronted hotplug failed for any reason. The code had a bug though as it
+used the disk string for unplug rather than the backend alias. Fix the
+code by pre-creating an alias string and using it instead of the disk
+string. In cases where qemu does not support QEMU_CAPS_DEVICE, we ignore
+the unplug of the backend since we can't really create an alias in that
+case.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1262399
+(cherry picked from commit 64c6695f1ad72f0a99faace5deb1caf7effa2275)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_hotplug.c | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/src/qemu/qemu_hotplug.c b/src/qemu/qemu_hotplug.c
+index cfb071b..31c56ae 100644
+--- a/src/qemu/qemu_hotplug.c
++++ b/src/qemu/qemu_hotplug.c
+@@ -321,6 +321,7 @@ qemuDomainAttachVirtioDiskDevice(virConnectPtr conn,
+     qemuDomainObjPrivatePtr priv = vm->privateData;
+     char *devstr = NULL;
+     char *drivestr = NULL;
++    char *drivealias = NULL;
+     bool releaseaddr = false;
+     virQEMUDriverConfigPtr cfg = virQEMUDriverGetConfig(driver);
+     const char *src = virDomainDiskGetSource(disk);
+@@ -365,6 +366,9 @@ qemuDomainAttachVirtioDiskDevice(virConnectPtr conn,
+         if (!(drivestr = qemuBuildDriveStr(conn, disk, false, priv->qemuCaps)))
+             goto error;
+ 
++        if (!(drivealias = qemuDeviceDriveHostAlias(disk, priv->qemuCaps)))
++            goto error;
++
+         if (!(devstr = qemuBuildDriveDevStr(vm->def, disk, 0, priv->qemuCaps)))
+             goto error;
+     }
+@@ -379,10 +383,11 @@ qemuDomainAttachVirtioDiskDevice(virConnectPtr conn,
+             ret = qemuMonitorAddDevice(priv->mon, devstr);
+             if (ret < 0) {
+                 virErrorPtr orig_err = virSaveLastError();
+-                if (qemuMonitorDriveDel(priv->mon, drivestr) < 0) {
++                if (!drivealias ||
++                    qemuMonitorDriveDel(priv->mon, drivealias) < 0) {
+                     VIR_WARN("Unable to remove drive %s (%s) after failed "
+                              "qemuMonitorAddDevice",
+-                             drivestr, devstr);
++                             NULLSTR(drivealias), drivestr);
+                 }
+                 if (orig_err) {
+                     virSetError(orig_err);
+@@ -415,6 +420,7 @@ qemuDomainAttachVirtioDiskDevice(virConnectPtr conn,
+  cleanup:
+     VIR_FREE(devstr);
+     VIR_FREE(drivestr);
++    VIR_FREE(drivealias);
+     virObjectUnref(cfg);
+     return ret;
+ 
+-- 
+2.5.2
+

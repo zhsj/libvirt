@@ -1,0 +1,52 @@
+From 07bbdd7925cc66eb30284de1d592b1a1c0889313 Mon Sep 17 00:00:00 2001
+Message-Id: <07bbdd7925cc66eb30284de1d592b1a1c0889313@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Mon, 24 Aug 2015 13:04:49 +0200
+Subject: [PATCH] security_selinux: Add SetDirLabel support
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1146886
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 3f48345f7ec0c44b8ce2371cab454d2118f830b4)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/security/security_selinux.c | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/src/security/security_selinux.c b/src/security/security_selinux.c
+index a37f8c1..d4bfee7 100644
+--- a/src/security/security_selinux.c
++++ b/src/security/security_selinux.c
+@@ -2505,6 +2505,21 @@ virSecuritySELinuxGetSecurityMountOptions(virSecurityManagerPtr mgr,
+     return opts;
+ }
+ 
++static char *
++virSecuritySELinuxDomainSetDirLabel(virSecurityManagerPtr mgr,
++                                    virDomainDefPtr def,
++                                    const char *path)
++{
++    virSecurityLabelDefPtr seclabel;
++    int ret = -1;
++
++    seclabel = virDomainDefGetSecurityLabelDef(def, SECURITY_SELINUX_NAME);
++    if (!seclabel || !seclabel->relabel)
++        return 0;
++
++    return virSecuritySELinuxSetFilecon(path, seclabel->imagelabel);
++}
++
+ virSecurityDriver virSecurityDriverSELinux = {
+     .privateDataLen                     = sizeof(virSecuritySELinuxData),
+     .name                               = SECURITY_SELINUX_NAME,
+@@ -2549,4 +2564,6 @@ virSecurityDriver virSecurityDriverSELinux = {
+ 
+     .domainGetSecurityMountOptions      = virSecuritySELinuxGetSecurityMountOptions,
+     .getBaseLabel                       = virSecuritySELinuxGetBaseLabel,
++
++    .domainSetDirLabel                  = virSecuritySELinuxDomainSetDirLabel,
+ };
+-- 
+2.5.1
+

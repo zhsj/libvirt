@@ -1,0 +1,92 @@
+From dc0160fb18c2bd936a0751b9d18dd0c4f81c068a Mon Sep 17 00:00:00 2001
+Message-Id: <dc0160fb18c2bd936a0751b9d18dd0c4f81c068a@dist-git>
+From: Erik Skultety <eskultet@redhat.com>
+Date: Thu, 9 Jul 2015 15:11:57 +0200
+Subject: [PATCH] storage: Revert volume obj list updating after volume
+ creation (4749d82a)
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1241454
+
+This patch reverts commit 4749d82a which tried to tweak the logic in
+volume creation. We did realloc and update our object list before we executed
+volume building within a specific storage backend. If that failed, we
+had to update (again) our object list to the original state as it was before the
+build and delete the volume from the pool (even though it didn't exist - this
+truly depends on the backend).
+I misunderstood the base idea to be able to poll the status of the volume
+creation using vol-info. After commit 4749d82a this wasn't possible
+anymore, although no BZ has been reported yet.
+
+Commit 4749d82a also claimed to fix
+https://bugzilla.redhat.com/show_bug.cgi?id=1223177, but commit c8be606b of the
+same series as 4749d82ad (which was more of a refactor than a fix)
+fixes the same issue so the revert should be pretty straightforward.
+Further more, BZ https://bugzilla.redhat.com/show_bug.cgi?id=1241454 can be
+fixed with this revert.
+
+(cherry picked from commit b5637871920c88d88a32343a13c6c1476062a6bb)
+Signed-off-by: Erik Skultety <eskultet@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/storage/storage_driver.c | 28 ++++++++++++++++++----------
+ 1 file changed, 18 insertions(+), 10 deletions(-)
+
+diff --git a/src/storage/storage_driver.c b/src/storage/storage_driver.c
+index d3cdbc5..b67a5d8 100644
+--- a/src/storage/storage_driver.c
++++ b/src/storage/storage_driver.c
+@@ -1803,6 +1803,9 @@ storageVolCreateXML(virStoragePoolPtr obj,
+         goto cleanup;
+     }
+ 
++    if (VIR_REALLOC_N(pool->volumes.objs,
++                      pool->volumes.count+1) < 0)
++        goto cleanup;
+ 
+     if (!backend->createVol) {
+         virReportError(VIR_ERR_NO_SUPPORT,
+@@ -1817,6 +1820,14 @@ storageVolCreateXML(virStoragePoolPtr obj,
+     if (backend->createVol(obj->conn, pool, voldef) < 0)
+         goto cleanup;
+ 
++    pool->volumes.objs[pool->volumes.count++] = voldef;
++    volobj = virGetStorageVol(obj->conn, pool->def->name, voldef->name,
++                              voldef->key, NULL, NULL);
++    if (!volobj) {
++        pool->volumes.count--;
++        goto cleanup;
++    }
++
+     if (VIR_ALLOC(buildvoldef) < 0) {
+         voldef = NULL;
+         goto cleanup;
+@@ -1845,19 +1856,16 @@ storageVolCreateXML(virStoragePoolPtr obj,
+         voldef->building = false;
+         pool->asyncjobs--;
+ 
+-        if (buildret < 0)
++        if (buildret < 0) {
++            VIR_FREE(buildvoldef);
++            storageVolDeleteInternal(volobj, backend, pool, voldef,
++                                     0, false);
++            voldef = NULL;
+             goto cleanup;
++        }
++
+     }
+ 
+-    if (VIR_REALLOC_N(pool->volumes.objs,
+-                      pool->volumes.count+1) < 0)
+-        goto cleanup;
+-
+-    pool->volumes.objs[pool->volumes.count++] = voldef;
+-    if (!(volobj = virGetStorageVol(obj->conn, pool->def->name, voldef->name,
+-                                    voldef->key, NULL, NULL)))
+-        goto cleanup;
+-
+     if (backend->refreshVol &&
+         backend->refreshVol(obj->conn, pool, voldef) < 0)
+         goto cleanup;
+-- 
+2.4.5
+

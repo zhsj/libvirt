@@ -1,0 +1,97 @@
+From b90683317950283d9d9aa9cbd00fb6b98ca9447a Mon Sep 17 00:00:00 2001
+Message-Id: <b90683317950283d9d9aa9cbd00fb6b98ca9447a@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Tue, 21 Jul 2015 16:18:29 +0200
+Subject: [PATCH] virsh: Refactor argument checking in cmdBlockCommit
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1227551
+https://bugzilla.redhat.com/show_bug.cgi?id=1197592
+
+Use the VSH_EXCLUSIVE_OPTIONS to exclude combinations of --pivot and
+--keep-overlay and refactor the enforcing of the --wait option and other
+flags that imply --wait.
+
+(cherry picked from commit bd687cf9b9bb9f9de2482150bc2b12c3415e740a)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ tools/virsh-domain.c | 41 +++++++++++++++++++++++++++--------------
+ 1 file changed, 27 insertions(+), 14 deletions(-)
+
+diff --git a/tools/virsh-domain.c b/tools/virsh-domain.c
+index 91b0b12..4560d32 100644
+--- a/tools/virsh-domain.c
++++ b/tools/virsh-domain.c
+@@ -1802,7 +1802,8 @@ cmdBlockCommit(vshControl *ctl, const vshCmd *cmd)
+     bool pivot = vshCommandOptBool(cmd, "pivot");
+     bool finish = vshCommandOptBool(cmd, "keep-overlay");
+     bool active = vshCommandOptBool(cmd, "active") || pivot || finish;
+-    bool blocking = vshCommandOptBool(cmd, "wait");
++    bool blocking = vshCommandOptBool(cmd, "wait") || pivot || finish;
++    bool async = vshCommandOptBool(cmd, "async");
+     int timeout = 0;
+     struct sigaction sig_action;
+     struct sigaction old_sig_action;
+@@ -1819,6 +1820,8 @@ cmdBlockCommit(vshControl *ctl, const vshCmd *cmd)
+     unsigned int flags = 0;
+     unsigned long bandwidth = 0;
+ 
++    VSH_EXCLUSIVE_OPTIONS("pivot", "keep-overlay");
++
+     if (vshCommandOptStringReq(ctl, cmd, "path", &path) < 0)
+         return false;
+ 
+@@ -1843,17 +1846,30 @@ cmdBlockCommit(vshControl *ctl, const vshCmd *cmd)
+    if (vshCommandOptBool(cmd, "keep-relative"))
+         flags |= VIR_DOMAIN_BLOCK_COMMIT_RELATIVE;
+ 
+-    blocking |= vshCommandOptBool(cmd, "timeout") || pivot || finish;
++    if (vshCommandOptTimeoutToMs(ctl, cmd, &timeout) < 0)
++        return false;
++
++    if (timeout)
++        blocking = true;
++
++    if (!blocking) {
++        if (verbose) {
++            vshError(ctl, "%s", _("--verbose requires at least one of --timeout, "
++                                  "--wait, --pivot, or --keep-overlay"));
++            return false;
++        }
++
++        if (async) {
++            vshError(ctl, "%s", _("--async requires at least one of --timeout, "
++                                  "--wait, --pivot, or --keep-overlay"));
++            return false;
++        }
++    }
++
++    if (async)
++        abort_flags |= VIR_DOMAIN_BLOCK_JOB_ABORT_ASYNC;
++
+     if (blocking) {
+-        if (pivot && finish) {
+-            vshError(ctl, "%s", _("cannot mix --pivot and --keep-overlay"));
+-            return false;
+-        }
+-        if (vshCommandOptTimeoutToMs(ctl, cmd, &timeout) < 0)
+-            return false;
+-        if (vshCommandOptBool(cmd, "async"))
+-            abort_flags |= VIR_DOMAIN_BLOCK_JOB_ABORT_ASYNC;
+-
+         sigemptyset(&sigmask);
+         sigaddset(&sigmask, SIGINT);
+ 
+@@ -1864,9 +1880,6 @@ cmdBlockCommit(vshControl *ctl, const vshCmd *cmd)
+         sigaction(SIGINT, &sig_action, &old_sig_action);
+ 
+         GETTIMEOFDAY(&start);
+-    } else if (verbose || vshCommandOptBool(cmd, "async")) {
+-        vshError(ctl, "%s", _("missing --wait option"));
+-        return false;
+     }
+ 
+     if (!(dom = vshCommandOptDomain(ctl, cmd, NULL)))
+-- 
+2.5.0
+

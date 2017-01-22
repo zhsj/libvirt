@@ -1,0 +1,50 @@
+From 1a3e9b5e8b750025aa2c51ae5dd1cd2f98278340 Mon Sep 17 00:00:00 2001
+Message-Id: <1a3e9b5e8b750025aa2c51ae5dd1cd2f98278340@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Tue, 22 Sep 2015 16:59:40 +0200
+Subject: [PATCH] conf: Document all VIR_DOMAIN_DEF_PARSE_* flags
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1252685
+
+(cherry picked from commit 24e3b0eda1373608c1c4f1176530d324418ae82b)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/conf/domain_conf.h | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/src/conf/domain_conf.h b/src/conf/domain_conf.h
+index e0102db..63685c6 100644
+--- a/src/conf/domain_conf.h
++++ b/src/conf/domain_conf.h
+@@ -2593,19 +2593,25 @@ void virDomainObjListRemoveLocked(virDomainObjListPtr doms,
+ typedef enum {
+     /* parse internal domain status information */
+     VIR_DOMAIN_DEF_PARSE_STATUS          = 1 << 0,
++    /* Parse only parts of the XML that would be present in an inactive libvirt
++     * XML. Note that the flag does not imply that ABI incompatible
++     * transformations can be used, since it's used to strip runtime info when
++     * restoring save images/migration. */
+     VIR_DOMAIN_DEF_PARSE_INACTIVE        = 1 << 1,
+     /* parse <actual> element */
+     VIR_DOMAIN_DEF_PARSE_ACTUAL_NET      = 1 << 2,
+     /* parse original states of host PCI device */
+     VIR_DOMAIN_DEF_PARSE_PCI_ORIG_STATES = 1 << 3,
++    /* internal flag passed to device info sub-parser to allow using <rom> */
+     VIR_DOMAIN_DEF_PARSE_ALLOW_ROM       = 1 << 4,
++    /* internal flag passed to device info sub-parser to allow specifying boot order */
+     VIR_DOMAIN_DEF_PARSE_ALLOW_BOOT      = 1 << 5,
+     /* parse only source half of <disk> */
+     VIR_DOMAIN_DEF_PARSE_DISK_SOURCE     = 1 << 6,
++    /* perform RNG schema validation on the passed XML document */
+     VIR_DOMAIN_DEF_PARSE_VALIDATE        = 1 << 7,
+     /* don't validate os.type and arch against capabilities. Prevents
+-     * VMs from disappearing when qemu is removed and libvirtd is restarted
+-     */
++     * VMs from disappearing when qemu is removed and libvirtd is restarted */
+     VIR_DOMAIN_DEF_PARSE_SKIP_OSTYPE_CHECKS = 1 << 8,
+ } virDomainDefParseFlags;
+ 
+-- 
+2.5.3
+

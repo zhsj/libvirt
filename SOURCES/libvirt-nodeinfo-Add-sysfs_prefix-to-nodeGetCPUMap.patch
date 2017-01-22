@@ -1,0 +1,151 @@
+From 397e67c0f6ee09387ac871c7f3ac1fa9ba697287 Mon Sep 17 00:00:00 2001
+Message-Id: <397e67c0f6ee09387ac871c7f3ac1fa9ba697287@dist-git>
+From: John Ferlan <jferlan@redhat.com>
+Date: Wed, 5 Aug 2015 18:18:11 +0200
+Subject: [PATCH] nodeinfo: Add sysfs_prefix to nodeGetCPUMap
+
+Add the sysfs_prefix argument to the call to allow for setting the
+path for tests to something other than SYSFS_SYSTEM_PATH.
+
+(cherry picked from commit f1c6179f0d44a04abb2f7c2e58f2ef3dad2892b8)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/bhyve/bhyve_driver.c   | 2 +-
+ src/lxc/lxc_driver.c       | 2 +-
+ src/nodeinfo.c             | 8 +++++---
+ src/nodeinfo.h             | 3 ++-
+ src/openvz/openvz_driver.c | 2 +-
+ src/qemu/qemu_driver.c     | 2 +-
+ src/uml/uml_driver.c       | 2 +-
+ src/vz/vz_driver.c         | 2 +-
+ 8 files changed, 13 insertions(+), 10 deletions(-)
+
+diff --git a/src/bhyve/bhyve_driver.c b/src/bhyve/bhyve_driver.c
+index dc76cf7..68dff6c 100644
+--- a/src/bhyve/bhyve_driver.c
++++ b/src/bhyve/bhyve_driver.c
+@@ -1299,7 +1299,7 @@ bhyveNodeGetCPUMap(virConnectPtr conn,
+     if (virNodeGetCPUMapEnsureACL(conn) < 0)
+         return -1;
+ 
+-    return nodeGetCPUMap(cpumap, online, flags);
++    return nodeGetCPUMap(NULL, cpumap, online, flags);
+ }
+ 
+ static int
+diff --git a/src/lxc/lxc_driver.c b/src/lxc/lxc_driver.c
+index 5ecfc7a..44a138b 100644
+--- a/src/lxc/lxc_driver.c
++++ b/src/lxc/lxc_driver.c
+@@ -5551,7 +5551,7 @@ lxcNodeGetCPUMap(virConnectPtr conn,
+     if (virNodeGetCPUMapEnsureACL(conn) < 0)
+         return -1;
+ 
+-    return nodeGetCPUMap(cpumap, online, flags);
++    return nodeGetCPUMap(NULL, cpumap, online, flags);
+ }
+ 
+ 
+diff --git a/src/nodeinfo.c b/src/nodeinfo.c
+index 75e0a02..bf4f751 100644
+--- a/src/nodeinfo.c
++++ b/src/nodeinfo.c
+@@ -1624,10 +1624,12 @@ nodeGetMemoryParameters(virTypedParameterPtr params ATTRIBUTE_UNUSED,
+ }
+ 
+ int
+-nodeGetCPUMap(unsigned char **cpumap,
++nodeGetCPUMap(const char *sysfs_prefix,
++              unsigned char **cpumap,
+               unsigned int *online,
+               unsigned int flags)
+ {
++    const char *prefix = sysfs_prefix ? sysfs_prefix : SYSFS_SYSTEM_PATH;
+     virBitmapPtr cpus = NULL;
+     int maxpresent;
+     int ret = -1;
+@@ -1636,9 +1638,9 @@ nodeGetCPUMap(unsigned char **cpumap,
+     virCheckFlags(0, -1);
+ 
+     if (!cpumap && !online)
+-        return nodeGetCPUCount(NULL);
++        return nodeGetCPUCount(prefix);
+ 
+-    if (!(cpus = nodeGetCPUBitmap(NULL, &maxpresent)))
++    if (!(cpus = nodeGetCPUBitmap(prefix, &maxpresent)))
+         goto cleanup;
+ 
+     if (cpumap && virBitmapToData(cpus, cpumap, &dummy) < 0)
+diff --git a/src/nodeinfo.h b/src/nodeinfo.h
+index 439ef35..9e6904f 100644
+--- a/src/nodeinfo.h
++++ b/src/nodeinfo.h
+@@ -55,7 +55,8 @@ int nodeSetMemoryParameters(virTypedParameterPtr params,
+                             int nparams,
+                             unsigned int flags);
+ 
+-int nodeGetCPUMap(unsigned char **cpumap,
++int nodeGetCPUMap(const char *sysfs_prefix,
++                  unsigned char **cpumap,
+                   unsigned int *online,
+                   unsigned int flags);
+ 
+diff --git a/src/openvz/openvz_driver.c b/src/openvz/openvz_driver.c
+index d1a327c..fc6f101 100644
+--- a/src/openvz/openvz_driver.c
++++ b/src/openvz/openvz_driver.c
+@@ -2207,7 +2207,7 @@ openvzNodeGetCPUMap(virConnectPtr conn ATTRIBUTE_UNUSED,
+                     unsigned int *online,
+                     unsigned int flags)
+ {
+-    return nodeGetCPUMap(cpumap, online, flags);
++    return nodeGetCPUMap(NULL, cpumap, online, flags);
+ }
+ 
+ 
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index e30a02d..6036363 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -18586,7 +18586,7 @@ qemuNodeGetCPUMap(virConnectPtr conn,
+     if (virNodeGetCPUMapEnsureACL(conn) < 0)
+         return -1;
+ 
+-    return nodeGetCPUMap(cpumap, online, flags);
++    return nodeGetCPUMap(NULL, cpumap, online, flags);
+ }
+ 
+ 
+diff --git a/src/uml/uml_driver.c b/src/uml/uml_driver.c
+index 7a95458..99162f7 100644
+--- a/src/uml/uml_driver.c
++++ b/src/uml/uml_driver.c
+@@ -2877,7 +2877,7 @@ umlNodeGetCPUMap(virConnectPtr conn,
+     if (virNodeGetCPUMapEnsureACL(conn) < 0)
+         return -1;
+ 
+-    return nodeGetCPUMap(cpumap, online, flags);
++    return nodeGetCPUMap(NULL, cpumap, online, flags);
+ }
+ 
+ 
+diff --git a/src/vz/vz_driver.c b/src/vz/vz_driver.c
+index 47c5023..a98d65b 100644
+--- a/src/vz/vz_driver.c
++++ b/src/vz/vz_driver.c
+@@ -884,7 +884,7 @@ vzNodeGetCPUMap(virConnectPtr conn ATTRIBUTE_UNUSED,
+                 unsigned int *online,
+                 unsigned int flags)
+ {
+-    return nodeGetCPUMap(cpumap, online, flags);
++    return nodeGetCPUMap(NULL, cpumap, online, flags);
+ }
+ 
+ static int
+-- 
+2.5.0
+

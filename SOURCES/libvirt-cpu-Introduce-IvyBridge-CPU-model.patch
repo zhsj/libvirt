@@ -1,0 +1,77 @@
+From f7a5372992addeee44662958aa5b4d036d21fcf1 Mon Sep 17 00:00:00 2001
+Message-Id: <f7a5372992addeee44662958aa5b4d036d21fcf1@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Fri, 4 Sep 2015 15:06:40 +0200
+Subject: [PATCH] cpu: Introduce IvyBridge CPU model
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1254420
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+(cherry picked from commit 87205512565529b8baeb108e3d0fe376fc20c967)
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/cpu/cpu_map.xml | 48 ++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 48 insertions(+)
+
+diff --git a/src/cpu/cpu_map.xml b/src/cpu/cpu_map.xml
+index c304c9a..e49d255 100644
+--- a/src/cpu/cpu_map.xml
++++ b/src/cpu/cpu_map.xml
+@@ -515,6 +515,54 @@
+       <feature name='rdtscp'/>
+     </model>
+ 
++    <model name='IvyBridge'>
++      <vendor name='Intel'/>
++      <feature name='aes'/>
++      <feature name='apic'/>
++      <feature name='avx'/>
++      <feature name='clflush'/>
++      <feature name='cmov'/>
++      <feature name='cx16'/>
++      <feature name='cx8'/>
++      <feature name='de'/>
++      <feature name='erms'/>
++      <feature name='f16c'/>
++      <feature name='fpu'/>
++      <feature name='fsgsbase'/>
++      <feature name='fxsr'/>
++      <feature name='lahf_lm'/>
++      <feature name='lm'/>
++      <feature name='mca'/>
++      <feature name='mce'/>
++      <feature name='mmx'/>
++      <feature name='msr'/>
++      <feature name='mtrr'/>
++      <feature name='nx'/>
++      <feature name='pae'/>
++      <feature name='pat'/>
++      <feature name='pclmuldq'/>
++      <feature name='pge'/>
++      <feature name='pni'/>
++      <feature name='popcnt'/>
++      <feature name='pse'/>
++      <feature name='pse36'/>
++      <feature name='rdrand'/>
++      <feature name='rdtscp'/>
++      <feature name='sep'/>
++      <feature name='smep'/>
++      <feature name='sse'/>
++      <feature name='sse2'/>
++      <feature name='sse4.1'/>
++      <feature name='sse4.2'/>
++      <feature name='ssse3'/>
++      <feature name='syscall'/>
++      <feature name='tsc'/>
++      <feature name='tsc-deadline'/>
++      <feature name='vme'/>
++      <feature name='x2apic'/>
++      <feature name='xsave'/>
++    </model>
++
+     <model name='Haswell-noTSX'>
+       <model name='SandyBridge'/>
+       <feature name='fma'/>
+-- 
+2.5.1
+

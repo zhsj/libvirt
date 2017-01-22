@@ -1,0 +1,77 @@
+From 7e53d60afb8509a57caea28c95aa61a694bd29f8 Mon Sep 17 00:00:00 2001
+Message-Id: <7e53d60afb8509a57caea28c95aa61a694bd29f8@dist-git>
+From: Laine Stump <laine@laine.org>
+Date: Mon, 10 Aug 2015 02:46:45 -0400
+Subject: [PATCH] network: verify proper address family in updates to <host>
+ and <range>
+
+By specifying parentIndex in a call to virNetworkUpdate(), it was
+possible to direct libvirt to add a dhcp range or static host of a
+non-matching address family to the <dhcp> element of an <ip>. For
+example, given:
+
+ <ip address='192.168.122.1' netmask='255.255.255.0'/>
+ <ip family='ipv6' address='2001:db6:ca3:45::1' prefix='64'/>
+
+you could provide a static host entry with an IPv4 address, and
+specify that it be added to the 2nd <ip> element (index 1):
+
+  virsh net-update default add ip-dhcp-host --parent-index 1 \
+  '<host mac="52:54:00:00:00:01" ip="192.168.122.45"/>'
+
+This would be happily added with no error (and no concern of any
+possible future consequences).
+
+This patch checks that any dhcp range or host element being added to a
+network ip's <dhcp> subelement has addresses of the same family as the
+ip element they are being added to.
+
+This resolves:
+
+  https://bugzilla.redhat.com/show_bug.cgi?id=1184736
+
+(cherry picked from commit 6a21bc119e37bafcbe5cfd13e57080d651296b43)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/conf/network_conf.c | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/src/conf/network_conf.c b/src/conf/network_conf.c
+index 72006e9..0ebb373 100644
+--- a/src/conf/network_conf.c
++++ b/src/conf/network_conf.c
+@@ -3498,6 +3498,15 @@ virNetworkDefUpdateIPDHCPHost(virNetworkDefPtr def,
+                                       &host, partialOkay) < 0)
+         goto cleanup;
+ 
++    if (!partialOkay &&
++        VIR_SOCKET_ADDR_FAMILY(&ipdef->address)
++        != VIR_SOCKET_ADDR_FAMILY(&host.ip)) {
++        virReportError(VIR_ERR_OPERATION_INVALID, "%s",
++                       _("the address family of a host entry IP must match "
++                         "the address family of the dhcp element's parent"));
++        goto cleanup;
++    }
++
+     if (command == VIR_NETWORK_UPDATE_COMMAND_MODIFY) {
+ 
+         /* search for the entry with this (ip|mac|name),
+@@ -3635,6 +3644,14 @@ virNetworkDefUpdateIPDHCPRange(virNetworkDefPtr def,
+     if (virSocketAddrRangeParseXML(def->name, ipdef, ctxt->node, &range) < 0)
+         goto cleanup;
+ 
++    if (VIR_SOCKET_ADDR_FAMILY(&ipdef->address)
++        != VIR_SOCKET_ADDR_FAMILY(&range.start)) {
++        virReportError(VIR_ERR_OPERATION_INVALID, "%s",
++                       _("the address family of a dhcp range must match "
++                         "the address family of the dhcp element's parent"));
++        goto cleanup;
++    }
++
+     /* check if an entry with same name/address/ip already exists */
+     for (i = 0; i < ipdef->nranges; i++) {
+         if (virSocketAddrEqual(&range.start, &ipdef->ranges[i].start) &&
+-- 
+2.5.0
+

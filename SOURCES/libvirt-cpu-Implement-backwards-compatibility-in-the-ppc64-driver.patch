@@ -1,0 +1,113 @@
+From 12305284ccf9163e90fbfc9b2c14ac735796e781 Mon Sep 17 00:00:00 2001
+Message-Id: <12305284ccf9163e90fbfc9b2c14ac735796e781@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Tue, 11 Aug 2015 17:16:09 +0200
+Subject: [PATCH] cpu: Implement backwards compatibility in the ppc64 driver
+
+All previously recognized CPU models (POWER7_v2.1, POWER7_v2.3,
+POWER7+_v2.1 and POWER8_v1.0) are internally converted to the
+corrisponding generation name so that existing guests don't stop
+working.
+
+(cherry picked from commit dee2247afa78c66db737626acb30afe04bd7cdef)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1250977
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/cpu/cpu_ppc64.c | 47 +++++++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 45 insertions(+), 2 deletions(-)
+
+diff --git a/src/cpu/cpu_ppc64.c b/src/cpu/cpu_ppc64.c
+index fafd84c..f24fc41 100644
+--- a/src/cpu/cpu_ppc64.c
++++ b/src/cpu/cpu_ppc64.c
+@@ -57,6 +57,33 @@ struct ppc64_map {
+     struct ppc64_model *models;
+ };
+ 
++/* Convert a legacy CPU definition by transforming
++ * model names to generation names:
++ *   POWER7_v2.1  => POWER7
++ *   POWER7_v2.3  => POWER7
++ *   POWER7+_v2.1 => POWER7
++ *   POWER8_v1.0  => POWER8 */
++static virCPUDefPtr
++ppc64ConvertLegacyCPUDef(const virCPUDef *legacy)
++{
++    virCPUDefPtr cpu;
++
++    if (!(cpu = virCPUDefCopy(legacy)))
++        goto out;
++
++    if (!(STREQ(cpu->model, "POWER7_v2.1") ||
++          STREQ(cpu->model, "POWER7_v2.3") ||
++          STREQ(cpu->model, "POWER7+_v2.1") ||
++          STREQ(cpu->model, "POWER8_v1.0"))) {
++        goto out;
++    }
++
++    cpu->model[strlen("POWERx")] = 0;
++
++ out:
++    return cpu;
++}
++
+ static void
+ ppc64DataFree(virCPUppc64Data *data)
+ {
+@@ -424,18 +451,22 @@ ppc64MakeCPUData(virArch arch,
+ 
+ static virCPUCompareResult
+ ppc64Compute(virCPUDefPtr host,
+-             const virCPUDef *cpu,
++             const virCPUDef *other,
+              virCPUDataPtr *guestData,
+              char **message)
+ {
+     struct ppc64_map *map = NULL;
+     struct ppc64_model *host_model = NULL;
+     struct ppc64_model *guest_model = NULL;
+-
++    virCPUDefPtr cpu = NULL;
+     virCPUCompareResult ret = VIR_CPU_COMPARE_ERROR;
+     virArch arch;
+     size_t i;
+ 
++    /* Ensure existing configurations are handled correctly */
++    if (!(cpu = ppc64ConvertLegacyCPUDef(other)))
++        goto cleanup;
++
+     if (cpu->arch != VIR_ARCH_NONE) {
+         bool found = false;
+ 
+@@ -504,6 +535,7 @@ ppc64Compute(virCPUDefPtr host,
+     ret = VIR_CPU_COMPARE_IDENTICAL;
+ 
+  cleanup:
++    virCPUDefFree(cpu);
+     ppc64MapFree(map);
+     ppc64ModelFree(host_model);
+     ppc64ModelFree(guest_model);
+@@ -681,6 +713,17 @@ ppc64DriverBaseline(virCPUDefPtr *cpus,
+     for (i = 0; i < ncpus; i++) {
+         const struct ppc64_vendor *vnd;
+ 
++        /* Hosts running old (<= 1.2.18) versions of libvirt will report
++         * strings like 'power7+' or 'power8e' instead of proper CPU model
++         * names in the capabilities XML; moreover, they lack information
++         * about some proper CPU models like 'POWER8'.
++         * This implies two things:
++         *   1) baseline among such hosts never worked
++         *   2) while a few models, eg. 'POWER8_v1.0', could work on both
++         *      old and new versions of libvirt, the information we have
++         *      here is not enough to pick such a model
++         * Hence we just compare models by name to decide whether or not
++         * two hosts are compatible */
+         if (STRNEQ(cpus[i]->model, model->name)) {
+             virReportError(VIR_ERR_OPERATION_FAILED, "%s",
+                            _("CPUs are incompatible"));
+-- 
+2.5.0
+

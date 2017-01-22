@@ -1,0 +1,276 @@
+From 7fde617d76934ca94e97257b13ebb96f1ea7bd0a Mon Sep 17 00:00:00 2001
+Message-Id: <7fde617d76934ca94e97257b13ebb96f1ea7bd0a@dist-git>
+From: Michal Privoznik <mprivozn@redhat.com>
+Date: Tue, 15 Sep 2015 11:51:23 +0200
+Subject: [PATCH] virSecurityManager: Track if running as privileged
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1124841
+
+We may want to do some decisions in drivers based on fact if we
+are running as privileged user or not. Propagate this info there.
+
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+(cherry picked from commit 307fb9044c1c9a5394b66e6909c6fd943d7f84c8)
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/lxc/lxc_controller.c         |  2 +-
+ src/lxc/lxc_driver.c             |  3 ++-
+ src/qemu/qemu_driver.c           |  7 +++++--
+ src/security/security_manager.c  | 29 ++++++++++++++++++++++-------
+ src/security/security_manager.h  |  5 ++++-
+ tests/qemuhotplugtest.c          |  2 +-
+ tests/seclabeltest.c             |  2 +-
+ tests/securityselinuxlabeltest.c |  2 +-
+ tests/securityselinuxtest.c      |  2 +-
+ 9 files changed, 38 insertions(+), 16 deletions(-)
+
+diff --git a/src/lxc/lxc_controller.c b/src/lxc/lxc_controller.c
+index 06ffee4..7f76d6f 100644
+--- a/src/lxc/lxc_controller.c
++++ b/src/lxc/lxc_controller.c
+@@ -2587,7 +2587,7 @@ int main(int argc, char *argv[])
+ 
+     if (!(ctrl->securityManager = virSecurityManagerNew(securityDriver,
+                                                         LXC_DRIVER_NAME,
+-                                                        false, false, false)))
++                                                        false, false, false, false)))
+         goto cleanup;
+ 
+     if (ctrl->def->seclabels) {
+diff --git a/src/lxc/lxc_driver.c b/src/lxc/lxc_driver.c
+index 1a7cc78..79f92c3 100644
+--- a/src/lxc/lxc_driver.c
++++ b/src/lxc/lxc_driver.c
+@@ -1558,7 +1558,8 @@ lxcSecurityInit(virLXCDriverConfigPtr cfg)
+                                                       LXC_DRIVER_NAME,
+                                                       false,
+                                                       cfg->securityDefaultConfined,
+-                                                      cfg->securityRequireConfined);
++                                                      cfg->securityRequireConfined,
++                                                      true);
+     if (!mgr)
+         goto error;
+ 
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index e85506e..0f3e987 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -398,7 +398,8 @@ qemuSecurityInit(virQEMUDriverPtr driver)
+                                               QEMU_DRIVER_NAME,
+                                               cfg->allowDiskFormatProbing,
+                                               cfg->securityDefaultConfined,
+-                                              cfg->securityRequireConfined)))
++                                              cfg->securityRequireConfined,
++                                              virQEMUDriverIsPrivileged(driver))))
+                 goto error;
+             if (!stack) {
+                 if (!(stack = virSecurityManagerNewStack(mgr)))
+@@ -415,7 +416,8 @@ qemuSecurityInit(virQEMUDriverPtr driver)
+                                           QEMU_DRIVER_NAME,
+                                           cfg->allowDiskFormatProbing,
+                                           cfg->securityDefaultConfined,
+-                                          cfg->securityRequireConfined)))
++                                          cfg->securityRequireConfined,
++                                          virQEMUDriverIsPrivileged(driver))))
+             goto error;
+         if (!(stack = virSecurityManagerNewStack(mgr)))
+             goto error;
+@@ -429,6 +431,7 @@ qemuSecurityInit(virQEMUDriverPtr driver)
+                                              cfg->allowDiskFormatProbing,
+                                              cfg->securityDefaultConfined,
+                                              cfg->securityRequireConfined,
++                                             virQEMUDriverIsPrivileged(driver),
+                                              cfg->dynamicOwnership,
+                                              qemuSecurityChownCallback)))
+             goto error;
+diff --git a/src/security/security_manager.c b/src/security/security_manager.c
+index 1098558..28d7dfd 100644
+--- a/src/security/security_manager.c
++++ b/src/security/security_manager.c
+@@ -40,6 +40,7 @@ struct _virSecurityManager {
+     bool allowDiskFormatProbing;
+     bool defaultConfined;
+     bool requireConfined;
++    bool privileged;
+     const char *virtDriver;
+     void *privateData;
+ };
+@@ -78,7 +79,8 @@ virSecurityManagerNewDriver(virSecurityDriverPtr drv,
+                             const char *virtDriver,
+                             bool allowDiskFormatProbing,
+                             bool defaultConfined,
+-                            bool requireConfined)
++                            bool requireConfined,
++                            bool privileged)
+ {
+     virSecurityManagerPtr mgr;
+     char *privateData;
+@@ -87,10 +89,10 @@ virSecurityManagerNewDriver(virSecurityDriverPtr drv,
+         return NULL;
+ 
+     VIR_DEBUG("drv=%p (%s) virtDriver=%s allowDiskFormatProbing=%d "
+-              "defaultConfined=%d requireConfined=%d",
++              "defaultConfined=%d requireConfined=%d privileged=%d",
+               drv, drv->name, virtDriver,
+               allowDiskFormatProbing, defaultConfined,
+-              requireConfined);
++              requireConfined, privileged);
+ 
+     if (VIR_ALLOC_N(privateData, drv->privateDataLen) < 0)
+         return NULL;
+@@ -104,6 +106,7 @@ virSecurityManagerNewDriver(virSecurityDriverPtr drv,
+     mgr->allowDiskFormatProbing = allowDiskFormatProbing;
+     mgr->defaultConfined = defaultConfined;
+     mgr->requireConfined = requireConfined;
++    mgr->privileged = privileged;
+     mgr->virtDriver = virtDriver;
+     mgr->privateData = privateData;
+ 
+@@ -124,7 +127,8 @@ virSecurityManagerNewStack(virSecurityManagerPtr primary)
+                                     virSecurityManagerGetDriver(primary),
+                                     virSecurityManagerGetAllowDiskFormatProbing(primary),
+                                     virSecurityManagerGetDefaultConfined(primary),
+-                                    virSecurityManagerGetRequireConfined(primary));
++                                    virSecurityManagerGetRequireConfined(primary),
++                                    virSecurityManagerGetPrivileged(primary));
+ 
+     if (!mgr)
+         return NULL;
+@@ -153,6 +157,7 @@ virSecurityManagerNewDAC(const char *virtDriver,
+                          bool defaultConfined,
+                          bool requireConfined,
+                          bool dynamicOwnership,
++                         bool privileged,
+                          virSecurityManagerDACChownCallback chownCallback)
+ {
+     virSecurityManagerPtr mgr =
+@@ -160,7 +165,8 @@ virSecurityManagerNewDAC(const char *virtDriver,
+                                     virtDriver,
+                                     allowDiskFormatProbing,
+                                     defaultConfined,
+-                                    requireConfined);
++                                    requireConfined,
++                                    privileged);
+ 
+     if (!mgr)
+         return NULL;
+@@ -182,7 +188,8 @@ virSecurityManagerNew(const char *name,
+                       const char *virtDriver,
+                       bool allowDiskFormatProbing,
+                       bool defaultConfined,
+-                      bool requireConfined)
++                      bool requireConfined,
++                      bool privileged)
+ {
+     virSecurityDriverPtr drv = virSecurityDriverLookup(name, virtDriver);
+     if (!drv)
+@@ -212,7 +219,8 @@ virSecurityManagerNew(const char *name,
+                                        virtDriver,
+                                        allowDiskFormatProbing,
+                                        defaultConfined,
+-                                       requireConfined);
++                                       requireConfined,
++                                       privileged);
+ }
+ 
+ 
+@@ -333,6 +341,13 @@ virSecurityManagerGetRequireConfined(virSecurityManagerPtr mgr)
+ }
+ 
+ 
++bool
++virSecurityManagerGetPrivileged(virSecurityManagerPtr mgr)
++{
++    return mgr->privileged;
++}
++
++
+ /**
+  * virSecurityManagerRestoreDiskLabel:
+  * @mgr: security manager object
+diff --git a/src/security/security_manager.h b/src/security/security_manager.h
+index 78f34a0..53e56f6 100644
+--- a/src/security/security_manager.h
++++ b/src/security/security_manager.h
+@@ -34,7 +34,8 @@ virSecurityManagerPtr virSecurityManagerNew(const char *name,
+                                             const char *virtDriver,
+                                             bool allowDiskFormatProbing,
+                                             bool defaultConfined,
+-                                            bool requireConfined);
++                                            bool requireConfined,
++                                            bool privileged);
+ 
+ virSecurityManagerPtr virSecurityManagerNewStack(virSecurityManagerPtr primary);
+ int virSecurityManagerStackAddNested(virSecurityManagerPtr stack,
+@@ -62,6 +63,7 @@ virSecurityManagerPtr virSecurityManagerNewDAC(const char *virtDriver,
+                                                bool defaultConfined,
+                                                bool requireConfined,
+                                                bool dynamicOwnership,
++                                               bool privileged,
+                                                virSecurityManagerDACChownCallback chownCallback);
+ 
+ int virSecurityManagerPreFork(virSecurityManagerPtr mgr);
+@@ -77,6 +79,7 @@ const char *virSecurityManagerGetBaseLabel(virSecurityManagerPtr mgr, int virtTy
+ bool virSecurityManagerGetAllowDiskFormatProbing(virSecurityManagerPtr mgr);
+ bool virSecurityManagerGetDefaultConfined(virSecurityManagerPtr mgr);
+ bool virSecurityManagerGetRequireConfined(virSecurityManagerPtr mgr);
++bool virSecurityManagerGetPrivileged(virSecurityManagerPtr mgr);
+ 
+ int virSecurityManagerRestoreDiskLabel(virSecurityManagerPtr mgr,
+                                        virDomainDefPtr def,
+diff --git a/tests/qemuhotplugtest.c b/tests/qemuhotplugtest.c
+index 3b547f2..b17a41d 100644
+--- a/tests/qemuhotplugtest.c
++++ b/tests/qemuhotplugtest.c
+@@ -361,7 +361,7 @@ mymain(void)
+     if (!driver.lockManager)
+         return EXIT_FAILURE;
+ 
+-    if (!(mgr = virSecurityManagerNew("none", "qemu", false, false, false)))
++    if (!(mgr = virSecurityManagerNew("none", "qemu", false, false, false, true)))
+         return EXIT_FAILURE;
+     if (!(driver.securityManager = virSecurityManagerNewStack(mgr)))
+         return EXIT_FAILURE;
+diff --git a/tests/seclabeltest.c b/tests/seclabeltest.c
+index 51765c9..93ddcbb 100644
+--- a/tests/seclabeltest.c
++++ b/tests/seclabeltest.c
+@@ -17,7 +17,7 @@ main(int argc ATTRIBUTE_UNUSED, char **argv ATTRIBUTE_UNUSED)
+     if (virThreadInitialize() < 0)
+         return EXIT_FAILURE;
+ 
+-    mgr = virSecurityManagerNew(NULL, "QEMU", false, true, false);
++    mgr = virSecurityManagerNew(NULL, "QEMU", false, true, false, false);
+     if (mgr == NULL) {
+         fprintf(stderr, "Failed to start security driver");
+         return EXIT_FAILURE;
+diff --git a/tests/securityselinuxlabeltest.c b/tests/securityselinuxlabeltest.c
+index 85fad37..4808eea 100644
+--- a/tests/securityselinuxlabeltest.c
++++ b/tests/securityselinuxlabeltest.c
+@@ -351,7 +351,7 @@ mymain(void)
+     if (!rc)
+         return EXIT_AM_SKIP;
+ 
+-    if (!(mgr = virSecurityManagerNew("selinux", "QEMU", false, true, false))) {
++    if (!(mgr = virSecurityManagerNew("selinux", "QEMU", false, true, false, true))) {
+         virErrorPtr err = virGetLastError();
+         VIR_TEST_VERBOSE("Unable to initialize security driver: %s\n",
+                 err->message);
+diff --git a/tests/securityselinuxtest.c b/tests/securityselinuxtest.c
+index 38ab70e..3a7862f 100644
+--- a/tests/securityselinuxtest.c
++++ b/tests/securityselinuxtest.c
+@@ -272,7 +272,7 @@ mymain(void)
+     int ret = 0;
+     virSecurityManagerPtr mgr;
+ 
+-    if (!(mgr = virSecurityManagerNew("selinux", "QEMU", false, true, false))) {
++    if (!(mgr = virSecurityManagerNew("selinux", "QEMU", false, true, false, true))) {
+         virErrorPtr err = virGetLastError();
+         fprintf(stderr, "Unable to initialize security driver: %s\n",
+                 err->message);
+-- 
+2.5.3
+

@@ -1,0 +1,65 @@
+From 571c0cf49730a6c636b71e42c71512ce1b772a31 Mon Sep 17 00:00:00 2001
+Message-Id: <571c0cf49730a6c636b71e42c71512ce1b772a31@dist-git>
+From: Michal Privoznik <mprivozn@redhat.com>
+Date: Mon, 10 Aug 2015 14:15:44 +0200
+Subject: [PATCH] virNetDevBandwidthParseRate: Reject negative values
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1022292
+
+The following XML really does not make any sense:
+
+<inbound average="-1" burst="-2" peak="-3" floor="-4"/>
+
+There can't be a negative packet rate. Well, so far we haven't
+assigned any meaning to it. So reject it unless users harm themselves,
+because otherwise we turn the negative numbers into really big values.
+
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+(cherry picked from commit 2a5d3f227df7be78449792103e0101a4b859c49b)
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/conf/netdev_bandwidth_conf.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/src/conf/netdev_bandwidth_conf.c b/src/conf/netdev_bandwidth_conf.c
+index fdd5b7f..8824332 100644
+--- a/src/conf/netdev_bandwidth_conf.c
++++ b/src/conf/netdev_bandwidth_conf.c
+@@ -50,7 +50,7 @@ virNetDevBandwidthParseRate(xmlNodePtr node, virNetDevBandwidthRatePtr rate)
+     floor = virXMLPropString(node, "floor");
+ 
+     if (average) {
+-        if (virStrToLong_ull(average, NULL, 10, &rate->average) < 0) {
++        if (virStrToLong_ullp(average, NULL, 10, &rate->average) < 0) {
+             virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
+                            _("could not convert bandwidth average value '%s'"),
+                            average);
+@@ -68,21 +68,21 @@ virNetDevBandwidthParseRate(xmlNodePtr node, virNetDevBandwidthRatePtr rate)
+         goto cleanup;
+     }
+ 
+-    if (peak && virStrToLong_ull(peak, NULL, 10, &rate->peak) < 0) {
++    if (peak && virStrToLong_ullp(peak, NULL, 10, &rate->peak) < 0) {
+         virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
+                        _("could not convert bandwidth peak value '%s'"),
+                        peak);
+         goto cleanup;
+     }
+ 
+-    if (burst && virStrToLong_ull(burst, NULL, 10, &rate->burst) < 0) {
++    if (burst && virStrToLong_ullp(burst, NULL, 10, &rate->burst) < 0) {
+         virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
+                        _("could not convert bandwidth burst value '%s'"),
+                        burst);
+         goto cleanup;
+     }
+ 
+-    if (floor && virStrToLong_ull(floor, NULL, 10, &rate->floor) < 0) {
++    if (floor && virStrToLong_ullp(floor, NULL, 10, &rate->floor) < 0) {
+         virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
+                        _("could not convert bandwidth floor value '%s'"),
+                        floor);
+-- 
+2.5.0
+

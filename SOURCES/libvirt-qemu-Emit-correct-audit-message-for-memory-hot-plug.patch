@@ -1,0 +1,98 @@
+From 5d51d05823e8cb75b452f86c854d0d404d21503e Mon Sep 17 00:00:00 2001
+Message-Id: <5d51d05823e8cb75b452f86c854d0d404d21503e@dist-git>
+From: Luyao Huang <lhuang@redhat.com>
+Date: Thu, 12 Nov 2015 08:40:41 +0100
+Subject: [PATCH] qemu: Emit correct audit message for memory hot plug
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1280420
+https://bugzilla.redhat.com/show_bug.cgi?id=1226234#c3
+
+Prior to this patch, after successfully hot plugging memory
+the audit log indicated that the update failed, e.g.:
+
+type=VIRT_RESOURCE ... old-mem=1024000 new-mem=1548288 \
+exe="/usr/sbin/libvirtd" hostname=? addr=? terminal=pts/2 res=failed
+
+This patch will adjust where virDomainAuditMemory is called to
+ensure the proper 'ret' value is used based on success or failure.
+
+Additionally, the audit message should include the size of the
+memory we were attempting to change to rather than the current
+actual size. On failure to add, the message showed the same value
+for old-mem and new-mem.
+
+In order to do this, introduce a 'newmem' local which will compute
+the new size based on the oldmem size plus the size of memory we
+are about to add. NB: This would be the same as calling the
+virDomainDefGetMemoryActual again on success, but avoids the
+overhead of recalculating. Plus cur_balloon is already adjusted
+by the same value, so this follows that.
+
+Signed-off-by: Luyao Huang <lhuang@redhat.com>
+(cherry picked from commit cb1fbda4a1b23581ed9e305a48b0376633d5ff4a)
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_hotplug.c | 12 ++++++------
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/src/qemu/qemu_hotplug.c b/src/qemu/qemu_hotplug.c
+index aa1fb31..bd96abf 100644
+--- a/src/qemu/qemu_hotplug.c
++++ b/src/qemu/qemu_hotplug.c
+@@ -1774,6 +1774,7 @@ qemuDomainAttachMemory(virQEMUDriverPtr driver,
+     qemuDomainObjPrivatePtr priv = vm->privateData;
+     virQEMUDriverConfigPtr cfg = virQEMUDriverGetConfig(driver);
+     unsigned long long oldmem = virDomainDefGetMemoryActual(vm->def);
++    unsigned long long newmem = oldmem + mem->size;
+     char *devstr = NULL;
+     char *objalias = NULL;
+     const char *backendType;
+@@ -1829,7 +1830,7 @@ qemuDomainAttachMemory(virQEMUDriverPtr driver,
+     if (qemuDomainObjExitMonitor(driver, vm) < 0) {
+         /* we shouldn't touch mem now, as the def might be freed */
+         mem = NULL;
+-        goto cleanup;
++        goto audit;
+     }
+ 
+     event = virDomainEventDeviceAddedNewFromObj(vm, objalias);
+@@ -1840,9 +1841,6 @@ qemuDomainAttachMemory(virQEMUDriverPtr driver,
+     if (fix_balloon)
+         vm->def->mem.cur_balloon += mem->size;
+ 
+-    virDomainAuditMemory(vm, oldmem, virDomainDefGetMemoryActual(vm->def),
+-                         "update", ret == 0);
+-
+     /* mem is consumed by vm->def */
+     mem = NULL;
+ 
+@@ -1852,6 +1850,8 @@ qemuDomainAttachMemory(virQEMUDriverPtr driver,
+ 
+     ret = 0;
+ 
++ audit:
++    virDomainAuditMemory(vm, oldmem, newmem, "update", ret == 0);
+  cleanup:
+     virObjectUnref(cfg);
+     VIR_FREE(devstr);
+@@ -1862,7 +1862,7 @@ qemuDomainAttachMemory(virQEMUDriverPtr driver,
+  removedef:
+     if (qemuDomainObjExitMonitor(driver, vm) < 0) {
+         mem = NULL;
+-        goto cleanup;
++        goto audit;
+     }
+ 
+     if ((id = virDomainMemoryFindByDef(vm->def, mem)) >= 0)
+@@ -1870,7 +1870,7 @@ qemuDomainAttachMemory(virQEMUDriverPtr driver,
+     else
+         mem = NULL;
+ 
+-    goto cleanup;
++    goto audit;
+ }
+ 
+ 
+-- 
+2.6.3
+

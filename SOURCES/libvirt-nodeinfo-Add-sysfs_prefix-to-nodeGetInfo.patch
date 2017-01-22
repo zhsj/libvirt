@@ -1,0 +1,226 @@
+From 242c0464ea05a4c8e3ca02e79251e40de28b14eb Mon Sep 17 00:00:00 2001
+Message-Id: <242c0464ea05a4c8e3ca02e79251e40de28b14eb@dist-git>
+From: John Ferlan <jferlan@redhat.com>
+Date: Wed, 5 Aug 2015 18:18:12 +0200
+Subject: [PATCH] nodeinfo: Add sysfs_prefix to nodeGetInfo
+
+Add the sysfs_prefix argument to the call to allow for setting the
+path for tests to something other than SYSFS_SYSTEM_PATH.
+
+(cherry picked from commit 29e4f2243fb59a3b1fcbd69ee329e38f09960266)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/bhyve/bhyve_capabilities.c | 2 +-
+ src/bhyve/bhyve_driver.c       | 2 +-
+ src/lxc/lxc_driver.c           | 2 +-
+ src/nodeinfo.c                 | 9 ++++++---
+ src/nodeinfo.h                 | 2 +-
+ src/openvz/openvz_conf.c       | 2 +-
+ src/openvz/openvz_driver.c     | 2 +-
+ src/qemu/qemu_capabilities.c   | 2 +-
+ src/qemu/qemu_driver.c         | 2 +-
+ src/uml/uml_driver.c           | 2 +-
+ src/vbox/vbox_common.c         | 2 +-
+ src/vz/vz_driver.c             | 4 ++--
+ 12 files changed, 18 insertions(+), 15 deletions(-)
+
+diff --git a/src/bhyve/bhyve_capabilities.c b/src/bhyve/bhyve_capabilities.c
+index e6d5518..3a55879 100644
+--- a/src/bhyve/bhyve_capabilities.c
++++ b/src/bhyve/bhyve_capabilities.c
+@@ -51,7 +51,7 @@ virBhyveCapsInitCPU(virCapsPtr caps,
+ 
+     cpu->arch = arch;
+ 
+-    if (nodeGetInfo(&nodeinfo))
++    if (nodeGetInfo(NULL, &nodeinfo))
+         goto error;
+ 
+     cpu->type = VIR_CPU_TYPE_HOST;
+diff --git a/src/bhyve/bhyve_driver.c b/src/bhyve/bhyve_driver.c
+index 68dff6c..ba411a0 100644
+--- a/src/bhyve/bhyve_driver.c
++++ b/src/bhyve/bhyve_driver.c
+@@ -1131,7 +1131,7 @@ bhyveNodeGetInfo(virConnectPtr conn,
+     if (virNodeGetInfoEnsureACL(conn) < 0)
+         return -1;
+ 
+-    return nodeGetInfo(nodeinfo);
++    return nodeGetInfo(NULL, nodeinfo);
+ }
+ 
+ static int
+diff --git a/src/lxc/lxc_driver.c b/src/lxc/lxc_driver.c
+index 44a138b..1206074 100644
+--- a/src/lxc/lxc_driver.c
++++ b/src/lxc/lxc_driver.c
+@@ -5398,7 +5398,7 @@ lxcNodeGetInfo(virConnectPtr conn,
+     if (virNodeGetInfoEnsureACL(conn) < 0)
+         return -1;
+ 
+-    return nodeGetInfo(nodeinfo);
++    return nodeGetInfo(NULL, nodeinfo);
+ }
+ 
+ 
+diff --git a/src/nodeinfo.c b/src/nodeinfo.c
+index bf4f751..2d715fd 100644
+--- a/src/nodeinfo.c
++++ b/src/nodeinfo.c
+@@ -1034,7 +1034,8 @@ virNodeGetSiblingsList(const char *dir, int cpu_id)
+ }
+ #endif
+ 
+-int nodeGetInfo(virNodeInfoPtr nodeinfo)
++int nodeGetInfo(const char *sysfs_prefix ATTRIBUTE_UNUSED,
++                virNodeInfoPtr nodeinfo)
+ {
+     virArch hostarch = virArchFromHost();
+ 
+@@ -1046,14 +1047,16 @@ int nodeGetInfo(virNodeInfoPtr nodeinfo)
+ #ifdef __linux__
+     {
+     int ret = -1;
++    const char *prefix = sysfs_prefix ? sysfs_prefix : SYSFS_SYSTEM_PATH;
+     FILE *cpuinfo = fopen(CPUINFO_PATH, "r");
++
+     if (!cpuinfo) {
+         virReportSystemError(errno,
+                              _("cannot open %s"), CPUINFO_PATH);
+         return -1;
+     }
+ 
+-    ret = linuxNodeInfoCPUPopulate(cpuinfo, SYSFS_SYSTEM_PATH,
++    ret = linuxNodeInfoCPUPopulate(cpuinfo, prefix,
+                                    hostarch, nodeinfo);
+     if (ret < 0)
+         goto cleanup;
+@@ -1666,7 +1669,7 @@ nodeCapsInitNUMAFake(virCapsPtr caps ATTRIBUTE_UNUSED)
+     int id, cid;
+     int onlinecpus ATTRIBUTE_UNUSED;
+ 
+-    if (nodeGetInfo(&nodeinfo) < 0)
++    if (nodeGetInfo(NULL, &nodeinfo) < 0)
+         return -1;
+ 
+     ncpus = VIR_NODEINFO_MAXCPUS(nodeinfo);
+diff --git a/src/nodeinfo.h b/src/nodeinfo.h
+index 9e6904f..ec53769 100644
+--- a/src/nodeinfo.h
++++ b/src/nodeinfo.h
+@@ -26,7 +26,7 @@
+ 
+ # include "capabilities.h"
+ 
+-int nodeGetInfo(virNodeInfoPtr nodeinfo);
++int nodeGetInfo(const char *sysfs_prefix, virNodeInfoPtr nodeinfo);
+ int nodeCapsInitNUMA(virCapsPtr caps);
+ 
+ int nodeGetCPUStats(int cpuNum,
+diff --git a/src/openvz/openvz_conf.c b/src/openvz/openvz_conf.c
+index 49d78c6..a4c5c31 100644
+--- a/src/openvz/openvz_conf.c
++++ b/src/openvz/openvz_conf.c
+@@ -637,7 +637,7 @@ openvzGetNodeCPUs(void)
+ {
+     virNodeInfo nodeinfo;
+ 
+-    if (nodeGetInfo(&nodeinfo) < 0)
++    if (nodeGetInfo(NULL, &nodeinfo) < 0)
+         return 0;
+ 
+     return nodeinfo.cpus;
+diff --git a/src/openvz/openvz_driver.c b/src/openvz/openvz_driver.c
+index fc6f101..280b998 100644
+--- a/src/openvz/openvz_driver.c
++++ b/src/openvz/openvz_driver.c
+@@ -2155,7 +2155,7 @@ static int
+ openvzNodeGetInfo(virConnectPtr conn ATTRIBUTE_UNUSED,
+                   virNodeInfoPtr nodeinfo)
+ {
+-    return nodeGetInfo(nodeinfo);
++    return nodeGetInfo(NULL, nodeinfo);
+ }
+ 
+ 
+diff --git a/src/qemu/qemu_capabilities.c b/src/qemu/qemu_capabilities.c
+index b4a6961..39954bc 100644
+--- a/src/qemu/qemu_capabilities.c
++++ b/src/qemu/qemu_capabilities.c
+@@ -961,7 +961,7 @@ virQEMUCapsInitCPU(virCapsPtr caps,
+ 
+     cpu->arch = arch;
+ 
+-    if (nodeGetInfo(&nodeinfo))
++    if (nodeGetInfo(NULL, &nodeinfo))
+         goto error;
+ 
+     cpu->type = VIR_CPU_TYPE_HOST;
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index 6036363..17593b9 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -18491,7 +18491,7 @@ qemuNodeGetInfo(virConnectPtr conn,
+     if (virNodeGetInfoEnsureACL(conn) < 0)
+         return -1;
+ 
+-    return nodeGetInfo(nodeinfo);
++    return nodeGetInfo(NULL, nodeinfo);
+ }
+ 
+ 
+diff --git a/src/uml/uml_driver.c b/src/uml/uml_driver.c
+index 99162f7..8606616 100644
+--- a/src/uml/uml_driver.c
++++ b/src/uml/uml_driver.c
+@@ -2782,7 +2782,7 @@ umlNodeGetInfo(virConnectPtr conn,
+     if (virNodeGetInfoEnsureACL(conn) < 0)
+         return -1;
+ 
+-    return nodeGetInfo(nodeinfo);
++    return nodeGetInfo(NULL, nodeinfo);
+ }
+ 
+ 
+diff --git a/src/vbox/vbox_common.c b/src/vbox/vbox_common.c
+index 813a171..5615df5 100644
+--- a/src/vbox/vbox_common.c
++++ b/src/vbox/vbox_common.c
+@@ -7537,7 +7537,7 @@ static int
+ vboxNodeGetInfo(virConnectPtr conn ATTRIBUTE_UNUSED,
+                 virNodeInfoPtr nodeinfo)
+ {
+-    return nodeGetInfo(nodeinfo);
++    return nodeGetInfo(NULL, nodeinfo);
+ }
+ 
+ static int
+diff --git a/src/vz/vz_driver.c b/src/vz/vz_driver.c
+index a98d65b..61d0d62 100644
+--- a/src/vz/vz_driver.c
++++ b/src/vz/vz_driver.c
+@@ -148,7 +148,7 @@ vzBuildCapabilities(void)
+                                       NULL, NULL, 0, NULL) == NULL)
+         goto error;
+ 
+-    if (nodeGetInfo(&nodeinfo))
++    if (nodeGetInfo(NULL, &nodeinfo))
+         goto error;
+ 
+     if (VIR_ALLOC(cpu) < 0)
+@@ -781,7 +781,7 @@ static int
+ vzNodeGetInfo(virConnectPtr conn ATTRIBUTE_UNUSED,
+               virNodeInfoPtr nodeinfo)
+ {
+-    return nodeGetInfo(nodeinfo);
++    return nodeGetInfo(NULL, nodeinfo);
+ }
+ 
+ static int vzConnectIsEncrypted(virConnectPtr conn ATTRIBUTE_UNUSED)
+-- 
+2.5.0
+

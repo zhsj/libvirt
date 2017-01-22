@@ -1,0 +1,125 @@
+From 14b6b01cce6316d9df09f473592de303dce94084 Mon Sep 17 00:00:00 2001
+Message-Id: <14b6b01cce6316d9df09f473592de303dce94084@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Tue, 21 Jul 2015 16:18:32 +0200
+Subject: [PATCH] qemu: Update state of block job to READY only if it actually
+ is ready
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1227551
+https://bugzilla.redhat.com/show_bug.cgi?id=1197592
+
+Few parts of the code looked at the current progress of and assumed that
+a two phase blockjob is in the _READY state as soon as the progress
+reached 100% (info.cur == info.end). In current versions of qemu this
+assumption is invalid and qemu exposes a new flag 'ready' in the
+query-block-jobs output that is set to true if the job is actually
+finished.
+
+This patch adds internal data handling for reading the 'ready' flag and
+acting appropriately as long as the flag is present.
+
+While this still doesn't fix the virsh client problem with two phase
+block jobs and the --pivot option, it at least improves the error
+message:
+
+$ virsh blockcommit  --wait --verbose vm vda  --base vda[1] --active --pivot
+Block commit: [100 %]error: failed to pivot job for disk vda
+error: internal error: unable to execute QEMU command 'block-job-complete': The active block job for device 'drive-virtio-disk0' cannot be completed
+
+to
+
+$ virsh blockcommit  --wait --verbose VM vda  --base vda[1] --active --pivot
+Block commit: [100 %]error: failed to pivot job for disk vda
+error: block copy still active: disk 'vda' not ready for pivot yet
+
+(cherry picked from commit eae59247c59aa02147b2b4a50177e8e877fdb218)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_driver.c       | 10 ++++++++--
+ src/qemu/qemu_monitor.h      |  1 +
+ src/qemu/qemu_monitor_json.c |  7 +++++++
+ 3 files changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index 47889d9..204ed72 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -16170,8 +16170,12 @@ qemuDomainBlockPivot(virQEMUDriverPtr driver,
+             goto cleanup;
+         if (rc < 0)
+             goto cleanup;
+-        if (rc == 1 && info.cur == info.end &&
+-            info.type == VIR_DOMAIN_BLOCK_JOB_TYPE_COPY)
++        if (rc == 1 &&
++            (info.ready == 1 ||
++             (info.ready == -1 &&
++              info.end == info.cur &&
++              (info.type == VIR_DOMAIN_BLOCK_JOB_TYPE_COPY ||
++               info.type == VIR_DOMAIN_BLOCK_JOB_TYPE_COMMIT))))
+             disk->mirrorState = VIR_DOMAIN_DISK_MIRROR_STATE_READY;
+     }
+ 
+@@ -16569,6 +16573,7 @@ qemuDomainGetBlockJobInfo(virDomainPtr dom,
+      * hold the vm lock, so modifying the in-memory representation is
+      * safe, even if we are a query rather than a modify job. */
+     if (ret == 1 && disk->mirror &&
++        rawInfo.ready != 0 &&
+         info->cur == info->end && !disk->mirrorState) {
+         virQEMUDriverConfigPtr cfg = virQEMUDriverGetConfig(driver);
+ 
+@@ -17199,6 +17204,7 @@ qemuDomainBlockCommit(virDomainPtr dom,
+      * thing if the user specified a relative name).  Be prepared for
+      * a ready event to occur while locks are dropped.  */
+     if (mirror) {
++        disk->mirrorState = VIR_DOMAIN_DISK_MIRROR_STATE_NONE;
+         disk->mirror = mirror;
+         disk->mirrorJob = VIR_DOMAIN_BLOCK_JOB_TYPE_ACTIVE_COMMIT;
+     }
+diff --git a/src/qemu/qemu_monitor.h b/src/qemu/qemu_monitor.h
+index 8ad3b2b..fc58638 100644
+--- a/src/qemu/qemu_monitor.h
++++ b/src/qemu/qemu_monitor.h
+@@ -798,6 +798,7 @@ struct _qemuMonitorBlockJobInfo {
+     unsigned long long bandwidth; /* in bytes/s */
+     virDomainBlockJobCursor cur;
+     virDomainBlockJobCursor end;
++    int ready; /* -1 if unknown, 0 if not ready, 1 if ready */
+ };
+ 
+ virHashTablePtr qemuMonitorGetAllBlockJobInfo(qemuMonitorPtr mon);
+diff --git a/src/qemu/qemu_monitor_json.c b/src/qemu/qemu_monitor_json.c
+index 4040ff0..d2a5374 100644
+--- a/src/qemu/qemu_monitor_json.c
++++ b/src/qemu/qemu_monitor_json.c
+@@ -4136,6 +4136,7 @@ qemuMonitorJSONParseBlockJobInfo(virHashTablePtr blockJobs,
+     qemuMonitorBlockJobInfoPtr info = NULL;
+     const char *device;
+     const char *type;
++    bool ready;
+ 
+     if (!(device = virJSONValueObjectGetString(entry, "device"))) {
+         virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+@@ -4151,6 +4152,9 @@ qemuMonitorJSONParseBlockJobInfo(virHashTablePtr blockJobs,
+         return -1;
+     }
+ 
++    /* assume we don't know the state */
++    info->ready = -1;
++
+     if (!(type = virJSONValueObjectGetString(entry, "type"))) {
+         virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+                        _("entry was missing 'type'"));
+@@ -4183,6 +4187,9 @@ qemuMonitorJSONParseBlockJobInfo(virHashTablePtr blockJobs,
+         return -1;
+     }
+ 
++    if (virJSONValueObjectGetBoolean(entry, "ready", &ready) == 0)
++        info->ready = ready;
++
+     return 0;
+ }
+ 
+-- 
+2.5.0
+

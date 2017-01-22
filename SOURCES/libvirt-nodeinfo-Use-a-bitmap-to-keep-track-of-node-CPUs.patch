@@ -1,0 +1,102 @@
+From 40939c6b2ef877a46fa0b3ec177673e6b0831414 Mon Sep 17 00:00:00 2001
+Message-Id: <40939c6b2ef877a46fa0b3ec177673e6b0831414@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Wed, 5 Aug 2015 18:18:30 +0200
+Subject: [PATCH] nodeinfo: Use a bitmap to keep track of node CPUs
+
+Keep track of what CPUs belong to the current node while walking
+through the sysfs node entry, so we don't need to do it a second
+time immediately afterwards.
+
+This also allows us to loop through all CPUs that are part of a
+node in guaranteed ascending order, which is something that is
+required for some upcoming changes.
+
+(cherry picked from commit 05be6062822f3f694b9e2ba1982d60cad5c09f33)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/nodeinfo.c | 26 +++++++++++++++++---------
+ 1 file changed, 17 insertions(+), 9 deletions(-)
+
+diff --git a/src/nodeinfo.c b/src/nodeinfo.c
+index 2d910c9..2328a86 100644
+--- a/src/nodeinfo.c
++++ b/src/nodeinfo.c
+@@ -410,8 +410,10 @@ virNodeParseNode(const char *sysfs_prefix,
+     struct dirent *cpudirent = NULL;
+     virBitmapPtr present_cpumap = NULL;
+     virBitmapPtr online_cpus_map = NULL;
++    virBitmapPtr node_cpus_map = NULL;
+     virBitmapPtr sockets_map = NULL;
+     virBitmapPtr *cores_maps = NULL;
++    int npresent_cpus;
+     int sock_max = 0;
+     int sock;
+     int core;
+@@ -436,6 +438,12 @@ virNodeParseNode(const char *sysfs_prefix,
+     if (!online_cpus_map)
+         goto cleanup;
+ 
++    npresent_cpus = virBitmapSize(present_cpumap);
++
++    /* Keep track of the CPUs that belong to the current node */
++    if (!(node_cpus_map = virBitmapNew(npresent_cpus)))
++        goto cleanup;
++
+     /* enumerate sockets in the node */
+     if (!(sockets_map = virBitmapNew(ID_MAX + 1)))
+         goto cleanup;
+@@ -447,6 +455,10 @@ virNodeParseNode(const char *sysfs_prefix,
+         if (!virBitmapIsBitSet(present_cpumap, cpu))
+             continue;
+ 
++        /* Mark this CPU as part of the current node */
++        if (virBitmapSetBit(node_cpus_map, cpu) < 0)
++            goto cleanup;
++
+         if (!virBitmapIsBitSet(online_cpus_map, cpu))
+             continue;
+ 
+@@ -480,13 +492,11 @@ virNodeParseNode(const char *sysfs_prefix,
+         if (!(cores_maps[i] = virBitmapNew(ID_MAX + 1)))
+             goto cleanup;
+ 
+-    /* iterate over all CPU's in the node */
+-    rewinddir(cpudir);
+-    while ((direrr = virDirRead(cpudir, &cpudirent, node)) > 0) {
+-        if (sscanf(cpudirent->d_name, "cpu%u", &cpu) != 1)
+-            continue;
++    /* Iterate over all CPUs in the node, in ascending order */
++    for (cpu = 0; cpu < npresent_cpus; cpu++) {
+ 
+-        if (!virBitmapIsBitSet(present_cpumap, cpu))
++        /* Skip CPUs that are not part of the current node */
++        if (!virBitmapIsBitSet(node_cpus_map, cpu))
+             continue;
+ 
+         if (!virBitmapIsBitSet(online_cpus_map, cpu)) {
+@@ -529,9 +539,6 @@ virNodeParseNode(const char *sysfs_prefix,
+             *threads = siblings;
+     }
+ 
+-    if (direrr < 0)
+-        goto cleanup;
+-
+     /* finalize the returned data */
+     *sockets = virBitmapCountBits(sockets_map);
+ 
+@@ -557,6 +564,7 @@ virNodeParseNode(const char *sysfs_prefix,
+             virBitmapFree(cores_maps[i]);
+     VIR_FREE(cores_maps);
+     virBitmapFree(sockets_map);
++    virBitmapFree(node_cpus_map);
+     virBitmapFree(online_cpus_map);
+     virBitmapFree(present_cpumap);
+ 
+-- 
+2.5.0
+

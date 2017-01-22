@@ -1,0 +1,86 @@
+From 8dc583373f79d4b8226eb510c6466759421cf8c7 Mon Sep 17 00:00:00 2001
+Message-Id: <8dc583373f79d4b8226eb510c6466759421cf8c7@dist-git>
+From: John Ferlan <jferlan@redhat.com>
+Date: Thu, 9 Jul 2015 08:28:51 -0400
+Subject: [PATCH] qemu: Introduce qemuIsSharedHostdev
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1072736
+
+Add a single boolean function to handle whether the hostdev is shared or not.
+
+Use the new function for the qemu{Add|Remove}SharedHostdev calls as well
+as qemuSetUnprivSGIO. NB: This third usage fixes a possible bug where
+if this feature is enabled at some time in the future and the shareable flag
+wasn't set, the sgio would have been erroneously set.
+
+Signed-off-by: John Ferlan <jferlan@redhat.com>
+(cherry picked from commit 8c43258ed5fca8b285400135948300fa6f58f402)
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_conf.c | 28 ++++++++++++++++------------
+ 1 file changed, 16 insertions(+), 12 deletions(-)
+
+diff --git a/src/qemu/qemu_conf.c b/src/qemu/qemu_conf.c
+index 7c2947c..1467427 100644
+--- a/src/qemu/qemu_conf.c
++++ b/src/qemu/qemu_conf.c
+@@ -1201,6 +1201,17 @@ qemuAddSharedDisk(virQEMUDriverPtr driver,
+ }
+ 
+ 
++static bool
++qemuIsSharedHostdev(virDomainHostdevDefPtr hostdev)
++{
++    return (hostdev->shareable &&
++        (hostdev->mode == VIR_DOMAIN_HOSTDEV_MODE_SUBSYS &&
++         hostdev->source.subsys.type == VIR_DOMAIN_HOSTDEV_SUBSYS_TYPE_SCSI &&
++         hostdev->source.subsys.u.scsi.protocol !=
++         VIR_DOMAIN_HOSTDEV_SCSI_PROTOCOL_TYPE_ISCSI));
++}
++
++
+ static char *
+ qemuGetSharedHostdevKey(virDomainHostdevDefPtr hostdev)
+ {
+@@ -1238,10 +1249,7 @@ qemuAddSharedHostdev(virQEMUDriverPtr driver,
+     char *key = NULL;
+     int ret = -1;
+ 
+-    if (!hostdev->shareable ||
+-        !(hostdev->mode == VIR_DOMAIN_HOSTDEV_MODE_SUBSYS &&
+-          hostdev->source.subsys.type == VIR_DOMAIN_HOSTDEV_SUBSYS_TYPE_SCSI &&
+-          hostdev->source.subsys.u.scsi.protocol != VIR_DOMAIN_HOSTDEV_SCSI_PROTOCOL_TYPE_ISCSI))
++    if (!qemuIsSharedHostdev(hostdev))
+         return 0;
+ 
+     if (!(key = qemuGetSharedHostdevKey(hostdev)))
+@@ -1342,10 +1350,7 @@ qemuRemoveSharedHostdev(virQEMUDriverPtr driver,
+     char *key = NULL;
+     int ret;
+ 
+-    if (!hostdev->shareable ||
+-        !(hostdev->mode == VIR_DOMAIN_HOSTDEV_MODE_SUBSYS &&
+-          hostdev->source.subsys.type == VIR_DOMAIN_HOSTDEV_SUBSYS_TYPE_SCSI &&
+-          hostdev->source.subsys.u.scsi.protocol != VIR_DOMAIN_HOSTDEV_SCSI_PROTOCOL_TYPE_ISCSI))
++    if (!qemuIsSharedHostdev(hostdev))
+         return 0;
+ 
+     if (!(key = qemuGetSharedHostdevKey(hostdev)))
+@@ -1407,11 +1412,10 @@ qemuSetUnprivSGIO(virDomainDeviceDefPtr dev)
+     } else if (dev->type == VIR_DOMAIN_DEVICE_HOSTDEV) {
+         hostdev = dev->data.hostdev;
+ 
++        if (!qemuIsSharedHostdev(hostdev))
++            return 0;
+ 
+-        if (hostdev->mode == VIR_DOMAIN_HOSTDEV_MODE_SUBSYS &&
+-            hostdev->source.subsys.type ==
+-            VIR_DOMAIN_HOSTDEV_SUBSYS_TYPE_SCSI &&
+-            hostdev->source.subsys.u.scsi.sgio) {
++        if (hostdev->source.subsys.u.scsi.sgio) {
+             virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+                            _("'sgio' is not supported for SCSI "
+                              "generic device yet "));
+-- 
+2.5.1
+

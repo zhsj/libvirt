@@ -1,0 +1,37 @@
+From 4b79d32a523e7ce5dc0e1e0123e74a2ea1b6ffc5 Mon Sep 17 00:00:00 2001
+Message-Id: <4b79d32a523e7ce5dc0e1e0123e74a2ea1b6ffc5@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Fri, 3 Jul 2015 19:35:06 +0200
+Subject: [PATCH] qemu: Drop LFs at the end of error from QEMU log
+
+Libvirt's error messages do not end with a LF. However, when reading the
+error from QEMU log, we would read the LF from the log and keep it in
+the message.
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+(cherry picked from commit 04d5fb2e0a92f78eca61de59971eba7fb36c6c1d)
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1090093
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_monitor.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/qemu/qemu_monitor.c b/src/qemu/qemu_monitor.c
+index d7d211e..dabe8e2 100644
+--- a/src/qemu/qemu_monitor.c
++++ b/src/qemu/qemu_monitor.c
+@@ -407,6 +407,9 @@ qemuMonitorGetErrorFromLog(qemuMonitorPtr mon)
+     if ((len = qemuProcessReadLog(mon->logfd, logbuf, 4096 - 1, 0, true)) <= 0)
+         goto error;
+ 
++    while (len > 0 && logbuf[len - 1] == '\n')
++        logbuf[--len] = '\0';
++
+  cleanup:
+     errno = orig_errno;
+     VIR_FORCE_CLOSE(mon->logfd);
+-- 
+2.4.5
+

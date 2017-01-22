@@ -1,0 +1,195 @@
+From 6b1d9c4ab470b81eb903bebc8255911142a01df9 Mon Sep 17 00:00:00 2001
+Message-Id: <6b1d9c4ab470b81eb903bebc8255911142a01df9@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Tue, 11 Aug 2015 17:16:05 +0200
+Subject: [PATCH] cpu: Support multiple PVRs in the ppc64 driver
+
+This will allow us to perform PVR matching more broadly, eg. consider
+both POWER8 and POWER8E CPUs to be the same even though they have
+different PVR values.
+
+(cherry picked from commit 59fcc9619522d4ac837dafc3c04f6309761f3c5b)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1250977
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/cpu/cpu_ppc64.c      | 71 ++++++++++++++++++++++++++++++++++++++++--------
+ src/cpu/cpu_ppc64_data.h |  8 +++++-
+ 2 files changed, 66 insertions(+), 13 deletions(-)
+
+diff --git a/src/cpu/cpu_ppc64.c b/src/cpu/cpu_ppc64.c
+index 6c78ab8..ba33e05 100644
+--- a/src/cpu/cpu_ppc64.c
++++ b/src/cpu/cpu_ppc64.c
+@@ -60,6 +60,10 @@ struct ppc64_map {
+ static void
+ ppc64DataFree(virCPUppc64Data *data)
+ {
++    if (!data)
++        return;
++
++    VIR_FREE(data->pvr);
+     VIR_FREE(data);
+ }
+ 
+@@ -67,13 +71,24 @@ static virCPUppc64Data *
+ ppc64DataCopy(const virCPUppc64Data *data)
+ {
+     virCPUppc64Data *copy;
++    size_t i;
+ 
+     if (VIR_ALLOC(copy) < 0)
+-        return NULL;
++        goto error;
+ 
+-    copy->pvr = data->pvr;
++    if (VIR_ALLOC_N(copy->pvr, data->len) < 0)
++        goto error;
++
++    copy->len = data->len;
++
++    for (i = 0; i < data->len; i++)
++        copy->pvr[i].value = data->pvr[i].value;
+ 
+     return copy;
++
++ error:
++    ppc64DataFree(copy);
++    return NULL;
+ }
+ 
+ static void
+@@ -159,12 +174,14 @@ ppc64ModelFindPVR(const struct ppc64_map *map,
+                   uint32_t pvr)
+ {
+     struct ppc64_model *model;
++    size_t i;
+ 
+     model = map->models;
+     while (model) {
+-        if (model->data->pvr == pvr)
+-            return model;
+-
++        for (i = 0; i < model->data->len; i++) {
++            if (model->data->pvr[i].value == pvr)
++                return model;
++        }
+         model = model->next;
+     }
+ 
+@@ -257,8 +274,16 @@ ppc64ModelLoad(xmlXPathContextPtr ctxt,
+                struct ppc64_map *map)
+ {
+     struct ppc64_model *model;
++    xmlNodePtr *nodes = NULL;
++    xmlNodePtr bookmark;
+     char *vendor = NULL;
+     unsigned long pvr;
++    size_t i;
++    int n;
++
++    /* Save the node the context was pointing to, as we're going
++     * to change it later. It's going to be restored on exit */
++    bookmark = ctxt->node;
+ 
+     if (VIR_ALLOC(model) < 0)
+         return -1;
+@@ -298,14 +323,29 @@ ppc64ModelLoad(xmlXPathContextPtr ctxt,
+         }
+     }
+ 
+-    if (!virXPathBoolean("boolean(./pvr)", ctxt) ||
+-        virXPathULongHex("string(./pvr/@value)", ctxt, &pvr) < 0) {
++    if ((n = virXPathNodeSet("./pvr", ctxt, &nodes)) <= 0) {
+         virReportError(VIR_ERR_INTERNAL_ERROR,
+-                       _("Missing or invalid PVR value in CPU model %s"),
++                       _("Missing PVR information for CPU model %s"),
+                        model->name);
+         goto ignore;
+     }
+-    model->data->pvr = pvr;
++
++    if (VIR_ALLOC_N(model->data->pvr, n) < 0)
++        goto ignore;
++
++    model->data->len = n;
++
++    for (i = 0; i < n; i++) {
++        ctxt->node = nodes[i];
++
++        if (virXPathULongHex("string(./@value)", ctxt, &pvr) < 0) {
++            virReportError(VIR_ERR_INTERNAL_ERROR,
++                           _("Missing or invalid PVR value in CPU model %s"),
++                           model->name);
++            goto ignore;
++        }
++        model->data->pvr[i].value = pvr;
++    }
+ 
+     if (!map->models) {
+         map->models = model;
+@@ -315,7 +355,9 @@ ppc64ModelLoad(xmlXPathContextPtr ctxt,
+     }
+ 
+  cleanup:
++    ctxt->node = bookmark;
+     VIR_FREE(vendor);
++    VIR_FREE(nodes);
+     return 0;
+ 
+  ignore:
+@@ -506,10 +548,10 @@ ppc64DriverDecode(virCPUDefPtr cpu,
+     if (!data || !(map = ppc64LoadMap()))
+         return -1;
+ 
+-    if (!(model = ppc64ModelFindPVR(map, data->data.ppc64->pvr))) {
++    if (!(model = ppc64ModelFindPVR(map, data->data.ppc64->pvr[0].value))) {
+         virReportError(VIR_ERR_OPERATION_FAILED,
+                        _("Cannot find CPU model with PVR 0x%08x"),
+-                       data->data.ppc64->pvr);
++                       data->data.ppc64->pvr[0].value);
+         goto cleanup;
+     }
+ 
+@@ -557,9 +599,14 @@ ppc64DriverNodeData(virArch arch)
+ 
+     data = nodeData->data.ppc64;
+ 
++    if (VIR_ALLOC_N(data->pvr, 1) < 0)
++        goto error;
++
++    data->len = 1;
++
+ #if defined(__powerpc__) || defined(__powerpc64__)
+     asm("mfpvr %0"
+-        : "=r" (data->pvr));
++        : "=r" (data->pvr[0].value));
+ #endif
+ 
+     nodeData->arch = arch;
+diff --git a/src/cpu/cpu_ppc64_data.h b/src/cpu/cpu_ppc64_data.h
+index c18fc63..0d3cb0b 100644
+--- a/src/cpu/cpu_ppc64_data.h
++++ b/src/cpu/cpu_ppc64_data.h
+@@ -26,9 +26,15 @@
+ 
+ # include <stdint.h>
+ 
++typedef struct _virCPUppc64PVR virCPUppc64PVR;
++struct _virCPUppc64PVR {
++    uint32_t value;
++};
++
+ typedef struct _virCPUppc64Data virCPUppc64Data;
+ struct _virCPUppc64Data {
+-    uint32_t pvr;
++    size_t len;
++    virCPUppc64PVR *pvr;
+ };
+ 
+ #endif /* __VIR_CPU_PPC64_DATA_H__ */
+-- 
+2.5.0
+

@@ -1,0 +1,78 @@
+From 352a07737fdc9a3c090eee92018f62865889c0ea Mon Sep 17 00:00:00 2001
+Message-Id: <352a07737fdc9a3c090eee92018f62865889c0ea@dist-git>
+From: John Ferlan <jferlan@redhat.com>
+Date: Thu, 9 Jul 2015 08:28:52 -0400
+Subject: [PATCH] qemu: Introduce qemuGetHostdevPath
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1072736
+
+Introduce a convenience function to handle formulating the hostdev path
+
+Signed-off-by: John Ferlan <jferlan@redhat.com>
+(cherry picked from commit 083cbe506b5134c36ecd544a2f9ac3d262951799)
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_conf.c | 27 ++++++++++++++++++++-------
+ 1 file changed, 20 insertions(+), 7 deletions(-)
+
+diff --git a/src/qemu/qemu_conf.c b/src/qemu/qemu_conf.c
+index 1467427..a761ec5 100644
+--- a/src/qemu/qemu_conf.c
++++ b/src/qemu/qemu_conf.c
+@@ -1213,13 +1213,12 @@ qemuIsSharedHostdev(virDomainHostdevDefPtr hostdev)
+ 
+ 
+ static char *
+-qemuGetSharedHostdevKey(virDomainHostdevDefPtr hostdev)
++qemuGetHostdevPath(virDomainHostdevDefPtr hostdev)
+ {
+     virDomainHostdevSubsysSCSIPtr scsisrc = &hostdev->source.subsys.u.scsi;
+     virDomainHostdevSubsysSCSIHostPtr scsihostsrc = &scsisrc->u.host;
+     char *dev_name = NULL;
+     char *dev_path = NULL;
+-    char *key = NULL;
+ 
+     if (!(dev_name = virSCSIDeviceGetDevName(NULL,
+                                              scsihostsrc->adapter,
+@@ -1228,19 +1227,33 @@ qemuGetSharedHostdevKey(virDomainHostdevDefPtr hostdev)
+                                              scsihostsrc->unit)))
+         goto cleanup;
+ 
+-    if (virAsprintf(&dev_path, "/dev/%s", dev_name) < 0)
+-        goto cleanup;
+-
+-    if (!(key = qemuGetSharedDeviceKey(dev_path)))
+-        goto cleanup;
++    ignore_value(virAsprintf(&dev_path, "/dev/%s", dev_name));
+ 
+  cleanup:
+     VIR_FREE(dev_name);
++    return dev_path;
++}
++
++
++static char *
++qemuGetSharedHostdevKey(virDomainHostdevDefPtr hostdev)
++{
++    char *key = NULL;
++    char *dev_path = NULL;
++
++    if (!(dev_path = qemuGetHostdevPath(hostdev)))
++        goto cleanup;
++
++    if (!(key = qemuGetSharedDeviceKey(dev_path)))
++        goto cleanup;
++
++ cleanup:
+     VIR_FREE(dev_path);
+ 
+     return key;
+ }
+ 
++
+ static int
+ qemuAddSharedHostdev(virQEMUDriverPtr driver,
+                      virDomainHostdevDefPtr hostdev,
+-- 
+2.5.1
+

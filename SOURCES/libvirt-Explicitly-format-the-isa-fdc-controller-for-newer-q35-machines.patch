@@ -1,0 +1,304 @@
+From c8aeb07255eb984a89be33ca3a0bafcebe088682 Mon Sep 17 00:00:00 2001
+Message-Id: <c8aeb07255eb984a89be33ca3a0bafcebe088682@dist-git>
+From: =?UTF-8?q?J=C3=A1n=20Tomko?= <jtomko@redhat.com>
+Date: Wed, 8 Jul 2015 15:56:47 +0200
+Subject: [PATCH] Explicitly format the isa-fdc controller for newer q35
+ machines
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Since QEMU commit ea96bc6 [1]:
+i386: drop FDC in pc-q35-2.4+ if neither it nor floppy drives are wanted
+the floppy controller is no longer implicit.
+
+Specify it explicitly on the command line if the machine type version
+is 2.4 or later.
+
+Note that libvirt's floppy drives do not result in QEMU implying the
+controller, because libvirt uses if=none instead of if=floppy.
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1227880
+
+[1] http://git.qemu.org/?p=qemu.git;a=commitdiff;h=ea96bc6
+
+(cherry picked from commit 4edf01c92cf9004aac2a505a38d92d13050c24bc)
+Signed-off-by: Ján Tomko <jtomko@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_command.c                            | 31 +++++++++++++----
+ src/qemu/qemu_domain.c                             | 19 ++++++++++
+ src/qemu/qemu_domain.h                             |  1 +
+ .../qemuxml2argv-boot-floppy-q35.args              | 12 +++++++
+ .../qemuxml2argv-boot-floppy-q35.xml               | 40 ++++++++++++++++++++++
+ .../qemuxml2argv-bootindex-floppy-q35.args         | 11 ++++++
+ .../qemuxml2argv-bootindex-floppy-q35.xml          | 40 ++++++++++++++++++++++
+ tests/qemuxml2argvtest.c                           |  9 +++++
+ 8 files changed, 156 insertions(+), 7 deletions(-)
+ create mode 100644 tests/qemuxml2argvdata/qemuxml2argv-boot-floppy-q35.args
+ create mode 100644 tests/qemuxml2argvdata/qemuxml2argv-boot-floppy-q35.xml
+ create mode 100644 tests/qemuxml2argvdata/qemuxml2argv-bootindex-floppy-q35.args
+ create mode 100644 tests/qemuxml2argvdata/qemuxml2argv-bootindex-floppy-q35.xml
+
+diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
+index d8ce22f..48d2ee0 100644
+--- a/src/qemu/qemu_command.c
++++ b/src/qemu/qemu_command.c
+@@ -8837,9 +8837,9 @@ qemuBuildCommandLine(virConnectPtr conn,
+          * List of controller types that we add commandline args for,
+          * *in the order we want to add them*.
+          *
+-         * We don't add an explicit FD controller because the
+-         * provided PIIX4 device already includes one. It isn't possible to
+-         * remove the PIIX4.
++         * The floppy controller is implicit on PIIX4 and older Q35
++         * machines. For newer Q35 machines it is added out of the
++         * controllers loop, after the floppy drives.
+          *
+          * We don't add PCI/PCIe root controller either, because it's
+          * implicit, but we do add PCI bridges and other PCI
+@@ -8860,6 +8860,8 @@ qemuBuildCommandLine(virConnectPtr conn,
+     virQEMUDriverConfigPtr cfg = virQEMUDriverGetConfig(driver);
+     virBuffer boot_buf = VIR_BUFFER_INITIALIZER;
+     char *boot_order_str = NULL, *boot_opts_str = NULL;
++    virBuffer fdc_opts = VIR_BUFFER_INITIALIZER;
++    char *fdc_opts_str = NULL;
+ 
+     VIR_DEBUG("conn=%p driver=%p def=%p mon=%p json=%d "
+               "qemuCaps=%p migrateFrom=%s migrateFD=%d "
+@@ -9810,8 +9812,12 @@ qemuBuildCommandLine(virConnectPtr conn,
+                                     disk->info.alias) < 0)
+                         goto error;
+ 
+-                    virCommandAddArg(cmd, "-global");
+-                    virCommandAddArgFormat(cmd, "isa-fdc.%s", optstr);
++                    if (!qemuDomainMachineNeedsFDC(def)) {
++                        virCommandAddArg(cmd, "-global");
++                        virCommandAddArgFormat(cmd, "isa-fdc.%s", optstr);
++                    } else {
++                        virBufferAsprintf(&fdc_opts, "%s,", optstr);
++                    }
+                     VIR_FREE(optstr);
+ 
+                     if (bootindex) {
+@@ -9821,8 +9827,12 @@ qemuBuildCommandLine(virConnectPtr conn,
+                                         bootindex) < 0)
+                             goto error;
+ 
+-                        virCommandAddArg(cmd, "-global");
+-                        virCommandAddArgFormat(cmd, "isa-fdc.%s", optstr);
++                        if (!qemuDomainMachineNeedsFDC(def)) {
++                            virCommandAddArg(cmd, "-global");
++                            virCommandAddArgFormat(cmd, "isa-fdc.%s", optstr);
++                        } else {
++                            virBufferAsprintf(&fdc_opts, "%s,", optstr);
++                        }
+                         VIR_FREE(optstr);
+                     }
+                 } else {
+@@ -9836,6 +9846,13 @@ qemuBuildCommandLine(virConnectPtr conn,
+                 }
+             }
+         }
++        /* Newer Q35 machine types require an explicit FDC controller */
++        virBufferTrim(&fdc_opts, ",", -1);
++        if ((fdc_opts_str = virBufferContentAndReset(&fdc_opts))) {
++            virCommandAddArg(cmd, "-device");
++            virCommandAddArgFormat(cmd, "isa-fdc,%s", fdc_opts_str);
++            VIR_FREE(fdc_opts_str);
++        }
+     } else {
+         for (i = 0; i < def->ndisks; i++) {
+             char dev[NAME_MAX];
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index f9bf32c..6590cf0 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -3245,6 +3245,25 @@ qemuDomainMachineIsI440FX(const virDomainDef *def)
+ }
+ 
+ 
++bool
++qemuDomainMachineNeedsFDC(const virDomainDef *def)
++{
++    char *p = STRSKIP(def->os.machine, "pc-q35-");
++
++    if (p) {
++        if (STRPREFIX(p, "1.") ||
++            STRPREFIX(p, "2.0") ||
++            STRPREFIX(p, "2.1") ||
++            STRPREFIX(p, "2.2") ||
++            STRPREFIX(p, "2.3"))
++            return false;
++        return true;
++    }
++    return false;
++}
++
++
++
+ /**
+  * qemuDomainUpdateCurrentMemorySize:
+  *
+diff --git a/src/qemu/qemu_domain.h b/src/qemu/qemu_domain.h
+index 54e1e7b..66dbcf5 100644
+--- a/src/qemu/qemu_domain.h
++++ b/src/qemu/qemu_domain.h
+@@ -465,6 +465,7 @@ virDomainChrSourceDefPtr qemuFindAgentConfig(virDomainDefPtr def);
+ 
+ bool qemuDomainMachineIsQ35(const virDomainDef *def);
+ bool qemuDomainMachineIsI440FX(const virDomainDef *def);
++bool qemuDomainMachineNeedsFDC(const virDomainDef *def);
+ 
+ int qemuDomainUpdateCurrentMemorySize(virQEMUDriverPtr driver,
+                                       virDomainObjPtr vm);
+diff --git a/tests/qemuxml2argvdata/qemuxml2argv-boot-floppy-q35.args b/tests/qemuxml2argvdata/qemuxml2argv-boot-floppy-q35.args
+new file mode 100644
+index 0000000..464bfa9
+--- /dev/null
++++ b/tests/qemuxml2argvdata/qemuxml2argv-boot-floppy-q35.args
+@@ -0,0 +1,12 @@
++LC_ALL=C PATH=/bin HOME=/home/test USER=test LOGNAME=test QEMU_AUDIO_DRV=none \
++/usr/bin/qemu -S \
++-M pc-q35-2.4 \
++-m 214 -smp 1 \
++-nographic -nodefaults \
++-monitor unix:/tmp/test-monitor,server,nowait \
++-no-acpi -boot a \
++-device i82801b11-bridge,id=pci.1,bus=pcie.0,addr=0x1e \
++-device pci-bridge,chassis_nr=2,id=pci.2,bus=pci.1,addr=0x1 \
++-drive file=/tmp/firmware.img,if=none,id=drive-fdc0-0-0 \
++-device isa-fdc,driveA=drive-fdc0-0-0 \
++-device virtio-balloon-pci,id=balloon0,bus=pci.2,addr=0x3
+diff --git a/tests/qemuxml2argvdata/qemuxml2argv-boot-floppy-q35.xml b/tests/qemuxml2argvdata/qemuxml2argv-boot-floppy-q35.xml
+new file mode 100644
+index 0000000..70d3262
+--- /dev/null
++++ b/tests/qemuxml2argvdata/qemuxml2argv-boot-floppy-q35.xml
+@@ -0,0 +1,40 @@
++<domain type='qemu'>
++  <name>QEMUGuest1</name>
++  <uuid>c7a5fdbd-edaf-9455-926a-d65c16db1809</uuid>
++  <memory unit='KiB'>219100</memory>
++  <currentMemory unit='KiB'>219100</currentMemory>
++  <vcpu placement='static'>1</vcpu>
++  <os>
++    <type arch='x86_64' machine='pc-q35-2.4'>hvm</type>
++    <boot dev='fd'/>
++  </os>
++  <clock offset='utc'/>
++  <on_poweroff>destroy</on_poweroff>
++  <on_reboot>restart</on_reboot>
++  <on_crash>destroy</on_crash>
++  <devices>
++    <emulator>/usr/bin/qemu</emulator>
++    <disk type='file' device='floppy'>
++      <driver name='qemu' type='raw'/>
++      <source file='/tmp/firmware.img'/>
++      <target dev='fda' bus='fdc'/>
++      <address type='drive' controller='0' bus='0' target='0' unit='0'/>
++    </disk>
++    <controller type='sata' index='0'>
++      <address type='pci' domain='0x0000' bus='0x00' slot='0x1f' function='0x2'/>
++    </controller>
++    <controller type='pci' index='0' model='pcie-root'/>
++    <controller type='pci' index='1' model='dmi-to-pci-bridge'>
++      <address type='pci' domain='0x0000' bus='0x00' slot='0x1e' function='0x0'/>
++    </controller>
++    <controller type='pci' index='2' model='pci-bridge'>
++      <address type='pci' domain='0x0000' bus='0x01' slot='0x01' function='0x0'/>
++    </controller>
++    <controller type='fdc' index='0'/>
++    <input type='mouse' bus='ps2'/>
++    <input type='keyboard' bus='ps2'/>
++    <memballoon model='virtio'>
++      <address type='pci' domain='0x0000' bus='0x02' slot='0x03' function='0x0'/>
++    </memballoon>
++  </devices>
++</domain>
+diff --git a/tests/qemuxml2argvdata/qemuxml2argv-bootindex-floppy-q35.args b/tests/qemuxml2argvdata/qemuxml2argv-bootindex-floppy-q35.args
+new file mode 100644
+index 0000000..2f0627b
+--- /dev/null
++++ b/tests/qemuxml2argvdata/qemuxml2argv-bootindex-floppy-q35.args
+@@ -0,0 +1,11 @@
++LC_ALL=C PATH=/bin HOME=/home/test USER=test LOGNAME=test QEMU_AUDIO_DRV=none \
++/usr/bin/qemu -S -M pc-q35-2.4 \
++-m 214 -smp 1 \
++-nographic -nodefaults \
++-monitor unix:/tmp/test-monitor,server,nowait \
++-no-acpi \
++-device i82801b11-bridge,id=pci.1,bus=pcie.0,addr=0x1e \
++-device pci-bridge,chassis_nr=2,id=pci.2,bus=pci.1,addr=0x1 \
++-drive file=/tmp/firmware.img,if=none,id=drive-fdc0-0-0 \
++-device isa-fdc,driveA=drive-fdc0-0-0,bootindexA=1 \
++-device virtio-balloon-pci,id=balloon0,bus=pci.2,addr=0x3
+diff --git a/tests/qemuxml2argvdata/qemuxml2argv-bootindex-floppy-q35.xml b/tests/qemuxml2argvdata/qemuxml2argv-bootindex-floppy-q35.xml
+new file mode 100644
+index 0000000..70d3262
+--- /dev/null
++++ b/tests/qemuxml2argvdata/qemuxml2argv-bootindex-floppy-q35.xml
+@@ -0,0 +1,40 @@
++<domain type='qemu'>
++  <name>QEMUGuest1</name>
++  <uuid>c7a5fdbd-edaf-9455-926a-d65c16db1809</uuid>
++  <memory unit='KiB'>219100</memory>
++  <currentMemory unit='KiB'>219100</currentMemory>
++  <vcpu placement='static'>1</vcpu>
++  <os>
++    <type arch='x86_64' machine='pc-q35-2.4'>hvm</type>
++    <boot dev='fd'/>
++  </os>
++  <clock offset='utc'/>
++  <on_poweroff>destroy</on_poweroff>
++  <on_reboot>restart</on_reboot>
++  <on_crash>destroy</on_crash>
++  <devices>
++    <emulator>/usr/bin/qemu</emulator>
++    <disk type='file' device='floppy'>
++      <driver name='qemu' type='raw'/>
++      <source file='/tmp/firmware.img'/>
++      <target dev='fda' bus='fdc'/>
++      <address type='drive' controller='0' bus='0' target='0' unit='0'/>
++    </disk>
++    <controller type='sata' index='0'>
++      <address type='pci' domain='0x0000' bus='0x00' slot='0x1f' function='0x2'/>
++    </controller>
++    <controller type='pci' index='0' model='pcie-root'/>
++    <controller type='pci' index='1' model='dmi-to-pci-bridge'>
++      <address type='pci' domain='0x0000' bus='0x00' slot='0x1e' function='0x0'/>
++    </controller>
++    <controller type='pci' index='2' model='pci-bridge'>
++      <address type='pci' domain='0x0000' bus='0x01' slot='0x01' function='0x0'/>
++    </controller>
++    <controller type='fdc' index='0'/>
++    <input type='mouse' bus='ps2'/>
++    <input type='keyboard' bus='ps2'/>
++    <memballoon model='virtio'>
++      <address type='pci' domain='0x0000' bus='0x02' slot='0x03' function='0x0'/>
++    </memballoon>
++  </devices>
++</domain>
+diff --git a/tests/qemuxml2argvtest.c b/tests/qemuxml2argvtest.c
+index 574777b..bee6637 100644
+--- a/tests/qemuxml2argvtest.c
++++ b/tests/qemuxml2argvtest.c
+@@ -607,6 +607,15 @@ mymain(void)
+     DO_TEST("boot-cdrom", NONE);
+     DO_TEST("boot-network", NONE);
+     DO_TEST("boot-floppy", NONE);
++    DO_TEST("boot-floppy-q35",
++            QEMU_CAPS_DEVICE, QEMU_CAPS_DEVICE_PCI_BRIDGE,
++            QEMU_CAPS_DEVICE_DMI_TO_PCI_BRIDGE,
++            QEMU_CAPS_DRIVE, QEMU_CAPS_ICH9_AHCI);
++    DO_TEST("bootindex-floppy-q35",
++            QEMU_CAPS_DEVICE, QEMU_CAPS_DEVICE_PCI_BRIDGE,
++            QEMU_CAPS_DEVICE_DMI_TO_PCI_BRIDGE,
++            QEMU_CAPS_DRIVE, QEMU_CAPS_ICH9_AHCI, QEMU_CAPS_BOOT_MENU,
++            QEMU_CAPS_BOOTINDEX);
+     DO_TEST("boot-multi", QEMU_CAPS_BOOT_MENU);
+     DO_TEST("boot-menu-enable",
+             QEMU_CAPS_BOOT_MENU, QEMU_CAPS_DEVICE, QEMU_CAPS_DRIVE);
+-- 
+2.4.5
+

@@ -1,0 +1,79 @@
+From 5f602085f03840e9cef0b53d01ab6e9eaf126382 Mon Sep 17 00:00:00 2001
+Message-Id: <5f602085f03840e9cef0b53d01ab6e9eaf126382@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Fri, 31 Jul 2015 15:19:26 +0200
+Subject: [PATCH] qemu: Reject migration with memory-hotplug if destination
+ doesn't support it
+
+If destination libvirt doesn't support memory hotplug since all the
+support was introduced by adding new elements the destination would
+attempt to start qemu with an invalid configuration. The worse part is
+that qemu might hang in such situation.
+
+Fix this by sending a required migration feature called 'memory-hotplug'
+to the destination. If the destination doesn't recognize it it will fail
+the migration.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1248350
+(cherry picked from commit 136f3de4112c75af0b38fc1946f44e3658ed1890)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_migration.c | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/src/qemu/qemu_migration.c b/src/qemu/qemu_migration.c
+index d789110..6386744 100644
+--- a/src/qemu/qemu_migration.c
++++ b/src/qemu/qemu_migration.c
+@@ -86,6 +86,7 @@ enum qemuMigrationCookieFlags {
+     QEMU_MIGRATION_COOKIE_FLAG_NETWORK,
+     QEMU_MIGRATION_COOKIE_FLAG_NBD,
+     QEMU_MIGRATION_COOKIE_FLAG_STATS,
++    QEMU_MIGRATION_COOKIE_FLAG_MEMORY_HOTPLUG,
+ 
+     QEMU_MIGRATION_COOKIE_FLAG_LAST
+ };
+@@ -98,7 +99,8 @@ VIR_ENUM_IMPL(qemuMigrationCookieFlag,
+               "persistent",
+               "network",
+               "nbd",
+-              "statistics");
++              "statistics",
++              "memory-hotplug");
+ 
+ enum qemuMigrationCookieFeatures {
+     QEMU_MIGRATION_COOKIE_GRAPHICS  = (1 << QEMU_MIGRATION_COOKIE_FLAG_GRAPHICS),
+@@ -107,6 +109,7 @@ enum qemuMigrationCookieFeatures {
+     QEMU_MIGRATION_COOKIE_NETWORK = (1 << QEMU_MIGRATION_COOKIE_FLAG_NETWORK),
+     QEMU_MIGRATION_COOKIE_NBD = (1 << QEMU_MIGRATION_COOKIE_FLAG_NBD),
+     QEMU_MIGRATION_COOKIE_STATS = (1 << QEMU_MIGRATION_COOKIE_FLAG_STATS),
++    QEMU_MIGRATION_COOKIE_MEMORY_HOTPLUG = (1 << QEMU_MIGRATION_COOKIE_FLAG_MEMORY_HOTPLUG),
+ };
+ 
+ typedef struct _qemuMigrationCookieGraphics qemuMigrationCookieGraphics;
+@@ -1352,6 +1355,9 @@ qemuMigrationBakeCookie(qemuMigrationCookiePtr mig,
+         qemuMigrationCookieAddStatistics(mig, dom) < 0)
+         return -1;
+ 
++    if (flags & QEMU_MIGRATION_COOKIE_MEMORY_HOTPLUG)
++        mig->flagsMandatory |= QEMU_MIGRATION_COOKIE_MEMORY_HOTPLUG;
++
+     if (!(*cookieout = qemuMigrationCookieXMLFormatStr(driver, mig)))
+         return -1;
+ 
+@@ -2974,6 +2980,11 @@ qemuMigrationBeginPhase(virQEMUDriverPtr driver,
+         }
+     }
+ 
++    if (vm->def->mem.max_memory ||
++        (vm->newDef &&
++         vm->newDef->mem.max_memory))
++        cookieFlags |= QEMU_MIGRATION_COOKIE_MEMORY_HOTPLUG;
++
+     if (!(mig = qemuMigrationEatCookie(driver, vm, NULL, 0, 0)))
+         goto cleanup;
+ 
+-- 
+2.5.0
+

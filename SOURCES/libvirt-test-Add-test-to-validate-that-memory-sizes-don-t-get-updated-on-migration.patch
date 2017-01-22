@@ -1,0 +1,119 @@
+From 5c0f40a4097529450113fcf61cd53a66fcb2cd27 Mon Sep 17 00:00:00 2001
+Message-Id: <5c0f40a4097529450113fcf61cd53a66fcb2cd27@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Tue, 22 Sep 2015 16:59:48 +0200
+Subject: [PATCH] test: Add test to validate that memory sizes don't get
+ updated on migration
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1252685
+
+(cherry picked from commit 3b2db51430f647def979960f273637083a2f0c91)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ .../qemuxml2argv-migrate-numa-unaligned.args       | 13 +++++++++
+ .../qemuxml2argv-migrate-numa-unaligned.xml        | 33 ++++++++++++++++++++++
+ tests/qemuxml2argvtest.c                           | 13 +++++++--
+ 3 files changed, 56 insertions(+), 3 deletions(-)
+ create mode 100644 tests/qemuxml2argvdata/qemuxml2argv-migrate-numa-unaligned.args
+ create mode 100644 tests/qemuxml2argvdata/qemuxml2argv-migrate-numa-unaligned.xml
+
+diff --git a/tests/qemuxml2argvdata/qemuxml2argv-migrate-numa-unaligned.args b/tests/qemuxml2argvdata/qemuxml2argv-migrate-numa-unaligned.args
+new file mode 100644
+index 0000000..4659a65
+--- /dev/null
++++ b/tests/qemuxml2argvdata/qemuxml2argv-migrate-numa-unaligned.args
+@@ -0,0 +1,13 @@
++LC_ALL=C PATH=/bin HOME=/home/test USER=test LOGNAME=test QEMU_AUDIO_DRV=none \
++/usr/bin/kvm -S -M pc -m 14338 -smp 32 \
++-object memory-backend-ram,id=ram-node0,size=20482048,host-nodes=3,\
++policy=preferred \
++-numa node,nodeid=0,cpus=0,memdev=ram-node0 \
++-object memory-backend-ram,id=ram-node1,size=675907584,host-nodes=0-7,\
++policy=bind \
++-numa node,nodeid=1,cpus=1-27,cpus=29,memdev=ram-node1 \
++-object memory-backend-ram,id=ram-node2,size=24578457600,host-nodes=1-2,\
++host-nodes=5,host-nodes=7,policy=bind \
++-numa node,nodeid=2,cpus=28,cpus=30-31,memdev=ram-node2 \
++-nographic -monitor unix:/tmp/test-monitor,server,nowait \
++-no-acpi -boot c -usb -net none -serial none -parallel none -incoming stdio
+diff --git a/tests/qemuxml2argvdata/qemuxml2argv-migrate-numa-unaligned.xml b/tests/qemuxml2argvdata/qemuxml2argv-migrate-numa-unaligned.xml
+new file mode 100644
+index 0000000..4fbb210
+--- /dev/null
++++ b/tests/qemuxml2argvdata/qemuxml2argv-migrate-numa-unaligned.xml
+@@ -0,0 +1,33 @@
++<domain type='qemu'>
++  <name>QEMUGuest</name>
++  <uuid>9f4b6512-e73a-4a25-93e8-5307802821ce</uuid>
++  <memory unit='KiB'>14682468</memory>
++  <currentMemory unit='KiB'>14682468</currentMemory>
++  <vcpu placement='static'>32</vcpu>
++  <numatune>
++    <memnode cellid='0' mode='preferred' nodeset='3'/>
++    <memory mode='strict' nodeset='0-7'/>
++    <memnode cellid='2' mode='strict' nodeset='1-2,5-7,^6'/>
++  </numatune>
++  <os>
++    <type arch='x86_64' machine='pc'>hvm</type>
++    <boot dev='hd'/>
++  </os>
++  <cpu>
++    <numa>
++      <cell id='0' cpus='0' memory='20002' unit='KiB'/>
++      <cell id='1' cpus='1-27,29' memory='660066' unit='KiB'/>
++      <cell id='2' cpus='28,30-31' memory='24002400' unit='KiB'/>
++    </numa>
++  </cpu>
++  <clock offset='utc'/>
++  <on_poweroff>destroy</on_poweroff>
++  <on_reboot>restart</on_reboot>
++  <on_crash>destroy</on_crash>
++  <devices>
++    <emulator>/usr/bin/kvm</emulator>
++    <controller type='usb' index='0'/>
++    <controller type='pci' index='0' model='pci-root'/>
++    <memballoon model='virtio'/>
++  </devices>
++</domain>
+diff --git a/tests/qemuxml2argvtest.c b/tests/qemuxml2argvtest.c
+index 0dd1b9a..43a0fee 100644
+--- a/tests/qemuxml2argvtest.c
++++ b/tests/qemuxml2argvtest.c
+@@ -553,16 +553,19 @@ mymain(void)
+                  FLAG_EXPECT_PARSE_ERROR | FLAG_EXPECT_ERROR,           \
+                  __VA_ARGS__)
+ 
++# define DO_TEST_LINUX(name, ...)                                       \
++    DO_TEST_LINUX_FULL(name, NULL, -1, 0, __VA_ARGS__)
++
+ # ifdef __linux__
+     /* This is a macro that invokes test only on Linux. It's
+      * meant to be called in those cases where qemuxml2argvmock
+      * cooperation is expected (e.g. we need a fixed time,
+      * predictable NUMA topology and so on). On non-Linux
+      * platforms the macro just consume its argument. */
+-#  define DO_TEST_LINUX(name, ...)                                      \
+-    DO_TEST_FULL(name, NULL, -1, 0, __VA_ARGS__)
++#  define DO_TEST_LINUX_FULL(name, ...)                                 \
++    DO_TEST_FULL(name, __VA_ARGS__)
+ # else  /* __linux__ */
+-#  define DO_TEST_LINUX(name, ...)                                      \
++#  define DO_TEST_LINUX_FULL(name, ...)                                 \
+     do {                                                                \
+         const char *tmp ATTRIBUTE_UNUSED = name;                        \
+     } while (0)
+@@ -1265,6 +1268,10 @@ mymain(void)
+     DO_TEST_FULL("migrate", "tcp:10.0.0.1:5000", -1, 0,
+             QEMU_CAPS_MIGRATE_QEMU_TCP);
+ 
++    DO_TEST_LINUX_FULL("migrate-numa-unaligned", "stdio", 7, 0,
++                       QEMU_CAPS_MIGRATE_KVM_STDIO, QEMU_CAPS_NUMA,
++                       QEMU_CAPS_OBJECT_MEMORY_RAM);
++
+     DO_TEST("qemu-ns", NONE);
+ 
+     DO_TEST("smp", QEMU_CAPS_SMP_TOPOLOGY);
+-- 
+2.5.3
+

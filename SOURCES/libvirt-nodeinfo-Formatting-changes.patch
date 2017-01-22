@@ -1,0 +1,94 @@
+From 276ade698758d0fe906f48b525fc803e6a072458 Mon Sep 17 00:00:00 2001
+Message-Id: <276ade698758d0fe906f48b525fc803e6a072458@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Wed, 5 Aug 2015 18:18:18 +0200
+Subject: [PATCH] nodeinfo: Formatting changes
+
+(cherry picked from commit aa6c3fee866312ad02f675cd69b82ada7d1e0dfd)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/nodeinfo.c | 36 ++++++++++++++++++++----------------
+ 1 file changed, 20 insertions(+), 16 deletions(-)
+
+diff --git a/src/nodeinfo.c b/src/nodeinfo.c
+index 60dfc8b..c874fa6 100644
+--- a/src/nodeinfo.c
++++ b/src/nodeinfo.c
+@@ -208,7 +208,7 @@ freebsdNodeGetCPUStats(int cpuNum,
+ 
+ static int
+ freebsdNodeGetMemoryStats(virNodeMemoryStatsPtr params,
+-                               int *nparams)
++                          int *nparams)
+ {
+     size_t i, j = 0;
+     unsigned long pagesize = getpagesize() >> 10;
+@@ -552,10 +552,11 @@ virNodeParseNode(const char *sysfs_prefix,
+     return ret;
+ }
+ 
+-int linuxNodeInfoCPUPopulate(const char *sysfs_prefix,
+-                             FILE *cpuinfo,
+-                             virArch arch,
+-                             virNodeInfoPtr nodeinfo)
++int
++linuxNodeInfoCPUPopulate(const char *sysfs_prefix,
++                         FILE *cpuinfo,
++                         virArch arch,
++                         virNodeInfoPtr nodeinfo)
+ {
+     const char *prefix = sysfs_prefix ? sysfs_prefix : SYSFS_SYSTEM_PATH;
+     char line[1024];
+@@ -1046,8 +1047,9 @@ virNodeGetSiblingsList(const char *dir, int cpu_id)
+ }
+ #endif
+ 
+-int nodeGetInfo(const char *sysfs_prefix ATTRIBUTE_UNUSED,
+-                virNodeInfoPtr nodeinfo)
++int
++nodeGetInfo(const char *sysfs_prefix ATTRIBUTE_UNUSED,
++            virNodeInfoPtr nodeinfo)
+ {
+     virArch hostarch = virArchFromHost();
+ 
+@@ -1123,10 +1125,11 @@ int nodeGetInfo(const char *sysfs_prefix ATTRIBUTE_UNUSED,
+ #endif
+ }
+ 
+-int nodeGetCPUStats(int cpuNum ATTRIBUTE_UNUSED,
+-                    virNodeCPUStatsPtr params ATTRIBUTE_UNUSED,
+-                    int *nparams ATTRIBUTE_UNUSED,
+-                    unsigned int flags)
++int
++nodeGetCPUStats(int cpuNum ATTRIBUTE_UNUSED,
++                virNodeCPUStatsPtr params ATTRIBUTE_UNUSED,
++                int *nparams ATTRIBUTE_UNUSED,
++                unsigned int flags)
+ {
+     virCheckFlags(0, -1);
+ 
+@@ -1153,11 +1156,12 @@ int nodeGetCPUStats(int cpuNum ATTRIBUTE_UNUSED,
+ #endif
+ }
+ 
+-int nodeGetMemoryStats(const char *sysfs_prefix ATTRIBUTE_UNUSED,
+-                       int cellNum ATTRIBUTE_UNUSED,
+-                       virNodeMemoryStatsPtr params ATTRIBUTE_UNUSED,
+-                       int *nparams ATTRIBUTE_UNUSED,
+-                       unsigned int flags)
++int
++nodeGetMemoryStats(const char *sysfs_prefix ATTRIBUTE_UNUSED,
++                   int cellNum ATTRIBUTE_UNUSED,
++                   virNodeMemoryStatsPtr params ATTRIBUTE_UNUSED,
++                   int *nparams ATTRIBUTE_UNUSED,
++                   unsigned int flags)
+ {
+     virCheckFlags(0, -1);
+ 
+-- 
+2.5.0
+

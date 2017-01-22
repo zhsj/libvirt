@@ -1,0 +1,164 @@
+From 4e2eecec6b3d239e846594db23cc7004f43d5371 Mon Sep 17 00:00:00 2001
+Message-Id: <4e2eecec6b3d239e846594db23cc7004f43d5371@dist-git>
+From: John Ferlan <jferlan@redhat.com>
+Date: Fri, 4 Sep 2015 08:55:46 -0400
+Subject: [PATCH] qemu: Need to check for machine.os when using
+ ADDRESS_TYPE_CCW
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1258361
+
+When attaching a disk, controller, or rng using an address type ccw
+or s390, we need to ensure the support is provided by both the machine.os
+and the emulator capabilities (corollary to unconditional setting when
+address was not provided for the correct machine.os and emulator.
+
+For an inactive guest, an addition followed by a start would cause the
+startup to fail after qemu_command builds the command line and attempts
+to start the guest. For an active guest, libvirtd would crash.
+
+(cherry picked from commit a39ab909081ab126990ca705852d38ff056b8f13)
+Signed-off-by: John Ferlan <jferlan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_command.c | 51 +++++++++++++++++++++++++++++++++++++++++++++++++
+ src/qemu/qemu_command.h |  5 +++++
+ src/qemu/qemu_hotplug.c | 12 ++++++++++++
+ 3 files changed, 68 insertions(+)
+
+diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
+index f8fb71e..47d91c6 100644
+--- a/src/qemu/qemu_command.c
++++ b/src/qemu/qemu_command.c
+@@ -3485,6 +3485,46 @@ qemuCheckDiskConfig(virDomainDiskDefPtr disk)
+ }
+ 
+ 
++/* Check whether the device address is using either 'ccw' or default s390
++ * address format and whether that's "legal" for the current qemu and/or
++ * guest os.machine type. This is the corollary to the code which doesn't
++ * find the address type set using an emulator that supports either 'ccw'
++ * or s390 and sets the address type based on the capabilities.
++ *
++ * If the address is using 'ccw' or s390 and it's not supported, generate
++ * an error and return false; otherwise, return true.
++ */
++bool
++qemuCheckCCWS390AddressSupport(virDomainDefPtr def,
++                               virDomainDeviceInfo info,
++                               virQEMUCapsPtr qemuCaps,
++                               const char *devicename)
++{
++    if (info.type == VIR_DOMAIN_DEVICE_ADDRESS_TYPE_CCW) {
++        if (!qemuDomainMachineIsS390CCW(def)) {
++            virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
++                           _("cannot use CCW address type for device "
++                             "'%s' using machine type '%s'"),
++                       devicename, def->os.machine);
++            return false;
++        } else if (!virQEMUCapsGet(qemuCaps, QEMU_CAPS_VIRTIO_CCW)) {
++            virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
++                           _("CCW address type is not supported by "
++                             "this QEMU"));
++            return false;
++        }
++    } else if (info.type == VIR_DOMAIN_DEVICE_ADDRESS_TYPE_VIRTIO_S390) {
++        if (!virQEMUCapsGet(qemuCaps, QEMU_CAPS_VIRTIO_S390)) {
++            virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
++                           _("virtio S390 address type is not supported by "
++                             "this QEMU"));
++            return false;
++        }
++    }
++    return true;
++}
++
++
+ /* Qemu 1.2 and later have a binary flag -enable-fips that must be
+  * used for VNC auth to obey FIPS settings; but the flag only
+  * exists on Linux, and with no way to probe for it via QMP.  Our
+@@ -4038,6 +4078,9 @@ qemuBuildDriveDevStr(virDomainDefPtr def,
+         }
+     }
+ 
++    if (!qemuCheckCCWS390AddressSupport(def, disk->info, qemuCaps, disk->dst))
++        goto error;
++
+     if (disk->iothread && !qemuCheckIOThreads(def, qemuCaps, disk))
+         goto error;
+ 
+@@ -4487,6 +4530,10 @@ qemuBuildControllerDevStr(virDomainDefPtr domainDef,
+     virBuffer buf = VIR_BUFFER_INITIALIZER;
+     int model = def->model;
+ 
++    if (!qemuCheckCCWS390AddressSupport(domainDef, def->info, qemuCaps,
++                                        "controller"))
++        return NULL;
++
+     if (def->type == VIR_DOMAIN_CONTROLLER_TYPE_SCSI) {
+         if ((qemuSetSCSIControllerModel(domainDef, qemuCaps, &model)) < 0)
+             return NULL;
+@@ -6616,6 +6663,10 @@ qemuBuildRNGDevStr(virDomainDefPtr def,
+         goto error;
+     }
+ 
++    if (!qemuCheckCCWS390AddressSupport(def, dev->info, qemuCaps,
++                                        dev->source.file))
++        goto error;
++
+     if (dev->info.type == VIR_DOMAIN_DEVICE_ADDRESS_TYPE_CCW)
+         virBufferAsprintf(&buf, "virtio-rng-ccw,rng=obj%s,id=%s",
+                           dev->info.alias, dev->info.alias);
+diff --git a/src/qemu/qemu_command.h b/src/qemu/qemu_command.h
+index 6e0c3a3..8acbb3d 100644
+--- a/src/qemu/qemu_command.h
++++ b/src/qemu/qemu_command.h
+@@ -311,4 +311,9 @@ int qemuCheckDiskConfig(virDomainDiskDefPtr disk);
+ 
+ bool
+ qemuCheckFips(void);
++
++bool qemuCheckCCWS390AddressSupport(virDomainDefPtr def,
++                                    virDomainDeviceInfo info,
++                                    virQEMUCapsPtr qemuCaps,
++                                    const char *devicename);
+ #endif /* __QEMU_COMMAND_H__*/
+diff --git a/src/qemu/qemu_hotplug.c b/src/qemu/qemu_hotplug.c
+index b79fc56..cfb071b 100644
+--- a/src/qemu/qemu_hotplug.c
++++ b/src/qemu/qemu_hotplug.c
+@@ -331,6 +331,10 @@ qemuDomainAttachVirtioDiskDevice(virConnectPtr conn,
+             disk->info.type = VIR_DOMAIN_DEVICE_ADDRESS_TYPE_CCW;
+         else if (virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_VIRTIO_S390))
+             disk->info.type = VIR_DOMAIN_DEVICE_ADDRESS_TYPE_VIRTIO_S390;
++    } else {
++        if (!qemuCheckCCWS390AddressSupport(vm->def, disk->info, priv->qemuCaps,
++                                            disk->dst))
++            goto cleanup;
+     }
+ 
+     for (i = 0; i < vm->def->ndisks; i++) {
+@@ -448,6 +452,10 @@ int qemuDomainAttachControllerDevice(virQEMUDriverPtr driver,
+                 controller->info.type = VIR_DOMAIN_DEVICE_ADDRESS_TYPE_CCW;
+             else if (virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_VIRTIO_S390))
+                 controller->info.type = VIR_DOMAIN_DEVICE_ADDRESS_TYPE_VIRTIO_S390;
++        } else {
++            if (!qemuCheckCCWS390AddressSupport(vm->def, controller->info,
++                                                priv->qemuCaps, "controller"))
++                goto cleanup;
+         }
+ 
+         if (controller->info.type == VIR_DOMAIN_DEVICE_ADDRESS_TYPE_NONE ||
+@@ -1663,6 +1671,10 @@ qemuDomainAttachRNGDevice(virQEMUDriverPtr driver,
+         } else if (virQEMUCapsGet(priv->qemuCaps, QEMU_CAPS_VIRTIO_S390)) {
+             rng->info.type = VIR_DOMAIN_DEVICE_ADDRESS_TYPE_VIRTIO_S390;
+         }
++    } else {
++        if (!qemuCheckCCWS390AddressSupport(vm->def, rng->info, priv->qemuCaps,
++                                            rng->source.file))
++            return -1;
+     }
+ 
+     if (rng->info.type == VIR_DOMAIN_DEVICE_ADDRESS_TYPE_NONE ||
+-- 
+2.5.1
+

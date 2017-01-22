@@ -1,0 +1,40 @@
+From a5d2762f9a375c79703e446e9f8e428ffcd4a9d1 Mon Sep 17 00:00:00 2001
+Message-Id: <a5d2762f9a375c79703e446e9f8e428ffcd4a9d1@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Tue, 22 Sep 2015 16:59:36 +0200
+Subject: [PATCH] qemu: migration: Relax enforcement of memory hotplug support
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1252685
+
+If the current live definition does not have memory hotplug enabled, but
+the persistent one does libvirt would reject migration if the
+destination does not support memory hotplug even if the user didn't want
+to persist the VM at the destination and thus the XML containing the
+memory hotplug definition would not be used. To fix this corner case the
+code will check for memory hotplug in the newDef only if
+VIR_MIGRATE_PERSIST_DEST was used.
+
+(cherry picked from commit a98e5a78153644e0f13b34c69d60b7a866c4401a)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_migration.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/qemu/qemu_migration.c b/src/qemu/qemu_migration.c
+index cee82fa..58fcb94 100644
+--- a/src/qemu/qemu_migration.c
++++ b/src/qemu/qemu_migration.c
+@@ -2989,7 +2989,8 @@ qemuMigrationBeginPhase(virQEMUDriverPtr driver,
+     }
+ 
+     if (vm->def->mem.max_memory ||
+-        (vm->newDef &&
++        ((flags & VIR_MIGRATE_PERSIST_DEST) &&
++         vm->newDef &&
+          vm->newDef->mem.max_memory))
+         cookieFlags |= QEMU_MIGRATION_COOKIE_MEMORY_HOTPLUG;
+ 
+-- 
+2.5.3
+

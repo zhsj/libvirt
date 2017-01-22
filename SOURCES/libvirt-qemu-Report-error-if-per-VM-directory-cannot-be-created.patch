@@ -1,0 +1,63 @@
+From 573518f61bbdffc5ee7fb4f55a145f19e7edc65f Mon Sep 17 00:00:00 2001
+Message-Id: <573518f61bbdffc5ee7fb4f55a145f19e7edc65f@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Mon, 14 Sep 2015 10:15:25 +0200
+Subject: [PATCH] qemu: Report error if per-VM directory cannot be created
+
+Commit f1f68ca33433 did not report an error if virFileMakePath()
+returned -1.  Well, who would've guessed function with name starting
+with 'vir' sets an errno instead of reporting an error the libvirt way.
+Anyway, let's fix it, so the output changes from:
+
+  $ virsh start arm
+  error: Failed to start domain arm
+  error: An error occurred, but the cause is unknown
+
+to:
+
+  $ virsh start arm
+  error: Failed to start domain arm
+  error: Cannot create directory '/var/lib/libvirt/qemu/domain-arm': Not
+  a directory
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1146886
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 8370023730220fcf48f9b1fa0914b60c66452569)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_process.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/src/qemu/qemu_process.c b/src/qemu/qemu_process.c
+index 317ef78..d5b0fc0 100644
+--- a/src/qemu/qemu_process.c
++++ b/src/qemu/qemu_process.c
+@@ -4737,8 +4737,10 @@ int qemuProcessStart(virConnectPtr conn,
+     if (virAsprintf(&tmppath, "%s/domain-%s", cfg->libDir, vm->def->name) < 0)
+         goto cleanup;
+ 
+-    if (virFileMakePath(tmppath) < 0)
++    if (virFileMakePath(tmppath) < 0) {
++        virReportSystemError(errno, _("Cannot create directory '%s'"), tmppath);
+         goto cleanup;
++    }
+ 
+     if (virSecurityManagerDomainSetDirLabel(driver->securityManager,
+                                             vm->def, tmppath) < 0)
+@@ -4750,8 +4752,10 @@ int qemuProcessStart(virConnectPtr conn,
+                     cfg->channelTargetDir, vm->def->name) < 0)
+         goto cleanup;
+ 
+-    if (virFileMakePath(tmppath) < 0)
++    if (virFileMakePath(tmppath) < 0) {
++        virReportSystemError(errno, _("Cannot create directory '%s'"), tmppath);
+         goto cleanup;
++    }
+ 
+     if (virSecurityManagerDomainSetDirLabel(driver->securityManager,
+                                             vm->def, tmppath) < 0)
+-- 
+2.5.2
+

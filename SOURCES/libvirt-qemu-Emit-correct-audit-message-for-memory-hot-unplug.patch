@@ -1,0 +1,86 @@
+From 95b3838c5ea2c34dbb400979f69eb50114feb72f Mon Sep 17 00:00:00 2001
+Message-Id: <95b3838c5ea2c34dbb400979f69eb50114feb72f@dist-git>
+From: Luyao Huang <lhuang@redhat.com>
+Date: Thu, 12 Nov 2015 08:40:40 +0100
+Subject: [PATCH] qemu: Emit correct audit message for memory hot unplug
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1280420
+https://bugzilla.redhat.com/show_bug.cgi?id=1226234#c3
+
+If the qemu monitor fails to remove the memory from the guest for
+any reason, the auditlog message will incorrectly use the current
+actual memory (via virDomainDefGetMemoryActual) instead of the
+value we were attempting to reduce to. The result is the 'new-mem'
+and 'old-mem' values for the auditlog message would be identical.
+
+This patch creates a local 'newmem' which accounts for the current
+memory size minus the memory which is being removed. NB, for the
+success case this results in the same value that would be returned
+by virDomainDefGetMemoryActual without the need to do the math. This
+follows the existing code which would subtract the size for cur_balloon.
+
+Signed-off-by: Luyao Huang <lhuang@redhat.com>
+(cherry picked from commit 8f8031df1998725ac34a9a3138705c4f7cdf0488)
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_hotplug.c | 23 +++++++++++------------
+ 1 file changed, 11 insertions(+), 12 deletions(-)
+
+diff --git a/src/qemu/qemu_hotplug.c b/src/qemu/qemu_hotplug.c
+index f702c9f..aa1fb31 100644
+--- a/src/qemu/qemu_hotplug.c
++++ b/src/qemu/qemu_hotplug.c
+@@ -2933,11 +2933,11 @@ qemuDomainRemoveMemoryDevice(virQEMUDriverPtr driver,
+ {
+     qemuDomainObjPrivatePtr priv = vm->privateData;
+     unsigned long long oldmem = virDomainDefGetMemoryActual(vm->def);
++    unsigned long long newmem = oldmem - mem->size;
+     virObjectEventPtr event;
+     char *backendAlias = NULL;
+     int rc;
+     int idx;
+-    int ret = -1;
+ 
+     VIR_DEBUG("Removing memory device %s from domain %p %s",
+               mem->info.alias, vm, vm->def->name);
+@@ -2946,12 +2946,18 @@ qemuDomainRemoveMemoryDevice(virQEMUDriverPtr driver,
+         qemuDomainEventQueue(driver, event);
+ 
+     if (virAsprintf(&backendAlias, "mem%s", mem->info.alias) < 0)
+-        goto cleanup;
++        return -1;
+ 
+     qemuDomainObjEnterMonitor(driver, vm);
+     rc = qemuMonitorDelObject(priv->mon, backendAlias);
+-    if (qemuDomainObjExitMonitor(driver, vm) < 0 || rc < 0)
+-        goto cleanup;
++    if (qemuDomainObjExitMonitor(driver, vm) < 0)
++        rc = -1;
++
++    VIR_FREE(backendAlias);
++
++    virDomainAuditMemory(vm, oldmem, newmem, "update", rc == 0);
++    if (rc < 0)
++        return -1;
+ 
+     vm->def->mem.cur_balloon -= mem->size;
+ 
+@@ -2959,14 +2965,7 @@ qemuDomainRemoveMemoryDevice(virQEMUDriverPtr driver,
+         virDomainMemoryRemove(vm->def, idx);
+ 
+     virDomainMemoryDefFree(mem);
+-    ret = 0;
+-
+- cleanup:
+-    virDomainAuditMemory(vm, oldmem, virDomainDefGetMemoryActual(vm->def),
+-                         "update", ret == 0);
+-
+-    VIR_FREE(backendAlias);
+-    return ret;
++    return 0;
+ }
+ 
+ 
+-- 
+2.6.3
+

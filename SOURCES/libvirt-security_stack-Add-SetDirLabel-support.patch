@@ -1,0 +1,55 @@
+From f2cbaf777e1a5808944bce8b14899be93f253d4b Mon Sep 17 00:00:00 2001
+Message-Id: <f2cbaf777e1a5808944bce8b14899be93f253d4b@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Mon, 24 Aug 2015 13:04:48 +0200
+Subject: [PATCH] security_stack: Add SetDirLabel support
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1146886
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 99cf04e32d94025a8a969057fba4451eb416a56e)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/security/security_stack.c | 20 ++++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+
+diff --git a/src/security/security_stack.c b/src/security/security_stack.c
+index 1ded57b..8d9560d 100644
+--- a/src/security/security_stack.c
++++ b/src/security/security_stack.c
+@@ -599,6 +599,24 @@ virSecurityStackRestoreSecurityImageLabel(virSecurityManagerPtr mgr,
+     return rc;
+ }
+ 
++static int
++virSecurityStackDomainSetDirLabel(virSecurityManagerPtr mgr,
++                                  virDomainDefPtr vm,
++                                  const char *path)
++{
++    virSecurityStackDataPtr priv = virSecurityManagerGetPrivateData(mgr);
++    virSecurityStackItemPtr item = priv->itemsHead;
++    int rc = 0;
++
++    for (; item; item = item->next) {
++        if (virSecurityManagerDomainSetDirLabel(item->securityManager,
++                                                vm, path) < 0)
++            rc = -1;
++    }
++
++    return rc;
++}
++
+ virSecurityDriver virSecurityDriverStack = {
+     .privateDataLen                     = sizeof(virSecurityStackData),
+     .name                               = "stack",
+@@ -648,4 +666,6 @@ virSecurityDriver virSecurityDriverStack = {
+     .domainSetSecurityHugepages         = virSecurityStackSetHugepages,
+ 
+     .getBaseLabel                       = virSecurityStackGetBaseLabel,
++
++    .domainSetDirLabel                  = virSecurityStackDomainSetDirLabel,
+ };
+-- 
+2.5.1
+

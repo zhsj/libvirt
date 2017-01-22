@@ -1,0 +1,248 @@
+From 56e2f0e6cc2d46edde1f32cd3ef88e32f247103d Mon Sep 17 00:00:00 2001
+Message-Id: <56e2f0e6cc2d46edde1f32cd3ef88e32f247103d@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Tue, 11 Aug 2015 17:16:12 +0200
+Subject: [PATCH] tests: Add a bunch of cpu test case for ppc64
+
+The test cases cover the cpuCompare(), cpuBaseline() and
+cpuNodeData() implementation.
+
+(cherry picked from commit 818e68c5b422158f6fd3edf6f77ae82a631cb41d)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1250977
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ tests/cputest.c                                          | 16 ++++++++++++++++
+ tests/cputestdata/ppc64-baseline-incompatible-models.xml | 14 ++++++++++++++
+ tests/cputestdata/ppc64-baseline-legacy.xml              | 14 ++++++++++++++
+ tests/cputestdata/ppc64-baseline-same-model-result.xml   |  3 +++
+ tests/cputestdata/ppc64-baseline-same-model.xml          | 14 ++++++++++++++
+ tests/cputestdata/ppc64-guest-legacy-incompatible.xml    |  3 +++
+ tests/cputestdata/ppc64-guest-legacy-invalid.xml         |  3 +++
+ tests/cputestdata/ppc64-guest-legacy.xml                 |  3 +++
+ .../ppc64-host+guest-legacy,ppc_models-result.xml        |  5 +++++
+ tests/cputestdata/ppc64-host-better.xml                  |  6 ++++++
+ tests/cputestdata/ppc64-host-incomp-arch.xml             |  6 ++++++
+ tests/cputestdata/ppc64-host-no-vendor.xml               |  5 +++++
+ tests/cputestdata/ppc64-host-worse.xml                   |  6 ++++++
+ 13 files changed, 98 insertions(+)
+ create mode 100644 tests/cputestdata/ppc64-baseline-incompatible-models.xml
+ create mode 100644 tests/cputestdata/ppc64-baseline-legacy.xml
+ create mode 100644 tests/cputestdata/ppc64-baseline-same-model-result.xml
+ create mode 100644 tests/cputestdata/ppc64-baseline-same-model.xml
+ create mode 100644 tests/cputestdata/ppc64-guest-legacy-incompatible.xml
+ create mode 100644 tests/cputestdata/ppc64-guest-legacy-invalid.xml
+ create mode 100644 tests/cputestdata/ppc64-guest-legacy.xml
+ create mode 100644 tests/cputestdata/ppc64-host+guest-legacy,ppc_models-result.xml
+ create mode 100644 tests/cputestdata/ppc64-host-better.xml
+ create mode 100644 tests/cputestdata/ppc64-host-incomp-arch.xml
+ create mode 100644 tests/cputestdata/ppc64-host-no-vendor.xml
+ create mode 100644 tests/cputestdata/ppc64-host-worse.xml
+
+diff --git a/tests/cputest.c b/tests/cputest.c
+index 09f690a..5992dd0 100644
+--- a/tests/cputest.c
++++ b/tests/cputest.c
+@@ -571,6 +571,13 @@ mymain(void)
+     DO_TEST_COMPARE("x86", "host", "host-no-vendor", VIR_CPU_COMPARE_IDENTICAL);
+     DO_TEST_COMPARE("x86", "host-no-vendor", "host", VIR_CPU_COMPARE_INCOMPATIBLE);
+ 
++    DO_TEST_COMPARE("ppc64", "host", "host", VIR_CPU_COMPARE_IDENTICAL);
++    DO_TEST_COMPARE("ppc64", "host", "host-better", VIR_CPU_COMPARE_INCOMPATIBLE);
++    DO_TEST_COMPARE("ppc64", "host", "host-worse", VIR_CPU_COMPARE_INCOMPATIBLE);
++    DO_TEST_COMPARE("ppc64", "host", "host-incomp-arch", VIR_CPU_COMPARE_INCOMPATIBLE);
++    DO_TEST_COMPARE("ppc64", "host", "host-no-vendor", VIR_CPU_COMPARE_IDENTICAL);
++    DO_TEST_COMPARE("ppc64", "host-no-vendor", "host", VIR_CPU_COMPARE_INCOMPATIBLE);
++
+     /* guest to host comparison */
+     DO_TEST_COMPARE("x86", "host", "bogus-model", VIR_CPU_COMPARE_ERROR);
+     DO_TEST_COMPARE("x86", "host", "bogus-feature", VIR_CPU_COMPARE_ERROR);
+@@ -597,6 +604,9 @@ mymain(void)
+ 
+     DO_TEST_COMPARE("ppc64", "host", "guest-strict", VIR_CPU_COMPARE_IDENTICAL);
+     DO_TEST_COMPARE("ppc64", "host", "guest-exact", VIR_CPU_COMPARE_INCOMPATIBLE);
++    DO_TEST_COMPARE("ppc64", "host", "guest-legacy", VIR_CPU_COMPARE_IDENTICAL);
++    DO_TEST_COMPARE("ppc64", "host", "guest-legacy-incompatible", VIR_CPU_COMPARE_INCOMPATIBLE);
++    DO_TEST_COMPARE("ppc64", "host", "guest-legacy-invalid", VIR_CPU_COMPARE_ERROR);
+ 
+     /* guest updates for migration
+      * automatically compares host CPU with the result */
+@@ -627,6 +637,9 @@ mymain(void)
+ 
+     DO_TEST_BASELINE("ppc64", "incompatible-vendors", 0, -1);
+     DO_TEST_BASELINE("ppc64", "no-vendor", 0, 0);
++    DO_TEST_BASELINE("ppc64", "incompatible-models", 0, -1);
++    DO_TEST_BASELINE("ppc64", "same-model", 0, 0);
++    DO_TEST_BASELINE("ppc64", "legacy", 0, -1);
+ 
+     /* CPU features */
+     DO_TEST_HASFEATURE("x86", "host", "vmx", YES);
+@@ -664,6 +677,9 @@ mymain(void)
+ 
+     DO_TEST_GUESTDATA("ppc64", "host", "guest", ppc_models, NULL, 0);
+     DO_TEST_GUESTDATA("ppc64", "host", "guest-nofallback", ppc_models, "POWER8", -1);
++    DO_TEST_GUESTDATA("ppc64", "host", "guest-legacy", ppc_models, NULL, 0);
++    DO_TEST_GUESTDATA("ppc64", "host", "guest-legacy-incompatible", ppc_models, NULL, -1);
++    DO_TEST_GUESTDATA("ppc64", "host", "guest-legacy-invalid", ppc_models, NULL, -1);
+ 
+     return ret == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+ }
+diff --git a/tests/cputestdata/ppc64-baseline-incompatible-models.xml b/tests/cputestdata/ppc64-baseline-incompatible-models.xml
+new file mode 100644
+index 0000000..7e7b9a6
+--- /dev/null
++++ b/tests/cputestdata/ppc64-baseline-incompatible-models.xml
+@@ -0,0 +1,14 @@
++<cpuTest>
++<cpu>
++  <arch>ppc64</arch>
++  <model>POWER7</model>
++  <vendor>IBM</vendor>
++  <topology sockets='2' cores='4' threads='1'/>
++</cpu>
++<cpu>
++  <arch>ppc64</arch>
++  <model>POWER8</model>
++  <vendor>IBM</vendor>
++  <topology sockets='1' cores='1' threads='1'/>
++</cpu>
++</cpuTest>
+diff --git a/tests/cputestdata/ppc64-baseline-legacy.xml b/tests/cputestdata/ppc64-baseline-legacy.xml
+new file mode 100644
+index 0000000..b652497
+--- /dev/null
++++ b/tests/cputestdata/ppc64-baseline-legacy.xml
+@@ -0,0 +1,14 @@
++<cpuTest>
++<cpu>
++  <arch>ppc64</arch>
++  <model>POWER8</model>
++  <vendor>IBM</vendor>
++  <topology sockets='2' cores='4' threads='1'/>
++</cpu>
++<cpu>
++  <arch>ppc64</arch>
++  <model>power8e</model>
++  <vendor>IBM</vendor>
++  <topology sockets='1' cores='1' threads='1'/>
++</cpu>
++</cpuTest>
+diff --git a/tests/cputestdata/ppc64-baseline-same-model-result.xml b/tests/cputestdata/ppc64-baseline-same-model-result.xml
+new file mode 100644
+index 0000000..0223018
+--- /dev/null
++++ b/tests/cputestdata/ppc64-baseline-same-model-result.xml
+@@ -0,0 +1,3 @@
++<cpu mode='custom' match='exact'>
++  <model fallback='forbid'>POWER8</model>
++</cpu>
+diff --git a/tests/cputestdata/ppc64-baseline-same-model.xml b/tests/cputestdata/ppc64-baseline-same-model.xml
+new file mode 100644
+index 0000000..dceae83
+--- /dev/null
++++ b/tests/cputestdata/ppc64-baseline-same-model.xml
+@@ -0,0 +1,14 @@
++<cpuTest>
++<cpu>
++  <arch>ppc64</arch>
++  <model>POWER8</model>
++  <vendor>IBM</vendor>
++  <topology sockets='2' cores='4' threads='1'/>
++</cpu>
++<cpu>
++  <arch>ppc64</arch>
++  <model>POWER8</model>
++  <vendor>IBM</vendor>
++  <topology sockets='1' cores='1' threads='1'/>
++</cpu>
++</cpuTest>
+diff --git a/tests/cputestdata/ppc64-guest-legacy-incompatible.xml b/tests/cputestdata/ppc64-guest-legacy-incompatible.xml
+new file mode 100644
+index 0000000..f5b8384
+--- /dev/null
++++ b/tests/cputestdata/ppc64-guest-legacy-incompatible.xml
+@@ -0,0 +1,3 @@
++<cpu mode='custom' match='exact'>
++  <model fallback='allow'>POWER8_v1.0</model>
++</cpu>
+diff --git a/tests/cputestdata/ppc64-guest-legacy-invalid.xml b/tests/cputestdata/ppc64-guest-legacy-invalid.xml
+new file mode 100644
+index 0000000..be059c3
+--- /dev/null
++++ b/tests/cputestdata/ppc64-guest-legacy-invalid.xml
+@@ -0,0 +1,3 @@
++<cpu mode='custom' match='exact'>
++  <model fallback='allow'>POWER8E_v1.0</model>
++</cpu>
+diff --git a/tests/cputestdata/ppc64-guest-legacy.xml b/tests/cputestdata/ppc64-guest-legacy.xml
+new file mode 100644
+index 0000000..36bae52
+--- /dev/null
++++ b/tests/cputestdata/ppc64-guest-legacy.xml
+@@ -0,0 +1,3 @@
++<cpu mode='custom' match='exact'>
++  <model fallback='allow'>POWER7_v2.3</model>
++</cpu>
+diff --git a/tests/cputestdata/ppc64-host+guest-legacy,ppc_models-result.xml b/tests/cputestdata/ppc64-host+guest-legacy,ppc_models-result.xml
+new file mode 100644
+index 0000000..3548c0e
+--- /dev/null
++++ b/tests/cputestdata/ppc64-host+guest-legacy,ppc_models-result.xml
+@@ -0,0 +1,5 @@
++<cpu mode='custom' match='exact'>
++  <arch>ppc64</arch>
++  <model fallback='allow'>POWER7</model>
++  <vendor>IBM</vendor>
++</cpu>
+diff --git a/tests/cputestdata/ppc64-host-better.xml b/tests/cputestdata/ppc64-host-better.xml
+new file mode 100644
+index 0000000..af87412
+--- /dev/null
++++ b/tests/cputestdata/ppc64-host-better.xml
+@@ -0,0 +1,6 @@
++<cpu>
++  <arch>ppc64</arch>
++  <model>POWER8</model>
++  <vendor>IBM</vendor>
++  <topology sockets='1' cores='64' threads='1'/>
++</cpu>
+diff --git a/tests/cputestdata/ppc64-host-incomp-arch.xml b/tests/cputestdata/ppc64-host-incomp-arch.xml
+new file mode 100644
+index 0000000..195f436
+--- /dev/null
++++ b/tests/cputestdata/ppc64-host-incomp-arch.xml
+@@ -0,0 +1,6 @@
++<cpu>
++  <arch>x86_64</arch>
++  <model>POWER7</model>
++  <vendor>IBM</vendor>
++  <topology sockets='1' cores='64' threads='1'/>
++</cpu>
+diff --git a/tests/cputestdata/ppc64-host-no-vendor.xml b/tests/cputestdata/ppc64-host-no-vendor.xml
+new file mode 100644
+index 0000000..de73006
+--- /dev/null
++++ b/tests/cputestdata/ppc64-host-no-vendor.xml
+@@ -0,0 +1,5 @@
++<cpu>
++  <arch>ppc64</arch>
++  <model>POWER7</model>
++  <topology sockets='1' cores='64' threads='1'/>
++</cpu>
+diff --git a/tests/cputestdata/ppc64-host-worse.xml b/tests/cputestdata/ppc64-host-worse.xml
+new file mode 100644
+index 0000000..ba1806b
+--- /dev/null
++++ b/tests/cputestdata/ppc64-host-worse.xml
+@@ -0,0 +1,6 @@
++<cpu>
++  <arch>ppc64</arch>
++  <model>POWER6</model>
++  <vendor>IBM</vendor>
++  <topology sockets='1' cores='64' threads='1'/>
++</cpu>
+-- 
+2.5.0
+

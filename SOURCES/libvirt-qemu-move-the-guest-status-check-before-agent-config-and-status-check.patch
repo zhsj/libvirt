@@ -1,0 +1,66 @@
+From 80c40537679e42b440f88e97007136aca748d613 Mon Sep 17 00:00:00 2001
+Message-Id: <80c40537679e42b440f88e97007136aca748d613@dist-git>
+From: Luyao Huang <lhuang@redhat.com>
+Date: Fri, 10 Jul 2015 09:25:23 +0200
+Subject: [PATCH] qemu: move the guest status check before agent config and
+ status check
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1240979
+
+When use setvcpus command with --guest option to a offline vm,
+we will get error:
+
+ # virsh setvcpus test3 1 --guest
+ error: Guest agent is not responding: QEMU guest agent is not connected
+
+However guest is not running, agent status could not be connected.
+In this case, report domain is not running will be better than agent is
+not connected. Move the guest status check more early to output error to
+point out guest status is not right.
+
+Also from the logic, a running vm is a basic requirement to use
+agent, we cannot use agent if vm is not running.
+
+Signed-off-by: Luyao Huang <lhuang@redhat.com>
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+(cherry picked from commit 0b3fcfb1eac845ba24ac2ad6eefb969d5f7b8395)
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_domain.c | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index e3793bd..c247737 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -3076,6 +3076,13 @@ qemuDomainAgentAvailable(virDomainObjPtr vm,
+ {
+     qemuDomainObjPrivatePtr priv = vm->privateData;
+ 
++    if (virDomainObjGetState(vm, NULL) != VIR_DOMAIN_RUNNING) {
++        if (reportError) {
++            virReportError(VIR_ERR_OPERATION_INVALID, "%s",
++                           _("domain is not running"));
++        }
++        return false;
++    }
+     if (priv->agentError) {
+         if (reportError) {
+             virReportError(VIR_ERR_AGENT_UNRESPONSIVE, "%s",
+@@ -3099,13 +3106,6 @@ qemuDomainAgentAvailable(virDomainObjPtr vm,
+             return false;
+         }
+     }
+-    if (virDomainObjGetState(vm, NULL) != VIR_DOMAIN_RUNNING) {
+-        if (reportError) {
+-            virReportError(VIR_ERR_OPERATION_INVALID, "%s",
+-                           _("domain is not running"));
+-        }
+-        return false;
+-    }
+     return true;
+ }
+ 
+-- 
+2.4.5
+

@@ -1,0 +1,184 @@
+From b3ada4fb6e742813d3eca32bac7bf88e4db54d8e Mon Sep 17 00:00:00 2001
+Message-Id: <b3ada4fb6e742813d3eca32bac7bf88e4db54d8e@dist-git>
+From: John Ferlan <jferlan@redhat.com>
+Date: Wed, 2 Sep 2015 09:55:13 -0400
+Subject: [PATCH] virfile: Introduce virFileUnlink
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1253609
+
+In an NFS root-squashed environment the 'vol-delete' command will fail to
+'unlink' the target volume since it was created under a different uid:gid.
+
+This code continues the concepts introduced in virFileOpenForked and
+virDirCreate[NoFork] with respect to running the unlink command under
+the uid/gid of the child. Unlike the other two, don't retry on EACCES
+(that's why we're here doing this now).
+
+(cherry picked from commit 35847860f65f92e444db9730e00cdaef45198e0c)
+Signed-off-by: John Ferlan <jferlan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/libvirt_private.syms         |   1 +
+ src/storage/storage_backend_fs.c |   3 +-
+ src/util/virfile.c               | 106 +++++++++++++++++++++++++++++++++++++++
+ src/util/virfile.h               |   1 +
+ 4 files changed, 110 insertions(+), 1 deletion(-)
+
+diff --git a/src/libvirt_private.syms b/src/libvirt_private.syms
+index e5d8437..15fa785 100644
+--- a/src/libvirt_private.syms
++++ b/src/libvirt_private.syms
+@@ -1452,6 +1452,7 @@ virFileSanitizePath;
+ virFileSkipRoot;
+ virFileStripSuffix;
+ virFileTouch;
++virFileUnlink;
+ virFileUnlock;
+ virFileUpdatePerm;
+ virFileWaitForDevices;
+diff --git a/src/storage/storage_backend_fs.c b/src/storage/storage_backend_fs.c
+index c0ea1df..f41a41e 100644
+--- a/src/storage/storage_backend_fs.c
++++ b/src/storage/storage_backend_fs.c
+@@ -1203,7 +1203,8 @@ virStorageBackendFileSystemVolDelete(virConnectPtr conn ATTRIBUTE_UNUSED,
+ 
+     switch ((virStorageVolType) vol->type) {
+     case VIR_STORAGE_VOL_FILE:
+-        if (unlink(vol->target.path) < 0) {
++        if (virFileUnlink(vol->target.path, vol->target.perms->uid,
++                          vol->target.perms->gid) < 0) {
+             /* Silently ignore failures where the vol has already gone away */
+             if (errno != ENOENT) {
+                 virReportSystemError(errno,
+diff --git a/src/util/virfile.c b/src/util/virfile.c
+index e657913..7c6e72c 100644
+--- a/src/util/virfile.c
++++ b/src/util/virfile.c
+@@ -2285,6 +2285,112 @@ virFileOpenAs(const char *path, int openflags, mode_t mode,
+     return ret;
+ }
+ 
++
++/* virFileUnlink:
++ * @path: file to unlink
++ * @uid: uid that was used to create the file (not required)
++ * @gid: gid that was used to create the file (not required)
++ *
++ * If a file/volume was created in an NFS root-squash environment,
++ * then we must 'unlink' the file in the same environment. Unlike
++ * the virFileOpenAs[Forked] and virDirCreate[NoFork], this code
++ * takes no extra flags and does not bother with EACCES failures
++ * from the child.
++ */
++int
++virFileUnlink(const char *path,
++              uid_t uid,
++              gid_t gid)
++{
++    pid_t pid;
++    int waitret;
++    int status, ret = 0;
++    gid_t *groups;
++    int ngroups;
++
++    /* If not running as root or if a non explicit uid/gid was being used for
++     * the file/volume, then use unlink directly
++     */
++    if ((geteuid() != 0) ||
++        ((uid == (uid_t) -1) && (gid == (gid_t) -1)))
++        return unlink(path);
++
++    /* Otherwise, we have to deal with the NFS root-squash craziness
++     * to run under the uid/gid that created the volume in order to
++     * perform the unlink of the volume.
++     */
++    if (uid == (uid_t) -1)
++        uid = geteuid();
++    if (gid == (gid_t) -1)
++        gid = getegid();
++
++    ngroups = virGetGroupList(uid, gid, &groups);
++    if (ngroups < 0)
++        return -errno;
++
++    pid = virFork();
++
++    if (pid < 0) {
++        ret = -errno;
++        VIR_FREE(groups);
++        return ret;
++    }
++
++    if (pid) { /* parent */
++        /* wait for child to complete, and retrieve its exit code */
++        VIR_FREE(groups);
++
++        while ((waitret = waitpid(pid, &status, 0)) == -1 && errno == EINTR);
++        if (waitret == -1) {
++            ret = -errno;
++            virReportSystemError(errno,
++                                 _("failed to wait for child unlinking '%s'"),
++                                 path);
++            goto parenterror;
++        }
++
++        /*
++         * If waitpid succeeded, but if the child exited abnormally or
++         * reported non-zero status, report failure
++         */
++        if (!WIFEXITED(status) || (WEXITSTATUS(status)) != 0) {
++            char *msg = virProcessTranslateStatus(status);
++            virReportError(VIR_ERR_INTERNAL_ERROR,
++                           _("child failed to unlink '%s': %s"),
++                           path, msg);
++            VIR_FREE(msg);
++            if (WIFEXITED(status))
++                ret = -WEXITSTATUS(status);
++            else
++                ret = -EACCES;
++        }
++
++ parenterror:
++        return ret;
++    }
++
++    /* child */
++
++    /* set desired uid/gid, then attempt to unlink the file */
++    if (virSetUIDGID(uid, gid, groups, ngroups) < 0) {
++        ret = errno;
++        goto childerror;
++    }
++
++    if (unlink(path) < 0) {
++        ret = errno;
++        goto childerror;
++    }
++
++ childerror:
++    if ((ret & 0xff) != ret) {
++        VIR_WARN("unable to pass desired return value %d", ret);
++        ret = 0xff;
++    }
++    _exit(ret);
++}
++
++
+ /* return -errno on failure, or 0 on success */
+ static int
+ virDirCreateNoFork(const char *path,
+diff --git a/src/util/virfile.h b/src/util/virfile.h
+index 2d27e89..797ca65 100644
+--- a/src/util/virfile.h
++++ b/src/util/virfile.h
+@@ -219,6 +219,7 @@ int virFileOpenAs(const char *path, int openflags, mode_t mode,
+                   uid_t uid, gid_t gid,
+                   unsigned int flags)
+     ATTRIBUTE_NONNULL(1) ATTRIBUTE_RETURN_CHECK;
++int virFileUnlink(const char *path, uid_t uid, gid_t gid);
+ 
+ enum {
+     VIR_DIR_CREATE_NONE        = 0,
+-- 
+2.5.1
+

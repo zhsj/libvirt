@@ -1,0 +1,37 @@
+From 1b5fbd7f3c62217601b062d55bfec70eec8a1b07 Mon Sep 17 00:00:00 2001
+Message-Id: <1b5fbd7f3c62217601b062d55bfec70eec8a1b07@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Thu, 30 Jul 2015 15:53:41 +0200
+Subject: [PATCH] qemu: Properly check for incoming migration job
+
+In addition to checking the current asynchronous job
+qemuMigrationJobIsActive reports an error if the current job does not
+match the one we asked for. Let's just check the job directly since we
+are not interested in the error in qemuProcessHandleMonitorEOF.
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+(cherry picked from commit 40a6dd9c16f4760ae01919f7710476c4c9804f4f)
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1242904
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_process.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/qemu/qemu_process.c b/src/qemu/qemu_process.c
+index 35b6513..31315b1 100644
+--- a/src/qemu/qemu_process.c
++++ b/src/qemu/qemu_process.c
+@@ -310,7 +310,7 @@ qemuProcessHandleMonitorEOF(qemuMonitorPtr mon ATTRIBUTE_UNUSED,
+         auditReason = "failed";
+     }
+ 
+-    if (qemuMigrationJobIsActive(vm, QEMU_ASYNC_JOB_MIGRATION_IN))
++    if (priv->job.asyncJob == QEMU_ASYNC_JOB_MIGRATION_IN)
+         qemuMigrationErrorSave(driver, vm->def->name,
+                                qemuMonitorLastError(priv->mon));
+ 
+-- 
+2.5.0
+

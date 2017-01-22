@@ -1,0 +1,75 @@
+From 78ec2a308afb0becf048571091cc76e6ee5059a5 Mon Sep 17 00:00:00 2001
+Message-Id: <78ec2a308afb0becf048571091cc76e6ee5059a5@dist-git>
+From: Laine Stump <laine@laine.org>
+Date: Mon, 10 Aug 2015 13:42:53 -0400
+Subject: [PATCH] qemu: fail on attempts to use <filterref> for non-tap network
+ connections
+
+nwfilter uses iptables and ebtables, which only work properly on
+tap-based network connections (*not* on macvtap, for example), but we
+just ignore any <filterref> elements for other types of networks,
+potentially giving users a false sense of security.
+
+This patch checks the network type and fails/logs an error if any
+domain <interface> has a <filterref> when the connection isn't using a
+tap device.
+
+This resolves:
+
+  https://bugzilla.redhat.com/show_bug.cgi?id=1180011
+
+(cherry picked from commit f4f1d18dc464a4fd436ce9cdd18d6f06fa7494e5)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_command.c | 11 +++++++++++
+ src/qemu/qemu_hotplug.c | 11 +++++++++++
+ 2 files changed, 22 insertions(+)
+
+diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
+index 1e5e244..d28063c 100644
+--- a/src/qemu/qemu_command.c
++++ b/src/qemu/qemu_command.c
+@@ -8347,6 +8347,17 @@ qemuBuildInterfaceCommandLine(virCommandPtr cmd,
+         return -1;
+     }
+ 
++    /* and only TAP devices support nwfilter rules */
++    if (net->filter &&
++        !(actualType == VIR_DOMAIN_NET_TYPE_NETWORK ||
++          actualType == VIR_DOMAIN_NET_TYPE_BRIDGE)) {
++        virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
++                       _("filterref is not supported for "
++                         "network interfaces of type %s"),
++                       virDomainNetTypeToString(actualType));
++        return -1;
++    }
++
+     if (net->backend.tap &&
+         !(actualType == VIR_DOMAIN_NET_TYPE_NETWORK ||
+           actualType == VIR_DOMAIN_NET_TYPE_BRIDGE)) {
+diff --git a/src/qemu/qemu_hotplug.c b/src/qemu/qemu_hotplug.c
+index 1ea397f..aabdb78 100644
+--- a/src/qemu/qemu_hotplug.c
++++ b/src/qemu/qemu_hotplug.c
+@@ -910,6 +910,17 @@ int qemuDomainAttachNetDevice(virConnectPtr conn,
+         return -1;
+     }
+ 
++    /* and only TAP devices support nwfilter rules */
++    if (net->filter &&
++        !(actualType == VIR_DOMAIN_NET_TYPE_NETWORK ||
++          actualType == VIR_DOMAIN_NET_TYPE_BRIDGE)) {
++        virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
++                       _("filterref is not supported for "
++                         "network interfaces of type %s"),
++                       virDomainNetTypeToString(actualType));
++        return -1;
++    }
++
+     if (actualType == VIR_DOMAIN_NET_TYPE_BRIDGE ||
+         actualType == VIR_DOMAIN_NET_TYPE_NETWORK) {
+         tapfdSize = vhostfdSize = net->driver.virtio.queues;
+-- 
+2.5.0
+

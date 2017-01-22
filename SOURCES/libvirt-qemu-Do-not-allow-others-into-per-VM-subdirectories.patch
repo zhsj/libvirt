@@ -1,0 +1,41 @@
+From 1b3b61bc9cd913a2f3fea1ab39ded81c6da2bacd Mon Sep 17 00:00:00 2001
+Message-Id: <1b3b61bc9cd913a2f3fea1ab39ded81c6da2bacd@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Mon, 14 Sep 2015 10:15:26 +0200
+Subject: [PATCH] qemu: Do not allow others into per-VM subdirectories
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1146886
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 192a13948905668955ff39e32d4622f8511fadf0)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_process.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/qemu/qemu_process.c b/src/qemu/qemu_process.c
+index d5b0fc0..ee1d6b2 100644
+--- a/src/qemu/qemu_process.c
++++ b/src/qemu/qemu_process.c
+@@ -4737,7 +4737,7 @@ int qemuProcessStart(virConnectPtr conn,
+     if (virAsprintf(&tmppath, "%s/domain-%s", cfg->libDir, vm->def->name) < 0)
+         goto cleanup;
+ 
+-    if (virFileMakePath(tmppath) < 0) {
++    if (virFileMakePathWithMode(tmppath, 0750) < 0) {
+         virReportSystemError(errno, _("Cannot create directory '%s'"), tmppath);
+         goto cleanup;
+     }
+@@ -4752,7 +4752,7 @@ int qemuProcessStart(virConnectPtr conn,
+                     cfg->channelTargetDir, vm->def->name) < 0)
+         goto cleanup;
+ 
+-    if (virFileMakePath(tmppath) < 0) {
++    if (virFileMakePathWithMode(tmppath, 0750) < 0) {
+         virReportSystemError(errno, _("Cannot create directory '%s'"), tmppath);
+         goto cleanup;
+     }
+-- 
+2.5.2
+

@@ -1,0 +1,199 @@
+From cbd26cc9303bc0b00da7d63756c016c4f056ab4c Mon Sep 17 00:00:00 2001
+Message-Id: <cbd26cc9303bc0b00da7d63756c016c4f056ab4c@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Mon, 24 Aug 2015 13:04:51 +0200
+Subject: [PATCH] qemu: Fix access to auto-generated socket paths
+
+We are automatically generating some socket paths for domains, but all
+those paths end up in a directory that's the same for multiple domains.
+The problem is that multiple domains can each run with different
+seclabels (users, selinux contexts, etc.).  The idea here is to create a
+per-domain directory labelled in a way that each domain can access its
+own unix sockets.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1146886
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit f1f68ca33433825ce0deed2d96f1990200bc6618)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_command.c                            |  2 +-
+ src/qemu/qemu_domain.c                             | 16 +++---
+ src/qemu/qemu_process.c                            | 57 +++++++++++++++++++++-
+ .../qemuxml2argv-channel-virtio-unix.args          |  7 +--
+ 4 files changed, 67 insertions(+), 15 deletions(-)
+
+diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
+index d28063c..aebaf35 100644
+--- a/src/qemu/qemu_command.c
++++ b/src/qemu/qemu_command.c
+@@ -7807,7 +7807,7 @@ qemuBuildGraphicsVNCCommandLine(virQEMUDriverConfigPtr cfg,
+     if (graphics->data.vnc.socket || cfg->vncAutoUnixSocket) {
+         if (!graphics->data.vnc.socket &&
+             virAsprintf(&graphics->data.vnc.socket,
+-                        "%s/%s.vnc", cfg->libDir, def->name) == -1)
++                        "%s/domain-%s/vnc.sock", cfg->libDir, def->name) == -1)
+             goto error;
+ 
+         virBufferAsprintf(&opt, "unix:%s", graphics->data.vnc.socket);
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index 3b542f5..943d727 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -1288,16 +1288,12 @@ qemuDomainDeviceDefPostParse(virDomainDeviceDefPtr dev,
+             goto cleanup;
+         }
+ 
+-        if (dev->data.chr->target.name) {
+-            if (virAsprintf(&dev->data.chr->source.data.nix.path, "%s/%s.%s",
+-                            cfg->channelTargetDir,
+-                            def->name, dev->data.chr->target.name) < 0)
+-                goto cleanup;
+-        } else {
+-            if (virAsprintf(&dev->data.chr->source.data.nix.path, "%s/%s",
+-                            cfg->channelTargetDir, def->name) < 0)
+-                goto cleanup;
+-        }
++        if (virAsprintf(&dev->data.chr->source.data.nix.path,
++                        "%s/domain-%s/%s",
++                        cfg->channelTargetDir, def->name,
++                        dev->data.chr->target.name ? dev->data.chr->target.name
++                        : "unknown.sock") < 0)
++            goto cleanup;
+ 
+         dev->data.chr->source.data.nix.listen = true;
+     }
+diff --git a/src/qemu/qemu_process.c b/src/qemu/qemu_process.c
+index e1c7f0b..8cda456 100644
+--- a/src/qemu/qemu_process.c
++++ b/src/qemu/qemu_process.c
+@@ -46,6 +46,7 @@
+ 
+ #include "cpu/cpu.h"
+ #include "datatypes.h"
++#include "dirname.h"
+ #include "virlog.h"
+ #include "virerror.h"
+ #include "viralloc.h"
+@@ -3269,7 +3270,7 @@ qemuProcessPrepareMonitorChr(virQEMUDriverConfigPtr cfg,
+     monConfig->type = VIR_DOMAIN_CHR_TYPE_UNIX;
+     monConfig->data.nix.listen = true;
+ 
+-    if (virAsprintf(&monConfig->data.nix.path, "%s/%s.monitor",
++    if (virAsprintf(&monConfig->data.nix.path, "%s/domain-%s/monitor.sock",
+                     cfg->libDir, vm) < 0)
+         return -1;
+     return 0;
+@@ -4393,6 +4394,7 @@ int qemuProcessStart(virConnectPtr conn,
+     unsigned int hostdev_flags = 0;
+     size_t nnicindexes = 0;
+     int *nicindexes = NULL;
++    char *tmppath = NULL, *tmpdirpath = NULL;
+ 
+     VIR_DEBUG("vm=%p name=%s id=%d pid=%llu",
+               vm, vm->def->name, vm->def->id,
+@@ -4728,6 +4730,44 @@ int qemuProcessStart(virConnectPtr conn,
+                                      &nnicindexes, &nicindexes)))
+         goto cleanup;
+ 
++
++    /*
++     * Create all per-domain directories in order to make sure domain
++     * with any possible seclabels can access it.
++     */
++    if (virAsprintf(&tmppath, "%s/domain-%s", cfg->libDir, vm->def->name) < 0)
++        goto cleanup;
++
++    if (virFileMakePath(tmppath) < 0)
++        goto cleanup;
++
++    if (!(tmpdirpath = mdir_name(tmppath)))
++        goto cleanup;
++
++    if (virSecurityManagerDomainSetDirLabel(driver->securityManager,
++                                            vm->def, tmpdirpath) < 0)
++        goto cleanup;
++
++    VIR_FREE(tmppath);
++    VIR_FREE(tmpdirpath);
++
++    if (virAsprintf(&tmppath, "%s/domain-%s",
++                    cfg->channelTargetDir, vm->def->name) < 0)
++        goto cleanup;
++
++    if (virFileMakePath(tmppath) < 0)
++        goto cleanup;
++
++    if (!(tmpdirpath = mdir_name(tmppath)))
++        goto cleanup;
++
++    if (virSecurityManagerDomainSetDirLabel(driver->securityManager,
++                                            vm->def, tmpdirpath) < 0)
++        goto cleanup;
++
++    VIR_FREE(tmpdirpath);
++    VIR_FREE(tmppath);
++
+     /* now that we know it is about to start call the hook if present */
+     if (virHookPresent(VIR_HOOK_DRIVER_QEMU)) {
+         char *xml = qemuDomainDefFormatXML(driver, vm->def, 0);
+@@ -5081,6 +5121,8 @@ int qemuProcessStart(virConnectPtr conn,
+     /* We jump here if we failed to start the VM for any reason, or
+      * if we failed to initialize the now running VM. kill it off and
+      * pretend we never started it */
++    VIR_FREE(tmppath);
++    VIR_FREE(tmpdirpath);
+     VIR_FREE(nodeset);
+     virCommandFree(cmd);
+     VIR_FORCE_CLOSE(logfile);
+@@ -5143,6 +5185,7 @@ void qemuProcessStop(virQEMUDriverPtr driver,
+     size_t i;
+     int logfile = -1;
+     char *timestamp;
++    char *tmppath = NULL;
+     char ebuf[1024];
+     virQEMUDriverConfigPtr cfg = virQEMUDriverGetConfig(driver);
+ 
+@@ -5233,6 +5276,18 @@ void qemuProcessStop(virQEMUDriverPtr driver,
+         priv->monConfig = NULL;
+     }
+ 
++    ignore_value(virAsprintf(&tmppath, "%s/domain-%s",
++                             cfg->libDir, vm->def->name));
++    if (tmppath)
++        virFileDeleteTree(tmppath);
++    VIR_FREE(tmppath);
++
++    ignore_value(virAsprintf(&tmppath, "%s/domain-%s",
++                             cfg->channelTargetDir, vm->def->name));
++    if (tmppath)
++        virFileDeleteTree(tmppath);
++    VIR_FREE(tmppath);
++
+     ignore_value(virDomainChrDefForeach(vm->def,
+                                         false,
+                                         qemuProcessCleanupChardevDevice,
+diff --git a/tests/qemuxml2argvdata/qemuxml2argv-channel-virtio-unix.args b/tests/qemuxml2argvdata/qemuxml2argv-channel-virtio-unix.args
+index 43a34ce..289b9d7 100644
+--- a/tests/qemuxml2argvdata/qemuxml2argv-channel-virtio-unix.args
++++ b/tests/qemuxml2argvdata/qemuxml2argv-channel-virtio-unix.args
+@@ -9,11 +9,12 @@ LC_ALL=C PATH=/bin HOME=/home/test USER=test LOGNAME=test QEMU_AUDIO_DRV=none \
+ -usb \
+ -hda /dev/HostVG/QEMUGuest1 \
+ -chardev socket,id=charchannel0,path=\
+-/tmp/QEMUGuest1.org.qemu.guest_agent.0,server,nowait \
++/tmp/domain-QEMUGuest1/org.qemu.guest_agent.0,server,nowait \
+ -device virtserialport,bus=virtio-serial0.0,nr=1,chardev=charchannel0,id=channel0,\
+ name=org.qemu.guest_agent.0 \
+--chardev socket,id=charchannel1,path=/tmp/QEMUGuest1,server,nowait \
++-chardev \
++socket,id=charchannel1,path=/tmp/domain-QEMUGuest1/unknown.sock,server,nowait \
+ -device virtserialport,bus=virtio-serial0.0,nr=2,chardev=charchannel1,id=channel1 \
+--chardev socket,id=charchannel2,path=/tmp/QEMUGuest1.ble,server,nowait \
++-chardev socket,id=charchannel2,path=/tmp/domain-QEMUGuest1/ble,server,nowait \
+ -device virtserialport,bus=virtio-serial0.0,nr=3,chardev=charchannel2,id=channel2,\
+ name=ble
+-- 
+2.5.1
+

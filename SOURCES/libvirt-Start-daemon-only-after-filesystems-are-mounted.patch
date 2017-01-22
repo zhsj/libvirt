@@ -1,0 +1,37 @@
+From 7020e2cb9168abfef903e7c9447430a2abe02981 Mon Sep 17 00:00:00 2001
+Message-Id: <7020e2cb9168abfef903e7c9447430a2abe02981@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Wed, 26 Aug 2015 16:32:52 +0200
+Subject: [PATCH] Start daemon only after filesystems are mounted
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1255228
+
+When images are on mounted filesystems, there is no guarantee libvirtd
+will start before they are mounted.  Since we want to start after both
+local and remote filesystems are mounted, we need to add both local-fs
+and remote-fs as targets that should precede starting libvirtd service.
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 3418e7815a9fc9245aa6476415a353790ed3cb8b)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ daemon/libvirtd.service.in | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/daemon/libvirtd.service.in b/daemon/libvirtd.service.in
+index 1759ac8..9e67e43 100644
+--- a/daemon/libvirtd.service.in
++++ b/daemon/libvirtd.service.in
+@@ -5,6 +5,8 @@ After=network.target
+ After=dbus.service
+ After=iscsid.service
+ After=apparmor.service
++After=local-fs.target
++After=remote-fs.target
+ Documentation=man:libvirtd(8)
+ Documentation=http://libvirt.org
+ 
+-- 
+2.5.1
+

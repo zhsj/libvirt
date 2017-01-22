@@ -1,0 +1,197 @@
+From edf46d78c32b6cf6dc5a8d359603ac035b889610 Mon Sep 17 00:00:00 2001
+Message-Id: <edf46d78c32b6cf6dc5a8d359603ac035b889610@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Tue, 21 Jul 2015 16:18:30 +0200
+Subject: [PATCH] virsh: Refactor argument handling in cmdBlockCopy
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1227551
+https://bugzilla.redhat.com/show_bug.cgi?id=1197592
+
+Put all argument parsing together and refactor the argument checking
+code.
+
+(cherry picked from commit 8e85f62826a7df46f16c4c9e9abca5ede27b5603)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ tools/virsh-domain.c | 133 ++++++++++++++++++++++++++++-----------------------
+ 1 file changed, 72 insertions(+), 61 deletions(-)
+
+diff --git a/tools/virsh-domain.c b/tools/virsh-domain.c
+index 4560d32..c233eb7 100644
+--- a/tools/virsh-domain.c
++++ b/tools/virsh-domain.c
+@@ -2088,11 +2088,12 @@ cmdBlockCopy(vshControl *ctl, const vshCmd *cmd)
+     unsigned long long buf_size = 0;
+     unsigned int flags = 0;
+     bool ret = false;
+-    bool blocking = vshCommandOptBool(cmd, "wait");
+     bool verbose = vshCommandOptBool(cmd, "verbose");
+     bool pivot = vshCommandOptBool(cmd, "pivot");
+     bool finish = vshCommandOptBool(cmd, "finish");
+     bool blockdev = vshCommandOptBool(cmd, "blockdev");
++    bool blocking = vshCommandOptBool(cmd, "wait") || finish || pivot;
++    bool async = vshCommandOptBool(cmd, "async");
+     int timeout = 0;
+     struct sigaction sig_action;
+     struct sigaction old_sig_action;
+@@ -2117,78 +2118,88 @@ cmdBlockCopy(vshControl *ctl, const vshCmd *cmd)
+         return false;
+     if (vshCommandOptString(ctl, cmd, "format", &format) < 0)
+         return false;
+-
+-    VSH_EXCLUSIVE_OPTIONS_VAR(dest, xml);
+-    VSH_EXCLUSIVE_OPTIONS_VAR(format, xml);
+-    VSH_EXCLUSIVE_OPTIONS_VAR(blockdev, xml);
+-
+-    blocking |= vshCommandOptBool(cmd, "timeout") || pivot || finish;
+-    if (blocking) {
+-        if (pivot && finish) {
+-            vshError(ctl, "%s", _("cannot mix --pivot and --finish"));
+-            return false;
+-        }
+-        if (vshCommandOptTimeoutToMs(ctl, cmd, &timeout) < 0)
+-            return false;
+-        if (vshCommandOptBool(cmd, "async"))
+-            abort_flags |= VIR_DOMAIN_BLOCK_JOB_ABORT_ASYNC;
+-
+-        sigemptyset(&sigmask);
+-        sigaddset(&sigmask, SIGINT);
+-
+-        intCaught = 0;
+-        sig_action.sa_sigaction = vshCatchInt;
+-        sig_action.sa_flags = SA_SIGINFO;
+-        sigemptyset(&sig_action.sa_mask);
+-        sigaction(SIGINT, &sig_action, &old_sig_action);
+-
+-        GETTIMEOFDAY(&start);
+-    } else if (verbose || vshCommandOptBool(cmd, "async")) {
+-        vshError(ctl, "%s", _("missing --wait option"));
+-        return false;
+-    }
+-
+-    virConnectDomainEventGenericCallback cb =
+-        VIR_DOMAIN_EVENT_CALLBACK(vshBlockJobStatusHandler);
+-
+-    if ((cb_id = virConnectDomainEventRegisterAny(ctl->conn,
+-                                                  dom,
+-                                                  VIR_DOMAIN_EVENT_ID_BLOCK_JOB,
+-                                                  cb,
+-                                                  &status,
+-                                                  NULL)) < 0)
+-        vshResetLibvirtError();
+-
+-    if (!(dom = vshCommandOptDomain(ctl, cmd, NULL)))
+-        goto cleanup;
+-
+     /* XXX: Parse bandwidth as scaled input, rather than forcing
+      * MiB/s, and either reject negative input or treat it as 0 rather
+      * than trying to guess which value will work well across both
+      * APIs with their different sizes and scales.  */
+     if (vshCommandOptULWrap(ctl, cmd, "bandwidth", &bandwidth) < 0)
+-        goto cleanup;
++        return false;
+     if (vshCommandOptUInt(ctl, cmd, "granularity", &granularity) < 0)
+-        goto cleanup;
++        return false;
+     if (vshCommandOptULongLong(ctl, cmd, "buf-size", &buf_size) < 0)
+-        goto cleanup;
+-
+-    if (xml) {
+-        if (virFileReadAll(xml, VSH_MAX_XML_FILE, &xmlstr) < 0) {
+-            vshReportError(ctl);
+-            goto cleanup;
+-        }
+-    } else if (!dest) {
+-        vshError(ctl, "%s", _("need either --dest or --xml"));
+-        goto cleanup;
+-    }
+-
++        return false;
+     /* Exploit that some VIR_DOMAIN_BLOCK_REBASE_* and
+      * VIR_DOMAIN_BLOCK_COPY_* flags have the same values.  */
+     if (vshCommandOptBool(cmd, "shallow"))
+         flags |= VIR_DOMAIN_BLOCK_REBASE_SHALLOW;
+     if (vshCommandOptBool(cmd, "reuse-external"))
+         flags |= VIR_DOMAIN_BLOCK_REBASE_REUSE_EXT;
++    if (vshCommandOptTimeoutToMs(ctl, cmd, &timeout) < 0)
++        return false;
++
++    if (timeout)
++        blocking = true;
++
++    if (async)
++        abort_flags |= VIR_DOMAIN_BLOCK_JOB_ABORT_ASYNC;
++
++    VSH_EXCLUSIVE_OPTIONS_VAR(dest, xml);
++    VSH_EXCLUSIVE_OPTIONS_VAR(format, xml);
++    VSH_EXCLUSIVE_OPTIONS_VAR(blockdev, xml);
++    VSH_EXCLUSIVE_OPTIONS_VAR(pivot, finish);
++
++    if (!dest && !xml) {
++        vshError(ctl, "%s", _("need either --dest or --xml"));
++        return false;
++    }
++
++    if (!blocking) {
++        if (verbose) {
++            vshError(ctl, "%s", _("--verbose requires at least one of --timeout, "
++                                  "--wait, --pivot, or --finish"));
++            return false;
++        }
++
++        if (async) {
++            vshError(ctl, "%s", _("--async requires at least one of --timeout, "
++                                  "--wait, --pivot, or --finish"));
++            return false;
++        }
++    }
++
++    if (blocking) {
++        sigemptyset(&sigmask);
++        sigaddset(&sigmask, SIGINT);
++
++        intCaught = 0;
++        sig_action.sa_sigaction = vshCatchInt;
++        sig_action.sa_flags = SA_SIGINFO;
++        sigemptyset(&sig_action.sa_mask);
++        sigaction(SIGINT, &sig_action, &old_sig_action);
++
++        GETTIMEOFDAY(&start);
++    }
++
++    virConnectDomainEventGenericCallback cb =
++        VIR_DOMAIN_EVENT_CALLBACK(vshBlockJobStatusHandler);
++
++    if ((cb_id = virConnectDomainEventRegisterAny(ctl->conn,
++                                                  dom,
++                                                  VIR_DOMAIN_EVENT_ID_BLOCK_JOB,
++                                                  cb,
++                                                  &status,
++                                                  NULL)) < 0)
++        vshResetLibvirtError();
++
++    if (!(dom = vshCommandOptDomain(ctl, cmd, NULL)))
++        goto cleanup;
++
++    if (xml) {
++        if (virFileReadAll(xml, VSH_MAX_XML_FILE, &xmlstr) < 0) {
++            vshReportError(ctl);
++            goto cleanup;
++        }
++    }
+ 
+     if (granularity || buf_size || (format && STRNEQ(format, "raw")) || xml) {
+         /* New API */
+@@ -2242,7 +2253,7 @@ cmdBlockCopy(vshControl *ctl, const vshCmd *cmd)
+     } else {
+         /* Old API */
+         flags |= VIR_DOMAIN_BLOCK_REBASE_COPY;
+-        if (vshCommandOptBool(cmd, "blockdev"))
++        if (blockdev)
+             flags |= VIR_DOMAIN_BLOCK_REBASE_COPY_DEV;
+         if (STREQ_NULLABLE(format, "raw"))
+             flags |= VIR_DOMAIN_BLOCK_REBASE_COPY_RAW;
+-- 
+2.5.0
+

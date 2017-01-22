@@ -1,0 +1,59 @@
+From 967db74af2bc58af78339a40a079759ec265b8ad Mon Sep 17 00:00:00 2001
+Message-Id: <967db74af2bc58af78339a40a079759ec265b8ad@dist-git>
+From: Luyao Huang <lhuang@redhat.com>
+Date: Wed, 5 Aug 2015 18:18:06 +0200
+Subject: [PATCH] qemu: remove deadcode in
+ qemuDomain{HelperGetVcpus|GetIOThreadsLive}
+
+We set @hostcpus variable but not use it.
+
+Signed-off-by: Luyao Huang <lhuang@redhat.com>
+(cherry picked from commit 3b2b4114da4341feaf477cec7bc20556810e11e7)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_driver.c | 8 --------
+ 1 file changed, 8 deletions(-)
+
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index c59186d..8f5e4fb 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -1427,13 +1427,9 @@ static int
+ qemuDomainHelperGetVcpus(virDomainObjPtr vm, virVcpuInfoPtr info, int maxinfo,
+                          unsigned char *cpumaps, int maplen)
+ {
+-    int hostcpus;
+     size_t i, v;
+     qemuDomainObjPrivatePtr priv = vm->privateData;
+ 
+-    if ((hostcpus = nodeGetCPUCount()) < 0)
+-        return -1;
+-
+     if (priv->vcpupids == NULL) {
+         virReportError(VIR_ERR_OPERATION_INVALID,
+                        "%s", _("cpu affinity is not supported"));
+@@ -5599,7 +5595,6 @@ qemuDomainGetIOThreadsLive(virQEMUDriverPtr driver,
+     qemuMonitorIOThreadInfoPtr *iothreads = NULL;
+     virDomainIOThreadInfoPtr *info_ret = NULL;
+     int niothreads = 0;
+-    int hostcpus;
+     size_t i;
+     int ret = -1;
+ 
+@@ -5632,9 +5627,6 @@ qemuDomainGetIOThreadsLive(virQEMUDriverPtr driver,
+         goto endjob;
+     }
+ 
+-    if ((hostcpus = nodeGetCPUCount()) < 0)
+-        goto endjob;
+-
+     if (VIR_ALLOC_N(info_ret, niothreads) < 0)
+         goto endjob;
+ 
+-- 
+2.5.0
+

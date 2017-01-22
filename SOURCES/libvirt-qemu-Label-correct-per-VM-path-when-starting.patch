@@ -1,0 +1,91 @@
+From ebf1ada37c3566d07c6eb81a2dfe0135394b657a Mon Sep 17 00:00:00 2001
+Message-Id: <ebf1ada37c3566d07c6eb81a2dfe0135394b657a@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Wed, 26 Aug 2015 11:27:38 +0200
+Subject: [PATCH] qemu: Label correct per-VM path when starting
+
+Commit f1f68ca33433825ce0deed2d96f1990200bc6618 overused mdir_name()
+event though it was not needed in the latest version, hence labelling
+directory one level up in the tree and not the one it should.
+
+If anyone with SElinux managed to try run a domain with guest agent set
+up, it's highly possible that they will need to run 'restorecon -F
+/var/lib/libvirt/qemu/channel/target' to fix what was done.
+
+Reported-by: Luyao Huang <lhuang@redhat.com>
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit f674dc6794e0946f89313f477aa7886a4a28188e)
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1146886
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_process.c | 16 +++-------------
+ 1 file changed, 3 insertions(+), 13 deletions(-)
+
+diff --git a/src/qemu/qemu_process.c b/src/qemu/qemu_process.c
+index 8cda456..317ef78 100644
+--- a/src/qemu/qemu_process.c
++++ b/src/qemu/qemu_process.c
+@@ -46,7 +46,6 @@
+ 
+ #include "cpu/cpu.h"
+ #include "datatypes.h"
+-#include "dirname.h"
+ #include "virlog.h"
+ #include "virerror.h"
+ #include "viralloc.h"
+@@ -4394,7 +4393,7 @@ int qemuProcessStart(virConnectPtr conn,
+     unsigned int hostdev_flags = 0;
+     size_t nnicindexes = 0;
+     int *nicindexes = NULL;
+-    char *tmppath = NULL, *tmpdirpath = NULL;
++    char *tmppath = NULL;
+ 
+     VIR_DEBUG("vm=%p name=%s id=%d pid=%llu",
+               vm, vm->def->name, vm->def->id,
+@@ -4741,15 +4740,11 @@ int qemuProcessStart(virConnectPtr conn,
+     if (virFileMakePath(tmppath) < 0)
+         goto cleanup;
+ 
+-    if (!(tmpdirpath = mdir_name(tmppath)))
+-        goto cleanup;
+-
+     if (virSecurityManagerDomainSetDirLabel(driver->securityManager,
+-                                            vm->def, tmpdirpath) < 0)
++                                            vm->def, tmppath) < 0)
+         goto cleanup;
+ 
+     VIR_FREE(tmppath);
+-    VIR_FREE(tmpdirpath);
+ 
+     if (virAsprintf(&tmppath, "%s/domain-%s",
+                     cfg->channelTargetDir, vm->def->name) < 0)
+@@ -4758,14 +4753,10 @@ int qemuProcessStart(virConnectPtr conn,
+     if (virFileMakePath(tmppath) < 0)
+         goto cleanup;
+ 
+-    if (!(tmpdirpath = mdir_name(tmppath)))
+-        goto cleanup;
+-
+     if (virSecurityManagerDomainSetDirLabel(driver->securityManager,
+-                                            vm->def, tmpdirpath) < 0)
++                                            vm->def, tmppath) < 0)
+         goto cleanup;
+ 
+-    VIR_FREE(tmpdirpath);
+     VIR_FREE(tmppath);
+ 
+     /* now that we know it is about to start call the hook if present */
+@@ -5122,7 +5113,6 @@ int qemuProcessStart(virConnectPtr conn,
+      * if we failed to initialize the now running VM. kill it off and
+      * pretend we never started it */
+     VIR_FREE(tmppath);
+-    VIR_FREE(tmpdirpath);
+     VIR_FREE(nodeset);
+     virCommandFree(cmd);
+     VIR_FORCE_CLOSE(logfile);
+-- 
+2.5.1
+

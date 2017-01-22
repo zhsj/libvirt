@@ -1,0 +1,139 @@
+From a03fb4691c3df18caff2b2f4d8296dd9cec16c0c Mon Sep 17 00:00:00 2001
+Message-Id: <a03fb4691c3df18caff2b2f4d8296dd9cec16c0c@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Tue, 21 Jul 2015 16:18:23 +0200
+Subject: [PATCH] virsh: blockjob: Extract block job info code into a separate
+ function
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1227551
+https://bugzilla.redhat.com/show_bug.cgi?id=1197592
+
+cmdBlockJob will be converted to a hub that will call into the
+individual executor functions.
+
+(cherry picked from commit dda95b531f1d2e9abd4df03c0461eaa7e3840b02)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ tools/virsh-domain.c | 93 +++++++++++++++++++++++++++++++---------------------
+ 1 file changed, 56 insertions(+), 37 deletions(-)
+
+diff --git a/tools/virsh-domain.c b/tools/virsh-domain.c
+index f7edeeb..7a18204 100644
+--- a/tools/virsh-domain.c
++++ b/tools/virsh-domain.c
+@@ -2451,47 +2451,19 @@ vshDomainBlockJobToString(int type)
+     return str ? _(str) : _("Unknown job");
+ }
+ 
++
+ static bool
+-cmdBlockJob(vshControl *ctl, const vshCmd *cmd)
++vshBlockJobInfo(vshControl *ctl,
++                virDomainPtr dom,
++                const char *path,
++                bool raw,
++                bool bytes)
+ {
+     virDomainBlockJobInfo info;
+-    bool ret = false;
+-    int rc = -1;
+-    bool raw = vshCommandOptBool(cmd, "raw");
+-    bool bytes = vshCommandOptBool(cmd, "bytes");
+-    bool abortMode = (vshCommandOptBool(cmd, "abort") ||
+-                      vshCommandOptBool(cmd, "async") ||
+-                      vshCommandOptBool(cmd, "pivot"));
+-    bool infoMode = vshCommandOptBool(cmd, "info") || raw;
+-    bool bandwidth = vshCommandOptBool(cmd, "bandwidth");
+-    virDomainPtr dom = NULL;
+-    const char *path;
+-    unsigned int flags = 0;
+     unsigned long long speed;
+-
+-    if (abortMode + infoMode + bandwidth > 1) {
+-        vshError(ctl, "%s",
+-                 _("conflict between abort, info, and bandwidth modes"));
+-        return false;
+-    }
+-    /* XXX also support --bytes with bandwidth mode */
+-    if (bytes && (abortMode || bandwidth)) {
+-        vshError(ctl, "%s", _("--bytes requires info mode"));
+-        return false;
+-    }
+-
+-    if (abortMode)
+-        return blockJobImpl(ctl, cmd, VSH_CMD_BLOCK_JOB_ABORT, NULL);
+-    if (bandwidth)
+-        return blockJobImpl(ctl, cmd, VSH_CMD_BLOCK_JOB_SPEED, NULL);
+-
+-    /* Everything below here is for --info mode */
+-    if (!(dom = vshCommandOptDomain(ctl, cmd, NULL)))
+-        goto cleanup;
+-
+-    /* XXX Allow path to be optional to list info on all devices at once */
+-    if (vshCommandOptStringReq(ctl, cmd, "path", &path) < 0)
+-        goto cleanup;
++    unsigned int flags = 0;
++    bool ret = false;
++    int rc = -1;
+ 
+     /* If bytes were requested, or if raw mode is not forcing a MiB/s
+      * query and cache can't prove failure, then query bytes/sec.  */
+@@ -2556,7 +2528,54 @@ cmdBlockJob(vshControl *ctl, const vshCmd *cmd)
+         }
+         vshPrint(ctl, "\n");
+     }
++
+     ret = true;
++
++ cleanup:
++    return ret;
++}
++
++
++static bool
++cmdBlockJob(vshControl *ctl, const vshCmd *cmd)
++{
++    bool ret = false;
++    bool raw = vshCommandOptBool(cmd, "raw");
++    bool bytes = vshCommandOptBool(cmd, "bytes");
++    bool abortMode = (vshCommandOptBool(cmd, "abort") ||
++                      vshCommandOptBool(cmd, "async") ||
++                      vshCommandOptBool(cmd, "pivot"));
++    bool infoMode = vshCommandOptBool(cmd, "info") || raw;
++    bool bandwidth = vshCommandOptBool(cmd, "bandwidth");
++    virDomainPtr dom = NULL;
++    const char *path;
++
++    if (abortMode + infoMode + bandwidth > 1) {
++        vshError(ctl, "%s",
++                 _("conflict between abort, info, and bandwidth modes"));
++        return false;
++    }
++    /* XXX also support --bytes with bandwidth mode */
++    if (bytes && (abortMode || bandwidth)) {
++        vshError(ctl, "%s", _("--bytes requires info mode"));
++        return false;
++    }
++
++    if (abortMode)
++        return blockJobImpl(ctl, cmd, VSH_CMD_BLOCK_JOB_ABORT, NULL);
++    if (bandwidth)
++        return blockJobImpl(ctl, cmd, VSH_CMD_BLOCK_JOB_SPEED, NULL);
++
++    /* Everything below here is for --info mode */
++    if (!(dom = vshCommandOptDomain(ctl, cmd, NULL)))
++        goto cleanup;
++
++    /* XXX Allow path to be optional to list info on all devices at once */
++    if (vshCommandOptStringReq(ctl, cmd, "path", &path) < 0)
++        goto cleanup;
++
++    ret = vshBlockJobInfo(ctl, dom, path, raw, bytes);
++
+  cleanup:
+     if (dom)
+         virDomainFree(dom);
+-- 
+2.5.0
+

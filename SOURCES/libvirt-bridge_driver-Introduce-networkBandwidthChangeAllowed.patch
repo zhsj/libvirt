@@ -1,0 +1,191 @@
+From 3e1dd6eacd48107e7646c8346bca73e280692542 Mon Sep 17 00:00:00 2001
+Message-Id: <3e1dd6eacd48107e7646c8346bca73e280692542@dist-git>
+From: Michal Privoznik <mprivozn@redhat.com>
+Date: Fri, 14 Aug 2015 16:06:31 +0200
+Subject: [PATCH] bridge_driver: Introduce networkBandwidthChangeAllowed
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1252473
+
+When a domain vNIC's bandwidth is to be changed (at runtime) it is
+possible that guaranteed minimal bandwidth (@floor) will change too.
+Well, so far it is, because we still don't have an implementation that
+allows setting it dynamically, so it's effectively erased on:
+
+    #virsh domiftune $dom vnet0 --inbound 0
+
+However, that's slightly unfortunate. We do some checks on domain
+startup to see if @floor can be guaranteed. We ought do the same if
+QoS is changed at runtime.
+
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+(cherry picked from commit 41a1531de54476310572f694c0b9cb9c63d4191d)
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/network/bridge_driver.c | 78 ++++++++++++++++++++++++++++++++++++++++++---
+ src/network/bridge_driver.h | 12 +++++++
+ 2 files changed, 86 insertions(+), 4 deletions(-)
+
+diff --git a/src/network/bridge_driver.c b/src/network/bridge_driver.c
+index 17fc430..04602ed 100644
+--- a/src/network/bridge_driver.c
++++ b/src/network/bridge_driver.c
+@@ -4686,9 +4686,18 @@ networkGetNetworkAddress(const char *netname, char **netaddr)
+  * networkCheckBandwidth:
+  * @net: network QoS
+  * @ifaceBand: interface QoS (may be NULL if no QoS)
++ * @oldBandwidth: new interface QoS (may be NULL if no QoS)
+  * @ifaceMac: interface MAC (used in error messages for identification)
+  * @new_rate: new rate for non guaranteed class
+  *
++ * Function checks if @ifaceBand can be satisfied on @net. However, sometimes it
++ * may happen that the interface that @ifaceBand corresponds to is already
++ * plugged into the @net and the bandwidth is to be updated. In that case we
++ * need to check if new bandwidth can be satisfied. If that's the case
++ * @ifaceBand should point to new bandwidth settings and @oldBandwidth to
++ * current ones. If you want to suppress this functionality just pass
++ * @oldBandwidth == NULL.
++ *
+  * Returns: -1 if plugging would overcommit network QoS
+  *           0 if plugging is safe (@new_rate updated)
+  *           1 if no QoS is set (@new_rate untouched)
+@@ -4696,6 +4705,7 @@ networkGetNetworkAddress(const char *netname, char **netaddr)
+ static int
+ networkCheckBandwidth(virNetworkObjPtr net,
+                       virNetDevBandwidthPtr ifaceBand,
++                      virNetDevBandwidthPtr oldBandwidth,
+                       virMacAddr ifaceMac,
+                       unsigned long long *new_rate)
+ {
+@@ -4716,14 +4726,18 @@ networkCheckBandwidth(virNetworkObjPtr net,
+         return -1;
+     }
+ 
+-    if (!ifaceBand || !ifaceBand->in || !ifaceBand->in->floor ||
++    if (((!ifaceBand || !ifaceBand->in || !ifaceBand->in->floor) &&
++         (!oldBandwidth || !oldBandwidth->in || !oldBandwidth->in->floor)) ||
+         !netBand || !netBand->in) {
+         /* no QoS required, claim success */
+         return 1;
+     }
+ 
+     tmp_new_rate = netBand->in->average;
+-    tmp_floor_sum += ifaceBand->in->floor;
++    if (oldBandwidth && oldBandwidth->in)
++        tmp_floor_sum -= oldBandwidth->in->floor;
++    if (ifaceBand && ifaceBand->in)
++        tmp_floor_sum += ifaceBand->in->floor;
+ 
+     /* check against peak */
+     if (netBand->in->peak) {
+@@ -4749,7 +4763,8 @@ networkCheckBandwidth(virNetworkObjPtr net,
+         goto cleanup;
+     }
+ 
+-    *new_rate = tmp_new_rate;
++    if (new_rate)
++        *new_rate = tmp_new_rate;
+     ret = 0;
+ 
+  cleanup:
+@@ -4791,7 +4806,7 @@ networkPlugBandwidth(virNetworkObjPtr net,
+     char ifmac[VIR_MAC_STRING_BUFLEN];
+     virNetDevBandwidthPtr ifaceBand = virDomainNetGetActualBandwidth(iface);
+ 
+-    if ((plug_ret = networkCheckBandwidth(net, ifaceBand,
++    if ((plug_ret = networkCheckBandwidth(net, ifaceBand, NULL,
+                                           iface->mac, &new_rate)) < 0) {
+         /* helper reported error */
+         goto cleanup;
+@@ -4917,3 +4932,58 @@ networkNetworkObjTaint(virNetworkObjPtr net,
+                  virNetworkTaintTypeToString(taint));
+     }
+ }
++
++
++static bool
++networkBandwidthGenericChecks(virDomainNetDefPtr iface,
++                              virNetDevBandwidthPtr newBandwidth)
++{
++    virNetDevBandwidthPtr ifaceBand = virDomainNetGetActualBandwidth(iface);
++    unsigned long long old_floor, new_floor;
++
++    if (virDomainNetGetActualType(iface) != VIR_DOMAIN_NET_TYPE_NETWORK) {
++        /* This is not an interface that's plugged into a network.
++         * We don't care. Thus from our POV bandwidth change is allowed. */
++        return false;
++    }
++
++    old_floor = new_floor = 0;
++
++    if (ifaceBand && ifaceBand->in)
++        old_floor = ifaceBand->in->floor;
++    if (newBandwidth && newBandwidth->in)
++        new_floor = newBandwidth->in->floor;
++
++    return new_floor != old_floor;
++}
++
++
++bool
++networkBandwidthChangeAllowed(virDomainNetDefPtr iface,
++                              virNetDevBandwidthPtr newBandwidth)
++{
++    virNetworkDriverStatePtr driver = networkGetDriver();
++    virNetworkObjPtr network = NULL;
++    virNetDevBandwidthPtr ifaceBand = virDomainNetGetActualBandwidth(iface);
++    bool ret = false;
++
++    if (!networkBandwidthGenericChecks(iface, newBandwidth))
++        return true;
++
++    network = virNetworkObjFindByName(driver->networks, iface->data.network.name);
++    if (!network) {
++        virReportError(VIR_ERR_NO_NETWORK,
++                       _("no network with matching name '%s'"),
++                       iface->data.network.name);
++        return false;
++    }
++
++    if (networkCheckBandwidth(network, newBandwidth, ifaceBand, iface->mac, NULL) < 0)
++        goto cleanup;
++
++    ret = true;
++
++ cleanup:
++    virNetworkObjEndAPI(&network);
++    return ret;
++}
+diff --git a/src/network/bridge_driver.h b/src/network/bridge_driver.h
+index 513ccf7..cce9237 100644
+--- a/src/network/bridge_driver.h
++++ b/src/network/bridge_driver.h
+@@ -52,6 +52,11 @@ int networkDnsmasqConfContents(virNetworkObjPtr network,
+                         char **configstr,
+                         dnsmasqContext *dctx,
+                         dnsmasqCapsPtr caps);
++
++bool networkBandwidthChangeAllowed(virDomainNetDefPtr iface,
++                                   virNetDevBandwidthPtr newBandwidth)
++    ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2);
++
+ # else
+ /* Define no-op replacements that don't drag in any link dependencies.  */
+ #  define networkAllocateActualDevice(dom, iface) 0
+@@ -73,6 +78,13 @@ networkReleaseActualDevice(virDomainDefPtr dom ATTRIBUTE_UNUSED,
+     return 0;
+ }
+ 
++static inline bool
++networkBandwidthChangeAllowed(virDomainNetDefPtr iface ATTRIBUTE_UNUSED,
++                              virNetDevBandwidthPtr newBandwidth ATTRIBUTE_UNUSED)
++{
++    return true;
++}
++
+ # endif
+ 
+ typedef char *(*networkDnsmasqLeaseFileNameFunc)(const char *netname);
+-- 
+2.5.0
+

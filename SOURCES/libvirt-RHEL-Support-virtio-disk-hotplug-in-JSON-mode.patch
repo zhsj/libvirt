@@ -1,0 +1,310 @@
+From b32e593db092c9c4f7c85028fe318f6b401451cb Mon Sep 17 00:00:00 2001
+Message-Id: <b32e593db092c9c4f7c85028fe318f6b401451cb@dist-git>
+From: "Daniel P. Berrange" <berrange@redhat.com>
+Date: Fri, 17 Dec 2010 14:55:38 +0100
+Subject: [PATCH] RHEL: Support virtio disk hotplug in JSON mode
+
+RHEL only, no upstream
+
+For bug
+  https://bugzilla.redhat.com/show_bug.cgi?id=1026966
+  https://bugzilla.redhat.com/show_bug.cgi?id=573946
+
+The existing drive_add command can hotplug SCSI and VirtIO
+disks, but this isn't ported to JSON mode. RHEL6 introduces
+a custom __com.redhat_drive_add that only supports VirtIO
+disks. Switch the VirtIO hotplug to this command, but leave
+the SCSI hotplug using old command so SCSI gets an explicit
+error about being unsupported.
+
+* src/libvirt_private.syms: Export virJSONValueObjectRemoveKey
+* src/util/json.c, src/util/json.h: Add virJSONValueObjectRemoveKey
+  to allow a key to be deleted from an object
+* src/qemu/qemu_monitor_json.c: Try __com.redhat_drive_add first and use
+  drive_add only if the redhat command is not known to qemu.
+
+Also includes the following fix:
+
+https://bugzilla.redhat.com/show_bug.cgi?id=696596
+
+Upstream added drive_del as a way to ensure that disks are fully
+removed before returning control to libvirt.  But RHEL backported
+it as __com.redhat_drive_del, prior to upstream adoption of a
+QMP counterpart.  Because we weren't trying the RHEL-specific
+spelling, we were falling back to the unsafe approach of just
+removing the device and hoping for the best, which was racy and
+could occasionally result in a rapid hot-plug cycle trying to
+plug in a new disk that collides with the old disk not yet gone.
+
+* src/qemu/qemu_monitor_json.c (qemuMonitorJSONDriveDel): Try
+rhel-specific drive_del monitor command first.
+
+(cherry picked from commit d1c200dfead14a590a4ddebe20a20ffe441d2b24 in
+rhel-6.5 branch)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+
+Conflicts:
+	src/libvirt_private.syms - the change is already upstream
+        src/util/virjson.[ch] - the change is already upstream
+	src/qemu/qemu_monitor_json.c - context; upstream doesn't try to
+	    call nonexistent drive_{add,del} QMP commands any more
+---
+ src/qemu/qemu_monitor_json.c | 81 +++++++++++++++++++++++++++++++++++++++++++-
+ tests/qemuhotplugtest.c      | 74 ++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 154 insertions(+), 1 deletion(-)
+
+diff --git a/src/qemu/qemu_monitor_json.c b/src/qemu/qemu_monitor_json.c
+index edfa67f..fd567e4 100644
+--- a/src/qemu/qemu_monitor_json.c
++++ b/src/qemu/qemu_monitor_json.c
+@@ -3474,9 +3474,54 @@ int qemuMonitorJSONDelObject(qemuMonitorPtr mon,
+ int qemuMonitorJSONAddDrive(qemuMonitorPtr mon,
+                             const char *drivestr)
+ {
++    int ret = -1;
++    virJSONValuePtr cmd;
++    virJSONValuePtr reply = NULL;
++    virJSONValuePtr args;
++
++    cmd = qemuMonitorJSONMakeCommand("__com.redhat_drive_add",
++                                     NULL);
++    if (!cmd)
++        return -1;
++
++    args = qemuMonitorJSONKeywordStringToJSON(drivestr, "type");
++    if (!args)
++        goto cleanup;
++
++    /* __com.redhat_drive_add rejects the 'if' key */
++    virJSONValueObjectRemoveKey(args, "if", NULL);
++
++    if (virJSONValueObjectAppend(cmd, "arguments", args) < 0) {
++        virReportOOMError();
++        goto cleanup;
++    }
++    args = NULL; /* cmd owns reference to args now */
++
++    if ((ret = qemuMonitorJSONCommand(mon, cmd, &reply)) < 0)
++        goto cleanup;
++
++    if (qemuMonitorJSONHasError(reply, "CommandNotFound")) {
++        virJSONValueFree(cmd);
++        virJSONValueFree(reply);
++        cmd = reply = NULL;
++
++        VIR_DEBUG("__com.redhat_drive_add command not found,"
++                  " trying upstream way");
++    } else {
++        ret = qemuMonitorJSONCheckError(cmd, reply);
++        goto cleanup;
++    }
++
++    /* Upstream approach */
+     /* XXX Update to use QMP, if QMP ever adds support for drive_add */
+     VIR_DEBUG("drive_add command not found, trying HMP");
+-    return qemuMonitorTextAddDrive(mon, drivestr);
++    ret = qemuMonitorTextAddDrive(mon, drivestr);
++
++cleanup:
++    virJSONValueFree(args);
++    virJSONValueFree(cmd);
++    virJSONValueFree(reply);
++    return ret;
+ }
+ 
+ 
+@@ -3484,7 +3529,37 @@ int qemuMonitorJSONDriveDel(qemuMonitorPtr mon,
+                             const char *drivestr)
+ {
+     int ret;
++    virJSONValuePtr cmd;
++    virJSONValuePtr reply = NULL;
+ 
++    VIR_DEBUG("drivestr=%s", drivestr);
++    cmd = qemuMonitorJSONMakeCommand("__com.redhat_drive_del",
++                                     "s:id", drivestr,
++                                     NULL);
++    if (!cmd)
++        return -1;
++
++    if ((ret = qemuMonitorJSONCommand(mon, cmd, &reply)) < 0)
++        goto cleanup;
++
++    if (qemuMonitorJSONHasError(reply, "CommandNotFound")) {
++        virJSONValueFree(cmd);
++        virJSONValueFree(reply);
++        cmd = reply = NULL;
++
++        VIR_DEBUG("__com.redhat_drive_del command not found,"
++                  " trying upstream way");
++    } else if (qemuMonitorJSONHasError(reply, "DeviceNotFound")) {
++        /* NB: device not found errors mean the drive was
++         * auto-deleted and we ignore the error */
++        ret = 0;
++        goto cleanup;
++    } else {
++        ret = qemuMonitorJSONCheckError(cmd, reply);
++        goto cleanup;
++    }
++
++    /* Upstream approach */
+     /* XXX Update to use QMP, if QMP ever adds support for drive_del */
+     VIR_DEBUG("drive_del command not found, trying HMP");
+     if ((ret = qemuMonitorTextDriveDel(mon, drivestr)) < 0) {
+@@ -3497,6 +3572,10 @@ int qemuMonitorJSONDriveDel(qemuMonitorPtr mon,
+             virResetLastError();
+         }
+     }
++
++cleanup:
++    virJSONValueFree(cmd);
++    virJSONValueFree(reply);
+     return ret;
+ }
+ 
+diff --git a/tests/qemuhotplugtest.c b/tests/qemuhotplugtest.c
+index 368a5e7..3b547f2 100644
+--- a/tests/qemuhotplugtest.c
++++ b/tests/qemuhotplugtest.c
+@@ -416,6 +416,14 @@ mymain(void)
+     "    }"                                                 \
+     "}\r\n"
+ 
++#define QMP_NOT_FOUND \
++    "{" \
++    "    \"error\": {" \
++    "        \"class\": \"CommandNotFound\"," \
++    "        \"desc\": \"The command has not been found\"" \
++    "    }" \
++    "}"
++
+     DO_TEST_UPDATE("graphics-spice", "graphics-spice-nochange", false, false, NULL);
+     DO_TEST_UPDATE("graphics-spice-timeout", "graphics-spice-timeout-nochange", false, false,
+                    "set_password", QMP_OK, "expire_password", QMP_OK);
+@@ -436,56 +444,122 @@ mymain(void)
+                    "chardev-remove", QMP_OK);
+ 
+     DO_TEST_ATTACH("hotplug-base", "disk-virtio", false, true,
++                   "__com.redhat_drive_add", QMP_NOT_FOUND,
+                    "human-monitor-command", HMP("OK\\r\\n"),
+                    "device_add", QMP_OK);
+     DO_TEST_DETACH("hotplug-base", "disk-virtio", false, false,
+                    "device_del", QMP_OK,
++                   "__com.redhat_drive_del", QMP_NOT_FOUND,
+                    "human-monitor-command", HMP(""));
+ 
++    DO_TEST_ATTACH("hotplug-base", "disk-virtio", false, true,
++                   "__com.redhat_drive_add", QMP_OK,
++                   "device_add", QMP_OK);
++    DO_TEST_DETACH("hotplug-base", "disk-virtio", false, false,
++                   "device_del", QMP_OK,
++                   "__com.redhat_drive_del", QMP_OK);
++
+     DO_TEST_ATTACH_EVENT("hotplug-base", "disk-virtio", false, true,
++                         "__com.redhat_drive_add", QMP_NOT_FOUND,
+                          "human-monitor-command", HMP("OK\\r\\n"),
+                          "device_add", QMP_OK);
+     DO_TEST_DETACH("hotplug-base", "disk-virtio", true, true,
+                    "device_del", QMP_OK,
++                   "__com.redhat_drive_del", QMP_NOT_FOUND,
+                    "human-monitor-command", HMP(""));
+     DO_TEST_DETACH("hotplug-base", "disk-virtio", false, false,
+                    "device_del", QMP_DEVICE_DELETED("virtio-disk4") QMP_OK,
++                   "__com.redhat_drive_del", QMP_NOT_FOUND,
+                    "human-monitor-command", HMP(""));
+ 
++    DO_TEST_ATTACH_EVENT("hotplug-base", "disk-virtio", false, true,
++                         "__com.redhat_drive_add", QMP_OK,
++                         "device_add", QMP_OK);
++    DO_TEST_DETACH("hotplug-base", "disk-virtio", true, true,
++                   "device_del", QMP_OK,
++                   "__com.redhat_drive_del", QMP_OK);
++    DO_TEST_DETACH("hotplug-base", "disk-virtio", false, false,
++                   "device_del", QMP_DEVICE_DELETED("virtio-disk4") QMP_OK,
++                   "__com.redhat_drive_del", QMP_OK);
++
+     DO_TEST_ATTACH("hotplug-base", "disk-usb", false, true,
++                   "__com.redhat_drive_add", QMP_NOT_FOUND,
+                    "human-monitor-command", HMP("OK\\r\\n"),
+                    "device_add", QMP_OK);
+     DO_TEST_DETACH("hotplug-base", "disk-usb", false, false,
+                    "device_del", QMP_OK,
++                   "__com.redhat_drive_del", QMP_NOT_FOUND,
+                    "human-monitor-command", HMP(""));
+ 
++    DO_TEST_ATTACH("hotplug-base", "disk-usb", false, true,
++                   "__com.redhat_drive_add", QMP_OK,
++                   "device_add", QMP_OK);
++    DO_TEST_DETACH("hotplug-base", "disk-usb", false, false,
++                   "device_del", QMP_OK,
++                   "__com.redhat_drive_del", QMP_OK);
++
+     DO_TEST_ATTACH_EVENT("hotplug-base", "disk-usb", false, true,
++                         "__com.redhat_drive_add", QMP_NOT_FOUND,
+                          "human-monitor-command", HMP("OK\\r\\n"),
+                          "device_add", QMP_OK);
+     DO_TEST_DETACH("hotplug-base", "disk-usb", true, true,
+                    "device_del", QMP_OK,
++                   "__com.redhat_drive_del", QMP_NOT_FOUND,
+                    "human-monitor-command", HMP(""));
+     DO_TEST_DETACH("hotplug-base", "disk-usb", false, false,
+                    "device_del", QMP_DEVICE_DELETED("usb-disk16") QMP_OK,
++                   "__com.redhat_drive_del", QMP_NOT_FOUND,
+                    "human-monitor-command", HMP(""));
+ 
++    DO_TEST_ATTACH_EVENT("hotplug-base", "disk-usb", false, true,
++                         "__com.redhat_drive_add", QMP_OK,
++                         "device_add", QMP_OK);
++    DO_TEST_DETACH("hotplug-base", "disk-usb", true, true,
++                   "device_del", QMP_OK,
++                   "__com.redhat_drive_del", QMP_OK);
++    DO_TEST_DETACH("hotplug-base", "disk-usb", false, false,
++                   "device_del", QMP_DEVICE_DELETED("usb-disk16") QMP_OK,
++                   "__com.redhat_drive_del", QMP_OK);
++
+     DO_TEST_ATTACH("hotplug-base", "disk-scsi", false, true,
++                   "__com.redhat_drive_add", QMP_NOT_FOUND,
+                    "human-monitor-command", HMP("OK\\r\\n"),
+                    "device_add", QMP_OK);
+     DO_TEST_DETACH("hotplug-base", "disk-scsi", false, false,
+                    "device_del", QMP_OK,
++                   "__com.redhat_drive_del", QMP_NOT_FOUND,
+                    "human-monitor-command", HMP(""));
+ 
++    DO_TEST_ATTACH("hotplug-base", "disk-scsi", false, true,
++                   "__com.redhat_drive_add", QMP_OK,
++                   "device_add", QMP_OK);
++    DO_TEST_DETACH("hotplug-base", "disk-scsi", false, false,
++                   "device_del", QMP_OK,
++                   "__com.redhat_drive_del", QMP_OK);
++
+     DO_TEST_ATTACH_EVENT("hotplug-base", "disk-scsi", false, true,
++                         "__com.redhat_drive_add", QMP_NOT_FOUND,
+                          "human-monitor-command", HMP("OK\\r\\n"),
+                          "device_add", QMP_OK);
+     DO_TEST_DETACH("hotplug-base", "disk-scsi", true, true,
+                    "device_del", QMP_OK,
++                   "__com.redhat_drive_del", QMP_NOT_FOUND,
+                    "human-monitor-command", HMP(""));
+     DO_TEST_DETACH("hotplug-base", "disk-scsi", false, false,
+                    "device_del", QMP_DEVICE_DELETED("scsi0-0-0-5") QMP_OK,
++                   "__com.redhat_drive_del", QMP_NOT_FOUND,
+                    "human-monitor-command", HMP(""));
+ 
++    DO_TEST_ATTACH_EVENT("hotplug-base", "disk-scsi", false, true,
++                         "__com.redhat_drive_add", QMP_OK,
++                         "device_add", QMP_OK);
++    DO_TEST_DETACH("hotplug-base", "disk-scsi", true, true,
++                   "device_del", QMP_OK,
++                   "__com.redhat_drive_del", QMP_OK);
++    DO_TEST_DETACH("hotplug-base", "disk-scsi", false, false,
++                   "device_del", QMP_DEVICE_DELETED("scsi0-0-0-5") QMP_OK,
++                   "__com.redhat_drive_del", QMP_OK);
++
+     virObjectUnref(driver.caps);
+     virObjectUnref(driver.xmlopt);
+     virObjectUnref(driver.config);
+-- 
+2.4.5
+

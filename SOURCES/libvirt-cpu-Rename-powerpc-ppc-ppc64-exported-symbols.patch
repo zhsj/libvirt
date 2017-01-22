@@ -1,0 +1,189 @@
+From 1875eb905dd54477adea1ad55cd5e8b9f91cab15 Mon Sep 17 00:00:00 2001
+Message-Id: <1875eb905dd54477adea1ad55cd5e8b9f91cab15@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Tue, 11 Aug 2015 17:15:50 +0200
+Subject: [PATCH] cpu: Rename {powerpc, ppc} => ppc64 (exported symbols)
+
+Only the symbols exported by the driver have been updated;
+the driver implementation itself still uses the old names
+internally.
+
+No functional changes.
+
+(cherry picked from commit e89733c4a443b6ea3a32c8e2f0dcd554c1ffd645)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1250977
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/cpu/cpu.c            |  2 +-
+ src/cpu/cpu.h            |  2 +-
+ src/cpu/cpu_ppc64.c      | 18 +++++++++---------
+ src/cpu/cpu_ppc64.h      | 10 +++++-----
+ src/cpu/cpu_ppc64_data.h | 10 +++++-----
+ 5 files changed, 21 insertions(+), 21 deletions(-)
+
+diff --git a/src/cpu/cpu.c b/src/cpu/cpu.c
+index 2e34f81..731df26 100644
+--- a/src/cpu/cpu.c
++++ b/src/cpu/cpu.c
+@@ -44,7 +44,7 @@ VIR_LOG_INIT("cpu.cpu");
+ 
+ static struct cpuArchDriver *drivers[] = {
+     &cpuDriverX86,
+-    &cpuDriverPowerPC,
++    &cpuDriverPPC64,
+     &cpuDriverS390,
+     &cpuDriverArm,
+     &cpuDriverAARCH64,
+diff --git a/src/cpu/cpu.h b/src/cpu/cpu.h
+index c0371cd..49d4226 100644
+--- a/src/cpu/cpu.h
++++ b/src/cpu/cpu.h
+@@ -38,7 +38,7 @@ struct _virCPUData {
+     virArch arch;
+     union {
+         virCPUx86Data *x86;
+-        struct cpuPPCData ppc;
++        struct cpuPPC64Data ppc64;
+         /* generic driver needs no data */
+     } data;
+ };
+diff --git a/src/cpu/cpu_ppc64.c b/src/cpu/cpu_ppc64.c
+index 7866bdd..bec4bf8 100644
+--- a/src/cpu/cpu_ppc64.c
++++ b/src/cpu/cpu_ppc64.c
+@@ -1,5 +1,5 @@
+ /*
+- * cpu_ppc64.c: CPU driver for PowerPC CPUs
++ * cpu_ppc64.c: CPU driver for 64-bit PowerPC CPUs
+  *
+  * Copyright (C) 2013 Red Hat, Inc.
+  * Copyright (C) IBM Corporation, 2010
+@@ -36,7 +36,7 @@
+ 
+ #define VIR_FROM_THIS VIR_FROM_CPU
+ 
+-VIR_LOG_INIT("cpu.cpu_powerpc");
++VIR_LOG_INIT("cpu.cpu_ppc64");
+ 
+ static const virArch archs[] = { VIR_ARCH_PPC64, VIR_ARCH_PPC64LE };
+ 
+@@ -48,7 +48,7 @@ struct ppc_vendor {
+ struct ppc_model {
+     char *name;
+     const struct ppc_vendor *vendor;
+-    struct cpuPPCData data;
++    struct cpuPPC64Data data;
+     struct ppc_model *next;
+ };
+ 
+@@ -340,7 +340,7 @@ ppcLoadMap(void)
+ }
+ 
+ static virCPUDataPtr
+-ppcMakeCPUData(virArch arch, struct cpuPPCData *data)
++ppcMakeCPUData(virArch arch, struct cpuPPC64Data *data)
+ {
+     virCPUDataPtr cpuData;
+ 
+@@ -348,7 +348,7 @@ ppcMakeCPUData(virArch arch, struct cpuPPCData *data)
+         return NULL;
+ 
+     cpuData->arch = arch;
+-    cpuData->data.ppc = *data;
++    cpuData->data.ppc64 = *data;
+     data = NULL;
+ 
+     return cpuData;
+@@ -480,10 +480,10 @@ ppcDecode(virCPUDefPtr cpu,
+     if (data == NULL || (map = ppcLoadMap()) == NULL)
+         return -1;
+ 
+-    if (!(model = ppcModelFindPVR(map, data->data.ppc.pvr))) {
++    if (!(model = ppcModelFindPVR(map, data->data.ppc64.pvr))) {
+         virReportError(VIR_ERR_OPERATION_FAILED,
+                        _("Cannot find CPU model with PVR 0x%08x"),
+-                       data->data.ppc.pvr);
++                       data->data.ppc64.pvr);
+         goto cleanup;
+     }
+ 
+@@ -529,7 +529,7 @@ ppcNodeData(virArch arch)
+ 
+ #if defined(__powerpc__) || defined(__powerpc64__)
+     asm("mfpvr %0"
+-        : "=r" (cpuData->data.ppc.pvr));
++        : "=r" (cpuData->data.ppc64.pvr));
+ #endif
+ 
+     return cpuData;
+@@ -694,7 +694,7 @@ ppcGetModels(char ***models)
+     goto cleanup;
+ }
+ 
+-struct cpuArchDriver cpuDriverPowerPC = {
++struct cpuArchDriver cpuDriverPPC64 = {
+     .name = "ppc64",
+     .arch = archs,
+     .narch = ARRAY_CARDINALITY(archs),
+diff --git a/src/cpu/cpu_ppc64.h b/src/cpu/cpu_ppc64.h
+index e9ef2be..a6c9659 100644
+--- a/src/cpu/cpu_ppc64.h
++++ b/src/cpu/cpu_ppc64.h
+@@ -1,5 +1,5 @@
+ /*
+- * cpu_ppc64.h: CPU driver for PowerPC CPUs
++ * cpu_ppc64.h: CPU driver for 64-bit PowerPC CPUs
+  *
+  * Copyright (C) Copyright (C) IBM Corporation, 2010
+  *
+@@ -22,11 +22,11 @@
+  *      Prerna Saxena <prerna@linux.vnet.ibm.com>
+  */
+ 
+-#ifndef __VIR_CPU_POWERPC_H__
+-# define __VIR_CPU_POWERPC_H__
++#ifndef __VIR_CPU_PPC64_H__
++# define __VIR_CPU_PPC64_H__
+ 
+ # include "cpu.h"
+ 
+-extern struct cpuArchDriver cpuDriverPowerPC;
++extern struct cpuArchDriver cpuDriverPPC64;
+ 
+-#endif /* __VIR_CPU_POWERPC_H__ */
++#endif /* __VIR_CPU_PPC64_H__ */
+diff --git a/src/cpu/cpu_ppc64_data.h b/src/cpu/cpu_ppc64_data.h
+index a70b099..45152de 100644
+--- a/src/cpu/cpu_ppc64_data.h
++++ b/src/cpu/cpu_ppc64_data.h
+@@ -1,5 +1,5 @@
+ /*
+- * cpu_ppc64_data.h: PowerPC specific CPU data
++ * cpu_ppc64_data.h: 64-bit PowerPC CPU specific data
+  *
+  * Copyright (C) 2012 IBM Corporation.
+  *
+@@ -21,13 +21,13 @@
+  *      Li Zhang <zhlcindy@linux.vnet.ibm.com>
+  */
+ 
+-#ifndef __VIR_CPU_PPC_DATA_H__
+-# define __VIR_CPU_PPC_DATA_H__
++#ifndef __VIR_CPU_PPC64_DATA_H__
++# define __VIR_CPU_PPC64_DATA_H__
+ 
+ # include <stdint.h>
+ 
+-struct cpuPPCData {
++struct cpuPPC64Data {
+     uint32_t pvr;
+ };
+ 
+-#endif /* __VIR_CPU_PPC_DATA_H__ */
++#endif /* __VIR_CPU_PPC64_DATA_H__ */
+-- 
+2.5.0
+

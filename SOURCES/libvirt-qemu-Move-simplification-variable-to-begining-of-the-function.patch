@@ -1,0 +1,40 @@
+From 5693792f3f900eacdfee55902726e1052d714a91 Mon Sep 17 00:00:00 2001
+Message-Id: <5693792f3f900eacdfee55902726e1052d714a91@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Tue, 6 Oct 2015 15:20:32 +0200
+Subject: [PATCH] qemu: Move simplification variable to begining of the
+ function
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1266856
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 04b57b4ae19cf299ac13efdd7d84de47b8d26e0e)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_command.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
+index 6314976..53c9d01 100644
+--- a/src/qemu/qemu_command.c
++++ b/src/qemu/qemu_command.c
+@@ -4767,6 +4767,7 @@ qemuBuildMemoryBackendStr(unsigned long long size,
+     virBitmapPtr nodemask = NULL;
+     int ret = -1;
+     virJSONValuePtr props = NULL;
++    bool nodeSpecified = virDomainNumatuneNodeSpecified(def->numa, guestNode);
+ 
+     *backendProps = NULL;
+     *backendType = NULL;
+@@ -4919,7 +4920,6 @@ qemuBuildMemoryBackendStr(unsigned long long size,
+     }
+ 
+     if (!hugepage && !pagesize) {
+-        bool nodeSpecified = virDomainNumatuneNodeSpecified(def->numa, guestNode);
+ 
+         if ((userNodeset || nodeSpecified || force) &&
+             !virQEMUCapsGet(qemuCaps, QEMU_CAPS_OBJECT_MEMORY_RAM)) {
+-- 
+2.6.1
+

@@ -1,0 +1,64 @@
+From 831d540170a2be5dcf89fd406b95f0449a5bcfce Mon Sep 17 00:00:00 2001
+Message-Id: <831d540170a2be5dcf89fd406b95f0449a5bcfce@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Wed, 5 Aug 2015 17:31:38 +0200
+Subject: [PATCH] qemu: Forbid image pre-creation for non-shared storage
+ migration
+
+Libvirt doesn't reliably know the location of the backing chain when
+pre-creating images for non-shared migration. This isn't a problem for
+full copy, but incremental copy requires the information.
+
+Forbid pre-creating the image in cases where incremental migration is
+required. This limitation can perhaps be lifted once libvirt will fully
+support loading of backing chain information from the XML.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1249587
+(cherry picked from commit 6da3b694cca436fcc38247aff9d1ce8e955292a8)
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_migration.c | 13 +++++++++++--
+ 1 file changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/src/qemu/qemu_migration.c b/src/qemu/qemu_migration.c
+index 16bb1af..cee82fa 100644
+--- a/src/qemu/qemu_migration.c
++++ b/src/qemu/qemu_migration.c
+@@ -1613,7 +1613,8 @@ qemuMigrationPrecreateStorage(virConnectPtr conn,
+                               virDomainObjPtr vm,
+                               qemuMigrationCookieNBDPtr nbd,
+                               size_t nmigrate_disks,
+-                              const char **migrate_disks)
++                              const char **migrate_disks,
++                              bool incremental)
+ {
+     int ret = -1;
+     size_t i = 0;
+@@ -1644,6 +1645,13 @@ qemuMigrationPrecreateStorage(virConnectPtr conn,
+             continue;
+         }
+ 
++        if (incremental) {
++            virReportError(VIR_ERR_OPERATION_UNSUPPORTED, "%s",
++                           _("pre-creation of storage targets for incremental "
++                             "storage migration is not supported"));
++            goto cleanup;
++        }
++
+         VIR_DEBUG("Proceeding with disk source %s", NULLSTR(diskSrcPath));
+ 
+         if (qemuMigrationPrecreateDisk(conn, disk, nbd->disks[i].capacity) < 0)
+@@ -3339,7 +3347,8 @@ qemuMigrationPrepareAny(virQEMUDriverPtr driver,
+     }
+ 
+     if (qemuMigrationPrecreateStorage(dconn, driver, vm, mig->nbd,
+-                                      nmigrate_disks, migrate_disks) < 0)
++                                      nmigrate_disks, migrate_disks,
++                                      !!(flags & VIR_MIGRATE_NON_SHARED_INC)) < 0)
+         goto cleanup;
+ 
+     if (qemuMigrationJobStart(driver, vm, QEMU_ASYNC_JOB_MIGRATION_IN) < 0)
+-- 
+2.5.0
+

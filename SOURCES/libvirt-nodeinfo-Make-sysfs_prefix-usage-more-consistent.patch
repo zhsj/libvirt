@@ -1,0 +1,266 @@
+From 7186535d4cb2661b6cc841440b46a154e6598d8e Mon Sep 17 00:00:00 2001
+Message-Id: <7186535d4cb2661b6cc841440b46a154e6598d8e@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Wed, 5 Aug 2015 18:18:17 +0200
+Subject: [PATCH] nodeinfo: Make sysfs_prefix usage more consistent
+
+Make sure sysfs_prefix, when present, is always the first argument
+to a function; don't use a different name to refer to it; check
+whether it is NULL, and hence SYSFS_SYSTEM_PATH should be used, only
+when using it directly and not just passing it down to another
+function; always pass down the same value we've been passed when
+calling another function.
+
+(cherry picked from commit 75f6f5454602d54bdb3218db2ec4931df133b8d0)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1213713
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/nodeinfo.c       | 41 +++++++++++++++++++----------------------
+ src/nodeinfopriv.h   |  4 ++--
+ tests/nodeinfotest.c | 14 +++++++-------
+ 3 files changed, 28 insertions(+), 31 deletions(-)
+
+diff --git a/src/nodeinfo.c b/src/nodeinfo.c
+index 5158680..60dfc8b 100644
+--- a/src/nodeinfo.c
++++ b/src/nodeinfo.c
+@@ -415,7 +415,6 @@ virNodeParseNode(const char *sysfs_prefix,
+                  int *threads,
+                  int *offline)
+ {
+-    const char *prefix = sysfs_prefix ? sysfs_prefix : SYSFS_SYSTEM_PATH;
+     int ret = -1;
+     int processors = 0;
+     DIR *cpudir = NULL;
+@@ -441,7 +440,7 @@ virNodeParseNode(const char *sysfs_prefix,
+         goto cleanup;
+     }
+ 
+-    present_cpumap = nodeGetPresentCPUBitmap(prefix);
++    present_cpumap = nodeGetPresentCPUBitmap(sysfs_prefix);
+ 
+     /* enumerate sockets in the node */
+     CPU_ZERO(&sock_map);
+@@ -553,11 +552,12 @@ virNodeParseNode(const char *sysfs_prefix,
+     return ret;
+ }
+ 
+-int linuxNodeInfoCPUPopulate(FILE *cpuinfo,
+-                             const char *sysfs_dir,
++int linuxNodeInfoCPUPopulate(const char *sysfs_prefix,
++                             FILE *cpuinfo,
+                              virArch arch,
+                              virNodeInfoPtr nodeinfo)
+ {
++    const char *prefix = sysfs_prefix ? sysfs_prefix : SYSFS_SYSTEM_PATH;
+     char line[1024];
+     DIR *nodedir = NULL;
+     struct dirent *nodedirent = NULL;
+@@ -652,7 +652,7 @@ int linuxNodeInfoCPUPopulate(FILE *cpuinfo,
+     /* OK, we've parsed clock speed out of /proc/cpuinfo. Get the
+      * core, node, socket, thread and topology information from /sys
+      */
+-    if (virAsprintf(&sysfs_nodedir, "%s/node", sysfs_dir) < 0)
++    if (virAsprintf(&sysfs_nodedir, "%s/node", prefix) < 0)
+         goto cleanup;
+ 
+     if (!(nodedir = opendir(sysfs_nodedir))) {
+@@ -667,10 +667,10 @@ int linuxNodeInfoCPUPopulate(FILE *cpuinfo,
+         nodeinfo->nodes++;
+ 
+         if (virAsprintf(&sysfs_cpudir, "%s/node/%s",
+-                        sysfs_dir, nodedirent->d_name) < 0)
++                        prefix, nodedirent->d_name) < 0)
+             goto cleanup;
+ 
+-        if ((cpus = virNodeParseNode(sysfs_dir, sysfs_cpudir, arch,
++        if ((cpus = virNodeParseNode(sysfs_prefix, sysfs_cpudir, arch,
+                                      &socks, &cores,
+                                      &threads, &offline)) < 0)
+             goto cleanup;
+@@ -698,10 +698,10 @@ int linuxNodeInfoCPUPopulate(FILE *cpuinfo,
+  fallback:
+     VIR_FREE(sysfs_cpudir);
+ 
+-    if (virAsprintf(&sysfs_cpudir, "%s/cpu", sysfs_dir) < 0)
++    if (virAsprintf(&sysfs_cpudir, "%s/cpu", prefix) < 0)
+         goto cleanup;
+ 
+-    if ((cpus = virNodeParseNode(sysfs_dir, sysfs_cpudir, arch,
++    if ((cpus = virNodeParseNode(sysfs_prefix, sysfs_cpudir, arch,
+                                  &socks, &cores,
+                                  &threads, &offline)) < 0)
+         goto cleanup;
+@@ -1059,7 +1059,6 @@ int nodeGetInfo(const char *sysfs_prefix ATTRIBUTE_UNUSED,
+ #ifdef __linux__
+     {
+     int ret = -1;
+-    const char *prefix = sysfs_prefix ? sysfs_prefix : SYSFS_SYSTEM_PATH;
+     FILE *cpuinfo = fopen(CPUINFO_PATH, "r");
+ 
+     if (!cpuinfo) {
+@@ -1068,7 +1067,7 @@ int nodeGetInfo(const char *sysfs_prefix ATTRIBUTE_UNUSED,
+         return -1;
+     }
+ 
+-    ret = linuxNodeInfoCPUPopulate(cpuinfo, prefix,
++    ret = linuxNodeInfoCPUPopulate(sysfs_prefix, cpuinfo,
+                                    hostarch, nodeinfo);
+     if (ret < 0)
+         goto cleanup;
+@@ -1225,7 +1224,7 @@ nodeGetCPUCount(const char *sysfs_prefix ATTRIBUTE_UNUSED)
+     char *cpupath = NULL;
+     int ncpu = -1;
+ 
+-    if (!(present_path = linuxGetCPUPresentPath(prefix)))
++    if (!(present_path = linuxGetCPUPresentPath(sysfs_prefix)))
+         return -1;
+ 
+     if (virFileExists(present_path)) {
+@@ -1273,13 +1272,12 @@ nodeGetPresentCPUBitmap(const char *sysfs_prefix)
+     char *present_path = NULL;
+     virBitmapPtr bitmap = NULL;
+ #endif
+-    const char *prefix = sysfs_prefix ? sysfs_prefix : SYSFS_SYSTEM_PATH;
+ 
+-    if ((max_present = nodeGetCPUCount(prefix)) < 0)
++    if ((max_present = nodeGetCPUCount(sysfs_prefix)) < 0)
+         return NULL;
+ 
+ #ifdef __linux__
+-    if (!(present_path = linuxGetCPUPresentPath(prefix)))
++    if (!(present_path = linuxGetCPUPresentPath(sysfs_prefix)))
+         return NULL;
+     if (virFileExists(present_path))
+         bitmap = linuxParseCPUmap(max_present, present_path);
+@@ -1301,7 +1299,7 @@ nodeGetCPUBitmap(const char *sysfs_prefix ATTRIBUTE_UNUSED,
+     virBitmapPtr cpumap;
+     int present;
+ 
+-    present = nodeGetCPUCount(prefix);
++    present = nodeGetCPUCount(sysfs_prefix);
+     if (present < 0)
+         return NULL;
+ 
+@@ -1646,7 +1644,6 @@ nodeGetCPUMap(const char *sysfs_prefix,
+               unsigned int *online,
+               unsigned int flags)
+ {
+-    const char *prefix = sysfs_prefix ? sysfs_prefix : SYSFS_SYSTEM_PATH;
+     virBitmapPtr cpus = NULL;
+     int maxpresent;
+     int ret = -1;
+@@ -1655,9 +1652,9 @@ nodeGetCPUMap(const char *sysfs_prefix,
+     virCheckFlags(0, -1);
+ 
+     if (!cpumap && !online)
+-        return nodeGetCPUCount(prefix);
++        return nodeGetCPUCount(sysfs_prefix);
+ 
+-    if (!(cpus = nodeGetCPUBitmap(prefix, &maxpresent)))
++    if (!(cpus = nodeGetCPUBitmap(sysfs_prefix, &maxpresent)))
+         goto cleanup;
+ 
+     if (cpumap && virBitmapToData(cpus, cpumap, &dummy) < 0)
+@@ -1674,7 +1671,7 @@ nodeGetCPUMap(const char *sysfs_prefix,
+ }
+ 
+ static int
+-nodeCapsInitNUMAFake(const char *prefix,
++nodeCapsInitNUMAFake(const char *sysfs_prefix,
+                      const char *cpupath ATTRIBUTE_UNUSED,
+                      virCapsPtr caps ATTRIBUTE_UNUSED)
+ {
+@@ -1685,7 +1682,7 @@ nodeCapsInitNUMAFake(const char *prefix,
+     int id, cid;
+     int onlinecpus ATTRIBUTE_UNUSED;
+ 
+-    if (nodeGetInfo(prefix, &nodeinfo) < 0)
++    if (nodeGetInfo(sysfs_prefix, &nodeinfo) < 0)
+         return -1;
+ 
+     ncpus = VIR_NODEINFO_MAXCPUS(nodeinfo);
+@@ -1957,7 +1954,7 @@ nodeCapsInitNUMA(const char *sysfs_prefix,
+         return -1;
+ 
+     if (!virNumaIsAvailable()) {
+-        ret = nodeCapsInitNUMAFake(prefix, cpupath, caps);
++        ret = nodeCapsInitNUMAFake(sysfs_prefix, cpupath, caps);
+         goto cleanup;
+     }
+ 
+diff --git a/src/nodeinfopriv.h b/src/nodeinfopriv.h
+index 8bfbe1e..1aab4ad 100644
+--- a/src/nodeinfopriv.h
++++ b/src/nodeinfopriv.h
+@@ -25,8 +25,8 @@
+ # include "nodeinfo.h"
+ 
+ # ifdef __linux__
+-int linuxNodeInfoCPUPopulate(FILE *cpuinfo,
+-                             const char *sysfs_dir,
++int linuxNodeInfoCPUPopulate(const char *sysfs_prefix,
++                             FILE *cpuinfo,
+                              virArch arch,
+                              virNodeInfoPtr nodeinfo);
+ 
+diff --git a/tests/nodeinfotest.c b/tests/nodeinfotest.c
+index be099f0..60467bc 100644
+--- a/tests/nodeinfotest.c
++++ b/tests/nodeinfotest.c
+@@ -24,8 +24,8 @@ main(void)
+ #else
+ 
+ static int
+-linuxTestCompareFiles(const char *cpuinfofile,
+-                      char *sysfs_dir,
++linuxTestCompareFiles(char *sysfs_prefix,
++                      const char *cpuinfofile,
+                       virArch arch,
+                       const char *outputfile)
+ {
+@@ -42,7 +42,7 @@ linuxTestCompareFiles(const char *cpuinfofile,
+     }
+ 
+     memset(&nodeinfo, 0, sizeof(nodeinfo));
+-    if (linuxNodeInfoCPUPopulate(cpuinfo, sysfs_dir, arch, &nodeinfo) < 0) {
++    if (linuxNodeInfoCPUPopulate(sysfs_prefix, cpuinfo, arch, &nodeinfo) < 0) {
+         if (virTestGetDebug()) {
+             virErrorPtr error = virSaveLastError();
+             if (error && error->code != VIR_ERR_OK)
+@@ -163,12 +163,12 @@ linuxTestNodeInfo(const void *opaque)
+ {
+     int result = -1;
+     char *cpuinfo = NULL;
+-    char *sysfs_dir = NULL;
++    char *sysfs_prefix = NULL;
+     char *output = NULL;
+     struct linuxTestNodeInfoData *data = (struct linuxTestNodeInfoData *) opaque;
+     const char *archStr = virArchToString(data->arch);
+ 
+-    if (virAsprintf(&sysfs_dir, "%s/nodeinfodata/linux-%s",
++    if (virAsprintf(&sysfs_prefix, "%s/nodeinfodata/linux-%s",
+                     abs_srcdir, data->testName) < 0 ||
+         virAsprintf(&cpuinfo, "%s/nodeinfodata/linux-%s-%s.cpuinfo",
+                     abs_srcdir, archStr, data->testName) < 0 ||
+@@ -177,12 +177,12 @@ linuxTestNodeInfo(const void *opaque)
+         goto cleanup;
+     }
+ 
+-    result = linuxTestCompareFiles(cpuinfo, sysfs_dir, data->arch, output);
++    result = linuxTestCompareFiles(sysfs_prefix, cpuinfo, data->arch, output);
+ 
+  cleanup:
+     VIR_FREE(cpuinfo);
+     VIR_FREE(output);
+-    VIR_FREE(sysfs_dir);
++    VIR_FREE(sysfs_prefix);
+ 
+     return result;
+ }
+-- 
+2.5.0
+

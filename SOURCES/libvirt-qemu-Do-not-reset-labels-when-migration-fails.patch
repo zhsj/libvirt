@@ -1,0 +1,147 @@
+From 73cc6287624a227f16c27e138258b5199c8687a0 Mon Sep 17 00:00:00 2001
+Message-Id: <73cc6287624a227f16c27e138258b5199c8687a0@dist-git>
+From: Jiri Denemark <jdenemar@redhat.com>
+Date: Thu, 30 Jul 2015 16:42:43 +0200
+Subject: [PATCH] qemu: Do not reset labels when migration fails
+
+When stopping a domain on the destination host after a failed migration,
+we need to avoid reseting security labels since the domain is still
+running on the source host. While we were correctly doing so in some
+cases, there were still some paths which did this wrong.
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1242904
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+(cherry picked from commit e8d0166e1d27c18aacea4b1316760fad4106e1c7)
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_driver.c    |  5 ++++-
+ src/qemu/qemu_migration.c |  3 ++-
+ src/qemu/qemu_process.c   | 19 ++++++++++++++-----
+ 3 files changed, 20 insertions(+), 7 deletions(-)
+
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index 204ed72..fbe37c2 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -2199,6 +2199,7 @@ qemuDomainDestroyFlags(virDomainPtr dom,
+     int ret = -1;
+     virObjectEventPtr event = NULL;
+     qemuDomainObjPrivatePtr priv;
++    unsigned int stopFlags = 0;
+ 
+     virCheckFlags(VIR_DOMAIN_DESTROY_GRACEFUL, -1);
+ 
+@@ -2212,6 +2213,8 @@ qemuDomainDestroyFlags(virDomainPtr dom,
+ 
+     qemuDomainSetFakeReboot(driver, vm, false);
+ 
++    if (priv->job.asyncJob == QEMU_ASYNC_JOB_MIGRATION_IN)
++        stopFlags |= VIR_QEMU_PROCESS_STOP_MIGRATED;
+ 
+     /* We need to prevent monitor EOF callback from doing our work (and sending
+      * misleading events) while the vm is unlocked inside BeginJob/ProcessKill API
+@@ -2246,7 +2249,7 @@ qemuDomainDestroyFlags(virDomainPtr dom,
+         goto endjob;
+     }
+ 
+-    qemuProcessStop(driver, vm, VIR_DOMAIN_SHUTOFF_DESTROYED, 0);
++    qemuProcessStop(driver, vm, VIR_DOMAIN_SHUTOFF_DESTROYED, stopFlags);
+     event = virDomainEventLifecycleNewFromObj(vm,
+                                      VIR_DOMAIN_EVENT_STOPPED,
+                                      VIR_DOMAIN_EVENT_STOPPED_DESTROYED);
+diff --git a/src/qemu/qemu_migration.c b/src/qemu/qemu_migration.c
+index 6386744..16bb1af 100644
+--- a/src/qemu/qemu_migration.c
++++ b/src/qemu/qemu_migration.c
+@@ -3474,7 +3474,8 @@ qemuMigrationPrepareAny(virQEMUDriverPtr driver,
+ 
+  stop:
+     virDomainAuditStart(vm, "migrated", false);
+-    qemuProcessStop(driver, vm, VIR_DOMAIN_SHUTOFF_FAILED, 0);
++    qemuProcessStop(driver, vm, VIR_DOMAIN_SHUTOFF_FAILED,
++                    VIR_QEMU_PROCESS_STOP_MIGRATED);
+ 
+  endjob:
+     qemuMigrationJobFinish(driver, vm);
+diff --git a/src/qemu/qemu_process.c b/src/qemu/qemu_process.c
+index 31315b1..f41fd9d 100644
+--- a/src/qemu/qemu_process.c
++++ b/src/qemu/qemu_process.c
+@@ -285,6 +285,7 @@ qemuProcessHandleMonitorEOF(qemuMonitorPtr mon ATTRIBUTE_UNUSED,
+     int eventReason = VIR_DOMAIN_EVENT_STOPPED_SHUTDOWN;
+     int stopReason = VIR_DOMAIN_SHUTOFF_SHUTDOWN;
+     const char *auditReason = "shutdown";
++    unsigned int stopFlags = 0;
+ 
+     VIR_DEBUG("Received EOF on %p '%s'", vm, vm->def->name);
+ 
+@@ -310,14 +311,16 @@ qemuProcessHandleMonitorEOF(qemuMonitorPtr mon ATTRIBUTE_UNUSED,
+         auditReason = "failed";
+     }
+ 
+-    if (priv->job.asyncJob == QEMU_ASYNC_JOB_MIGRATION_IN)
++    if (priv->job.asyncJob == QEMU_ASYNC_JOB_MIGRATION_IN) {
++        stopFlags |= VIR_QEMU_PROCESS_STOP_MIGRATED;
+         qemuMigrationErrorSave(driver, vm->def->name,
+                                qemuMonitorLastError(priv->mon));
++    }
+ 
+     event = virDomainEventLifecycleNewFromObj(vm,
+                                      VIR_DOMAIN_EVENT_STOPPED,
+                                      eventReason);
+-    qemuProcessStop(driver, vm, stopReason, 0);
++    qemuProcessStop(driver, vm, stopReason, stopFlags);
+     virDomainAuditStop(vm, auditReason);
+ 
+     if (!vm->persistent) {
+@@ -3732,10 +3735,13 @@ qemuProcessReconnect(void *opaque)
+     virQEMUDriverConfigPtr cfg;
+     size_t i;
+     int ret;
++    unsigned int stopFlags = 0;
+ 
+     VIR_FREE(data);
+ 
+     qemuDomainObjRestoreJob(obj, &oldjob);
++    if (oldjob.asyncJob == QEMU_ASYNC_JOB_MIGRATION_IN)
++        stopFlags |= VIR_QEMU_PROCESS_STOP_MIGRATED;
+ 
+     cfg = virQEMUDriverGetConfig(driver);
+     priv = obj->privateData;
+@@ -3916,7 +3922,7 @@ qemuProcessReconnect(void *opaque)
+              * really is and FAILED means "failed to start" */
+             state = VIR_DOMAIN_SHUTOFF_UNKNOWN;
+         }
+-        qemuProcessStop(driver, obj, state, 0);
++        qemuProcessStop(driver, obj, state, stopFlags);
+     }
+ 
+     if (!obj->persistent)
+@@ -5692,9 +5698,13 @@ qemuProcessAutoDestroy(virDomainObjPtr dom,
+     virQEMUDriverPtr driver = opaque;
+     qemuDomainObjPrivatePtr priv = dom->privateData;
+     virObjectEventPtr event = NULL;
++    unsigned int stopFlags = 0;
+ 
+     VIR_DEBUG("vm=%s, conn=%p", dom->def->name, conn);
+ 
++    if (priv->job.asyncJob == QEMU_ASYNC_JOB_MIGRATION_IN)
++        stopFlags |= VIR_QEMU_PROCESS_STOP_MIGRATED;
++
+     if (priv->job.asyncJob) {
+         VIR_DEBUG("vm=%s has long-term job active, cancelling",
+                   dom->def->name);
+@@ -5707,8 +5717,7 @@ qemuProcessAutoDestroy(virDomainObjPtr dom,
+ 
+     VIR_DEBUG("Killing domain");
+ 
+-    qemuProcessStop(driver, dom, VIR_DOMAIN_SHUTOFF_DESTROYED,
+-                    VIR_QEMU_PROCESS_STOP_MIGRATED);
++    qemuProcessStop(driver, dom, VIR_DOMAIN_SHUTOFF_DESTROYED, stopFlags);
+ 
+     virDomainAuditStop(dom, "destroyed");
+     event = virDomainEventLifecycleNewFromObj(dom,
+-- 
+2.5.0
+

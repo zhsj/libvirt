@@ -1,0 +1,43 @@
+From aa17035794369f33a9e4c3a3c625fd65b36e3320 Mon Sep 17 00:00:00 2001
+Message-Id: <aa17035794369f33a9e4c3a3c625fd65b36e3320@dist-git>
+From: Michal Privoznik <mprivozn@redhat.com>
+Date: Thu, 16 Jul 2015 13:45:52 +0200
+Subject: [PATCH] cmdVcpuPin: Remove dead code
+
+There's this condition:
+
+flags & VIR_DOMAIN_AFFECT_CURRENT && virDomainIsActive(dom)
+
+which can never be true since VIR_DOMAIN_AFFECT_CURRENT has hardcoded
+value of zero. Therefore virDomainIsActive() is a dead code. However,
+the condition could make sense if it is rewritten as the following:
+
+!(flags & VIR_DOMAIN_AFFECT_CONFIG) && virDomainIsActive(dom)
+
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+(cherry picked from commit 416d0e94181086e572107ab9c295b70d98f0782b)
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1160559
+
+Signed-off-by: Pavel Hrdina <phrdina@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ tools/virsh-domain.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tools/virsh-domain.c b/tools/virsh-domain.c
+index ac04ded..f7edeeb 100644
+--- a/tools/virsh-domain.c
++++ b/tools/virsh-domain.c
+@@ -6499,7 +6499,7 @@ cmdVcpuPin(vshControl *ctl, const vshCmd *cmd)
+ 
+         if (got_vcpu && vcpu >= ncpus) {
+             if (flags & VIR_DOMAIN_AFFECT_LIVE ||
+-                (flags & VIR_DOMAIN_AFFECT_CURRENT &&
++                (!(flags & VIR_DOMAIN_AFFECT_CONFIG) &&
+                  virDomainIsActive(dom) == 1))
+                 vshError(ctl,
+                          _("vcpu %d is out of range of live cpu count %d"),
+-- 
+2.5.0
+

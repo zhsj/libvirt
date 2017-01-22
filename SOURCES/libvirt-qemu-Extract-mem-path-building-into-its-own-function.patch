@@ -1,0 +1,173 @@
+From 75f3f4ed1356eba49f472206bb9bb0eeae728ba6 Mon Sep 17 00:00:00 2001
+Message-Id: <75f3f4ed1356eba49f472206bb9bb0eeae728ba6@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Tue, 6 Oct 2015 15:20:33 +0200
+Subject: [PATCH] qemu: Extract -mem-path building into its own function
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1266856
+
+That function is called qemuBuildMemPathStr() and will be used in
+other places in the future.  The change in the test suite is proper due
+to the fact that -mem-prealloc makes only sense with -mem-path (from
+qemu documentation -- html/qemu-doc.html).
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit ad8ab88c9141afb9b7541c67f3d0966d5a1b31cd)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_command.c                            | 120 ++++++++++++---------
+ .../qemuxml2argv-hugepages-pages6.args             |   2 +-
+ 2 files changed, 73 insertions(+), 49 deletions(-)
+
+diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
+index 53c9d01..0822ee4 100644
+--- a/src/qemu/qemu_command.c
++++ b/src/qemu/qemu_command.c
+@@ -7705,6 +7705,71 @@ qemuBuildSmpArgStr(const virDomainDef *def,
+ }
+ 
+ static int
++qemuBuildMemPathStr(virQEMUDriverConfigPtr cfg,
++                    virDomainDefPtr def,
++                    virQEMUCapsPtr qemuCaps,
++                    virCommandPtr cmd)
++{
++    const long system_page_size = virGetSystemPageSizeKB();
++    char *mem_path = NULL;
++    size_t i = 0;
++
++    /*
++     *  No-op if hugepages were not requested.
++     */
++    if (!def->mem.nhugepages)
++        return 0;
++
++    /* There is one special case: if user specified "huge"
++     * pages of regular system pages size.
++     * And there is nothing to do in this case.
++     */
++    if (def->mem.hugepages[0].size == system_page_size)
++        return 0;
++
++    if (!cfg->nhugetlbfs) {
++        virReportError(VIR_ERR_INTERNAL_ERROR,
++                       "%s", _("hugetlbfs filesystem is not mounted "
++                               "or disabled by administrator config"));
++        return -1;
++    }
++
++    if (!virQEMUCapsGet(qemuCaps, QEMU_CAPS_MEM_PATH)) {
++        virReportError(VIR_ERR_INTERNAL_ERROR,
++                       _("hugepage backing not supported by '%s'"),
++                       def->emulator);
++        return -1;
++    }
++
++    if (!def->mem.hugepages[0].size) {
++        if (!(mem_path = qemuGetDefaultHugepath(cfg->hugetlbfs,
++                                                cfg->nhugetlbfs)))
++            return -1;
++    } else {
++        for (i = 0; i < cfg->nhugetlbfs; i++) {
++            if (cfg->hugetlbfs[i].size == def->mem.hugepages[0].size)
++                break;
++        }
++
++        if (i == cfg->nhugetlbfs) {
++            virReportError(VIR_ERR_INTERNAL_ERROR,
++                           _("Unable to find any usable hugetlbfs "
++                             "mount for %llu KiB"),
++                           def->mem.hugepages[0].size);
++            return -1;
++        }
++
++        if (!(mem_path = qemuGetHugepagePath(&cfg->hugetlbfs[i])))
++            return -1;
++    }
++
++    virCommandAddArgList(cmd, "-mem-prealloc", "-mem-path", mem_path, NULL);
++    VIR_FREE(mem_path);
++
++    return 0;
++}
++
++static int
+ qemuBuildNumaArgStr(virQEMUDriverConfigPtr cfg,
+                     virDomainDefPtr def,
+                     virCommandPtr cmd,
+@@ -9074,54 +9139,13 @@ qemuBuildCommandLine(virConnectPtr conn,
+        virCommandAddArgFormat(cmd, "%llu", virDomainDefGetMemoryInitial(def) / 1024);
+     }
+ 
+-    if (def->mem.nhugepages && !virDomainNumaGetNodeCount(def->numa)) {
+-        const long system_page_size = virGetSystemPageSizeKB();
+-        char *mem_path = NULL;
+-
+-        if (def->mem.hugepages[0].size == system_page_size) {
+-            /* There is one special case: if user specified "huge"
+-             * pages of regular system pages size. */
+-        } else {
+-            if (!cfg->nhugetlbfs) {
+-                virReportError(VIR_ERR_INTERNAL_ERROR,
+-                               "%s", _("hugetlbfs filesystem is not mounted "
+-                                       "or disabled by administrator config"));
+-                goto error;
+-            }
+-            if (!virQEMUCapsGet(qemuCaps, QEMU_CAPS_MEM_PATH)) {
+-                virReportError(VIR_ERR_INTERNAL_ERROR,
+-                               _("hugepage backing not supported by '%s'"),
+-                               def->emulator);
+-                goto error;
+-            }
+-
+-            if (def->mem.hugepages[0].size) {
+-                for (j = 0; j < cfg->nhugetlbfs; j++) {
+-                    if (cfg->hugetlbfs[j].size == def->mem.hugepages[0].size)
+-                        break;
+-                }
+-
+-                if (j == cfg->nhugetlbfs) {
+-                    virReportError(VIR_ERR_INTERNAL_ERROR,
+-                                   _("Unable to find any usable hugetlbfs mount for %llu KiB"),
+-                                   def->mem.hugepages[0].size);
+-                    goto error;
+-                }
+-
+-                if (!(mem_path = qemuGetHugepagePath(&cfg->hugetlbfs[j])))
+-                    goto error;
+-            } else {
+-                if (!(mem_path = qemuGetDefaultHugepath(cfg->hugetlbfs,
+-                                                        cfg->nhugetlbfs)))
+-                    goto error;
+-            }
+-        }
+-
+-        virCommandAddArg(cmd, "-mem-prealloc");
+-        if (mem_path)
+-            virCommandAddArgList(cmd, "-mem-path", mem_path, NULL);
+-        VIR_FREE(mem_path);
+-    }
++    /*
++     * Add '-mem-path' (and '-mem-prealloc') parameter here only if
++     * there is no numa node specified.
++     */
++    if (!virDomainNumaGetNodeCount(def->numa) &&
++        qemuBuildMemPathStr(cfg, def, qemuCaps, cmd) < 0)
++        goto error;
+ 
+     if (def->mem.locked && !virQEMUCapsGet(qemuCaps, QEMU_CAPS_MLOCK)) {
+         virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
+diff --git a/tests/qemuxml2argvdata/qemuxml2argv-hugepages-pages6.args b/tests/qemuxml2argvdata/qemuxml2argv-hugepages-pages6.args
+index 4eccb86..a3a4e57 100644
+--- a/tests/qemuxml2argvdata/qemuxml2argv-hugepages-pages6.args
++++ b/tests/qemuxml2argvdata/qemuxml2argv-hugepages-pages6.args
+@@ -1,4 +1,4 @@
+ LC_ALL=C PATH=/bin HOME=/home/test USER=test LOGNAME=test QEMU_AUDIO_DRV=none \
+-/usr/bin/qemu -S -M pc -m 1024 -mem-prealloc -smp 2 -nographic \
++/usr/bin/qemu -S -M pc -m 1024 -smp 2 -nographic \
+ -monitor unix:/tmp/test-monitor,server,nowait -no-acpi -boot c -usb \
+ -hda /dev/HostVG/QEMUGuest1 -net none -serial none -parallel none
+-- 
+2.6.1
+

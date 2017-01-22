@@ -1,0 +1,59 @@
+From b57bf75ae9f4fd163f79fb71c5e98f852a8fd825 Mon Sep 17 00:00:00 2001
+Message-Id: <b57bf75ae9f4fd163f79fb71c5e98f852a8fd825@dist-git>
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Tue, 11 Aug 2015 17:15:57 +0200
+Subject: [PATCH] cpu: Remove ISA information from CPU map XML
+
+The information is not used anywhere in libvirt.
+
+No functional changes.
+
+(cherry picked from commit cb8c0e1102c9d70b921dc41438b994ed5a08a7f8)
+
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=1250977
+
+Signed-off-by: Andrea Bolognani <abologna@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/cpu/cpu_map.xml | 5 -----
+ 1 file changed, 5 deletions(-)
+
+diff --git a/src/cpu/cpu_map.xml b/src/cpu/cpu_map.xml
+index 51474e1..50516e3 100644
+--- a/src/cpu/cpu_map.xml
++++ b/src/cpu/cpu_map.xml
+@@ -655,31 +655,26 @@
+ 
+     <model name='power6'>
+       <vendor name='IBM'/>
+-      <compat isa='2.05'/>
+       <pvr value='0x003e0000'/>
+     </model>
+ 
+     <model name='power7'>
+       <vendor name='IBM'/>
+-      <compat isa='2.06'/>
+       <pvr value='0x003f0000'/>
+     </model>
+ 
+     <model name='power7+'>
+       <vendor name='IBM'/>
+-      <compat isa='2.06B'/>
+       <pvr value='0x004a0000'/>
+     </model>
+ 
+     <model name='power8e'>
+       <vendor name='IBM'/>
+-      <compat isa='2.07'/>
+       <pvr value='0x004b0000'/>
+     </model>
+ 
+     <model name='power8'>
+       <vendor name='IBM'/>
+-      <compat isa='2.07'/>
+       <pvr value='0x004d0000'/>
+     </model>
+ 
+-- 
+2.5.0
+

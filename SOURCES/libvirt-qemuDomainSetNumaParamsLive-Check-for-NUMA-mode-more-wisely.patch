@@ -1,0 +1,41 @@
+From 5804052866cb35179f3520d1b21238b49ee19018 Mon Sep 17 00:00:00 2001
+Message-Id: <5804052866cb35179f3520d1b21238b49ee19018@dist-git>
+From: Michal Privoznik <mprivozn@redhat.com>
+Date: Tue, 14 Jul 2015 11:20:26 +0200
+Subject: [PATCH] qemuDomainSetNumaParamsLive: Check for NUMA mode more wisely
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1232663
+
+In one of my previous ptaches (bcd9a564) I've tried to fix the problem
+that we blindly assumed strict NUMA mode for guests. This led to
+several problems like us pinning a domain onto a nodeset via libnuma
+among with CGroups. Once the nodeset was changed by user, well, it did
+not result in desired effect. See the original commit for more info.
+But, the commit I wrote had a bug: when NUMA parameters are changed on
+a running domain we require domain to be strictly pinned onto a
+nodeset. Due to a typo a condition was mis-evaluated.
+
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+(cherry picked from commit 1cf25f633414dd844601965174b81bc9eb207d6b)
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/qemu/qemu_driver.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index fb42dae..47889d9 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -10036,7 +10036,7 @@ qemuDomainSetNumaParamsLive(virDomainObjPtr vm,
+     size_t i = 0;
+     int ret = -1;
+ 
+-    if (virDomainNumatuneGetMode(vm->def->numa, -1, &mode) < 0 ||
++    if (virDomainNumatuneGetMode(vm->def->numa, -1, &mode) == 0 &&
+         mode != VIR_DOMAIN_NUMATUNE_MEM_STRICT) {
+         virReportError(VIR_ERR_OPERATION_INVALID, "%s",
+                        _("change of nodeset for running domain "
+-- 
+2.5.0
+

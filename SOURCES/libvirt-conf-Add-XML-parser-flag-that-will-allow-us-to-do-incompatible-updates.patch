@@ -1,0 +1,99 @@
+From fd2d738d9c12aeea42167e0de3662af5a64d93d5 Mon Sep 17 00:00:00 2001
+Message-Id: <fd2d738d9c12aeea42167e0de3662af5a64d93d5@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Tue, 22 Sep 2015 16:59:41 +0200
+Subject: [PATCH] conf: Add XML parser flag that will allow us to do
+ incompatible updates
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1252685
+
+Add a new parser flag that will mark code paths that parse XML files
+wich will not be used with existing VM state so that post parse
+callbacks can possibly do ABI incompatible changes if needed.
+
+(cherry picked from commit 59173c3dd94fc090d2776be3986a1014ddbf2396)
+
+Conflicts:
+	src/qemu/qemu_driver.c - context
+
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/conf/domain_conf.h    |  2 ++
+ src/qemu/qemu_driver.c    | 12 ++++++++----
+ src/qemu/qemu_migration.c |  3 ++-
+ 3 files changed, 12 insertions(+), 5 deletions(-)
+
+diff --git a/src/conf/domain_conf.h b/src/conf/domain_conf.h
+index 63685c6..bac64b3 100644
+--- a/src/conf/domain_conf.h
++++ b/src/conf/domain_conf.h
+@@ -2613,6 +2613,8 @@ typedef enum {
+     /* don't validate os.type and arch against capabilities. Prevents
+      * VMs from disappearing when qemu is removed and libvirtd is restarted */
+     VIR_DOMAIN_DEF_PARSE_SKIP_OSTYPE_CHECKS = 1 << 8,
++    /* allow updates in post parse callback that would break ABI otherwise */
++    VIR_DOMAIN_DEF_PARSE_ABI_UPDATE = 1 << 9,
+ } virDomainDefParseFlags;
+ 
+ typedef enum {
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index 0f3e987..f15b14a 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -1714,7 +1714,8 @@ static virDomainPtr qemuDomainCreateXML(virConnectPtr conn,
+     unsigned int start_flags = VIR_QEMU_PROCESS_START_COLD;
+     virQEMUCapsPtr qemuCaps = NULL;
+     virCapsPtr caps = NULL;
+-    unsigned int parse_flags = VIR_DOMAIN_DEF_PARSE_INACTIVE;
++    unsigned int parse_flags = VIR_DOMAIN_DEF_PARSE_INACTIVE |
++                               VIR_DOMAIN_DEF_PARSE_ABI_UPDATE;
+ 
+     virCheckFlags(VIR_DOMAIN_START_PAUSED |
+                   VIR_DOMAIN_START_AUTODESTROY |
+@@ -7179,7 +7180,8 @@ static char *qemuConnectDomainXMLToNative(virConnectPtr conn,
+         goto cleanup;
+ 
+     def = virDomainDefParseString(xmlData, caps, driver->xmlopt,
+-                                  VIR_DOMAIN_DEF_PARSE_INACTIVE);
++                                  VIR_DOMAIN_DEF_PARSE_INACTIVE |
++                                  VIR_DOMAIN_DEF_PARSE_ABI_UPDATE);
+     if (!def)
+         goto cleanup;
+ 
+@@ -7494,7 +7496,8 @@ static virDomainPtr qemuDomainDefineXMLFlags(virConnectPtr conn, const char *xml
+     virQEMUCapsPtr qemuCaps = NULL;
+     virQEMUDriverConfigPtr cfg;
+     virCapsPtr caps = NULL;
+-    unsigned int parse_flags = VIR_DOMAIN_DEF_PARSE_INACTIVE;
++    unsigned int parse_flags = VIR_DOMAIN_DEF_PARSE_INACTIVE |
++                               VIR_DOMAIN_DEF_PARSE_ABI_UPDATE;
+ 
+     virCheckFlags(VIR_DOMAIN_DEFINE_VALIDATE, NULL);
+ 
+@@ -8449,7 +8452,8 @@ static int qemuDomainAttachDeviceFlags(virDomainPtr dom, const char *xml,
+     virDomainDefPtr vmdef = NULL;
+     virDomainDeviceDefPtr dev = NULL, dev_copy = NULL;
+     int ret = -1;
+-    unsigned int affect, parse_flags = VIR_DOMAIN_DEF_PARSE_INACTIVE;
++    unsigned int affect, parse_flags = VIR_DOMAIN_DEF_PARSE_INACTIVE |
++                                       VIR_DOMAIN_DEF_PARSE_ABI_UPDATE;
+     virQEMUCapsPtr qemuCaps = NULL;
+     qemuDomainObjPrivatePtr priv;
+     virQEMUDriverConfigPtr cfg = NULL;
+diff --git a/src/qemu/qemu_migration.c b/src/qemu/qemu_migration.c
+index 93f561f..cb82687 100644
+--- a/src/qemu/qemu_migration.c
++++ b/src/qemu/qemu_migration.c
+@@ -1257,7 +1257,8 @@ qemuMigrationCookieXMLParse(qemuMigrationCookiePtr mig,
+         }
+         mig->persistent = virDomainDefParseNode(doc, nodes[0],
+                                                 caps, driver->xmlopt,
+-                                                VIR_DOMAIN_DEF_PARSE_INACTIVE);
++                                                VIR_DOMAIN_DEF_PARSE_INACTIVE |
++                                                VIR_DOMAIN_DEF_PARSE_ABI_UPDATE);
+         if (!mig->persistent) {
+             /* virDomainDefParseNode already reported
+              * an error for us */
+-- 
+2.5.3
+
