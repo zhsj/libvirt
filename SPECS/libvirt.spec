@@ -382,7 +382,7 @@
 Summary: Library providing a simple virtualization API
 Name: libvirt
 Version: 1.2.17
-Release: 13%{?dist}.2%{?extra_release}
+Release: 13%{?dist}.3%{?extra_release}
 License: LGPLv2+
 Group: Development/Libraries
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root
@@ -647,6 +647,7 @@ Patch251: libvirt-qemu-Use-qemuDomainRequiresMlock-when-attaching-PCI-hostdev.pa
 Patch252: libvirt-qemu-Add-ppc64-specific-math-to-qemuDomainGetMlockLimitBytes.patch
 Patch253: libvirt-qemu-Always-set-locked-memory-limit-for-ppc64-domains.patch
 Patch254: libvirt-qemu-Support-vhost-user-multiqueue-with-QEMU-2.3.patch
+Patch255: libvirt-vmx-Adapt-to-emptyBackingString-for-cdrom-image.patch
 
 
 %if %{with_libvirtd}
@@ -2598,6 +2599,9 @@ exit 0
 %doc examples/systemtap
 
 %changelog
+* Wed Jan 27 2016 Jiri Denemark <jdenemar@redhat.com> - 1.2.17-13.el7_2.3
+- vmx: Adapt to emptyBackingString for cdrom-image (rhbz#1301892)
+
 * Mon Nov 23 2015 Jiri Denemark <jdenemar@redhat.com> - 1.2.17-13.el7_2.2
 - qemu: Support vhost-user-multiqueue with QEMU 2.3 (rhbz#1284416)
 

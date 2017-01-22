@@ -1,0 +1,299 @@
+From e30f529dc3ddb474ed78cf771b71d79616c3b8ce Mon Sep 17 00:00:00 2001
+Message-Id: <e30f529dc3ddb474ed78cf771b71d79616c3b8ce@dist-git>
+From: Michal Privoznik <mprivozn@redhat.com>
+Date: Tue, 26 Jan 2016 11:23:46 +0100
+Subject: [PATCH] vmx: Adapt to emptyBackingString for cdrom-image
+
+RHEL-7.3: https://bugzilla.redhat.com/show_bug.cgi?id=1275039
+RHEL-7.2.z: https://bugzilla.redhat.com/show_bug.cgi?id=1301892
+vdsm ovirt-3.6.z: https://bugzilla.redhat.com/show_bug.cgi?id=1266088
+
+We are missing this value for cdrom-image device. It seems like
+there's no added value to extend this to other types of disk
+devices [1].
+
+1: https://www.redhat.com/archives/libvir-list/2016-January/msg01038.html
+
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+(cherry picked from commit 35c3aab44d20daa2623fcf2191fc2e3afc12b9f0)
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/vmx/vmx.c                                  | 29 +++++++++++++++++++-------
+ tests/vmx2xmldata/vmx2xml-cdrom-ide-empty.vmx  |  5 +++++
+ tests/vmx2xmldata/vmx2xml-cdrom-ide-empty.xml  | 23 ++++++++++++++++++++
+ tests/vmx2xmldata/vmx2xml-cdrom-scsi-empty.vmx |  6 ++++++
+ tests/vmx2xmldata/vmx2xml-cdrom-scsi-empty.xml | 23 ++++++++++++++++++++
+ tests/vmx2xmltest.c                            |  3 +++
+ tests/xml2vmxdata/xml2vmx-cdrom-ide-empty.vmx  | 13 ++++++++++++
+ tests/xml2vmxdata/xml2vmx-cdrom-ide-empty.xml  | 13 ++++++++++++
+ tests/xml2vmxdata/xml2vmx-cdrom-scsi-empty.vmx | 14 +++++++++++++
+ tests/xml2vmxdata/xml2vmx-cdrom-scsi-empty.xml | 13 ++++++++++++
+ tests/xml2vmxtest.c                            |  2 ++
+ 11 files changed, 137 insertions(+), 7 deletions(-)
+ create mode 100644 tests/vmx2xmldata/vmx2xml-cdrom-ide-empty.vmx
+ create mode 100644 tests/vmx2xmldata/vmx2xml-cdrom-ide-empty.xml
+ create mode 100644 tests/vmx2xmldata/vmx2xml-cdrom-scsi-empty.vmx
+ create mode 100644 tests/vmx2xmldata/vmx2xml-cdrom-scsi-empty.xml
+ create mode 100644 tests/xml2vmxdata/xml2vmx-cdrom-ide-empty.vmx
+ create mode 100644 tests/xml2vmxdata/xml2vmx-cdrom-ide-empty.xml
+ create mode 100644 tests/xml2vmxdata/xml2vmx-cdrom-scsi-empty.vmx
+ create mode 100644 tests/xml2vmxdata/xml2vmx-cdrom-scsi-empty.xml
+
+diff --git a/src/vmx/vmx.c b/src/vmx/vmx.c
+index 84f71f7..805ad60 100644
+--- a/src/vmx/vmx.c
++++ b/src/vmx/vmx.c
+@@ -2176,6 +2176,7 @@ virVMXParseDisk(virVMXContext *ctx, virDomainXMLOptionPtr xmlopt, virConfPtr con
+                 (*def)->transient = STRCASEEQ(mode,
+                                               "independent-nonpersistent");
+         } else if (virFileHasSuffix(fileName, ".iso") ||
++                   STREQ(fileName, "emptyBackingString") ||
+                    (deviceType &&
+                     (STRCASEEQ(deviceType, "atapi-cdrom") ||
+                      STRCASEEQ(deviceType, "cdrom-raw") ||
+@@ -2261,6 +2262,16 @@ virVMXParseDisk(virVMXContext *ctx, virDomainXMLOptionPtr xmlopt, virConfPtr con
+                  */
+                 goto ignore;
+             }
++        } else if (STREQ(fileName, "emptyBackingString")) {
++            if (deviceType && STRCASENEQ(deviceType, "cdrom-image")) {
++                virReportError(VIR_ERR_INTERNAL_ERROR,
++                               _("Expecting VMX entry '%s' to be 'cdrom-image' "
++                                 "but found '%s'"), deviceType_name, deviceType);
++                goto cleanup;
++            }
++
++            virDomainDiskSetType(*def, VIR_STORAGE_TYPE_FILE);
++            ignore_value(virDomainDiskSetSource(*def, NULL));
+         } else {
+             virReportError(VIR_ERR_INTERNAL_ERROR,
+                            _("Invalid or not yet handled value '%s' "
+@@ -3465,15 +3476,19 @@ virVMXFormatDisk(virVMXContext *ctx, virDomainDiskDefPtr def,
+     if (type == VIR_STORAGE_TYPE_FILE) {
+         const char *src = virDomainDiskGetSource(def);
+ 
+-        if (src && ! virFileHasSuffix(src, fileExt)) {
+-            virReportError(VIR_ERR_INTERNAL_ERROR,
+-                           _("Image file for %s %s '%s' has "
+-                             "unsupported suffix, expecting '%s'"),
+-                           busType, deviceType, def->dst, fileExt);
++        if (src) {
++            if (!virFileHasSuffix(src, fileExt)) {
++                virReportError(VIR_ERR_INTERNAL_ERROR,
++                               _("Image file for %s %s '%s' has "
++                                 "unsupported suffix, expecting '%s'"),
++                               busType, deviceType, def->dst, fileExt);
+                 return -1;
+-        }
++            }
+ 
+-        fileName = ctx->formatFileName(src, ctx->opaque);
++            fileName = ctx->formatFileName(src, ctx->opaque);
++        } else if (def->device == VIR_DOMAIN_DISK_DEVICE_CDROM) {
++            ignore_value(VIR_STRDUP(fileName, "emptyBackingString"));
++        }
+ 
+         if (fileName == NULL)
+             return -1;
+diff --git a/tests/vmx2xmldata/vmx2xml-cdrom-ide-empty.vmx b/tests/vmx2xmldata/vmx2xml-cdrom-ide-empty.vmx
+new file mode 100644
+index 0000000..62fdb3d
+--- /dev/null
++++ b/tests/vmx2xmldata/vmx2xml-cdrom-ide-empty.vmx
+@@ -0,0 +1,5 @@
++config.version = "8"
++virtualHW.version = "4"
++ide0:0.present = "true"
++ide0:0.deviceType = "cdrom-image"
++ide0:0.fileName = "emptyBackingString"
+diff --git a/tests/vmx2xmldata/vmx2xml-cdrom-ide-empty.xml b/tests/vmx2xmldata/vmx2xml-cdrom-ide-empty.xml
+new file mode 100644
+index 0000000..e086379
+--- /dev/null
++++ b/tests/vmx2xmldata/vmx2xml-cdrom-ide-empty.xml
+@@ -0,0 +1,23 @@
++<domain type='vmware'>
++  <uuid>00000000-0000-0000-0000-000000000000</uuid>
++  <memory unit='KiB'>32768</memory>
++  <currentMemory unit='KiB'>32768</currentMemory>
++  <vcpu placement='static'>1</vcpu>
++  <os>
++    <type arch='i686'>hvm</type>
++  </os>
++  <clock offset='utc'/>
++  <on_poweroff>destroy</on_poweroff>
++  <on_reboot>restart</on_reboot>
++  <on_crash>destroy</on_crash>
++  <devices>
++    <disk type='file' device='cdrom'>
++      <target dev='hda' bus='ide'/>
++      <address type='drive' controller='0' bus='0' target='0' unit='0'/>
++    </disk>
++    <controller type='ide' index='0'/>
++    <video>
++      <model type='vmvga' vram='4096'/>
++    </video>
++  </devices>
++</domain>
+diff --git a/tests/vmx2xmldata/vmx2xml-cdrom-scsi-empty.vmx b/tests/vmx2xmldata/vmx2xml-cdrom-scsi-empty.vmx
+new file mode 100644
+index 0000000..3c6036a
+--- /dev/null
++++ b/tests/vmx2xmldata/vmx2xml-cdrom-scsi-empty.vmx
+@@ -0,0 +1,6 @@
++config.version = "8"
++virtualHW.version = "4"
++scsi0.present = "true"
++scsi0:0.present = "true"
++scsi0:0.deviceType = "cdrom-image"
++scsi0:0.fileName = "emptyBackingString"
+diff --git a/tests/vmx2xmldata/vmx2xml-cdrom-scsi-empty.xml b/tests/vmx2xmldata/vmx2xml-cdrom-scsi-empty.xml
+new file mode 100644
+index 0000000..56ad678
+--- /dev/null
++++ b/tests/vmx2xmldata/vmx2xml-cdrom-scsi-empty.xml
+@@ -0,0 +1,23 @@
++<domain type='vmware'>
++  <uuid>00000000-0000-0000-0000-000000000000</uuid>
++  <memory unit='KiB'>32768</memory>
++  <currentMemory unit='KiB'>32768</currentMemory>
++  <vcpu placement='static'>1</vcpu>
++  <os>
++    <type arch='i686'>hvm</type>
++  </os>
++  <clock offset='utc'/>
++  <on_poweroff>destroy</on_poweroff>
++  <on_reboot>restart</on_reboot>
++  <on_crash>destroy</on_crash>
++  <devices>
++    <disk type='file' device='cdrom'>
++      <target dev='sda' bus='scsi'/>
++      <address type='drive' controller='0' bus='0' target='0' unit='0'/>
++    </disk>
++    <controller type='scsi' index='0'/>
++    <video>
++      <model type='vmvga' vram='4096'/>
++    </video>
++  </devices>
++</domain>
+diff --git a/tests/vmx2xmltest.c b/tests/vmx2xmltest.c
+index 1d1fe83..b8dbd31 100644
+--- a/tests/vmx2xmltest.c
++++ b/tests/vmx2xmltest.c
+@@ -218,14 +218,17 @@ mymain(void)
+     DO_TEST("harddisk-transient", "harddisk-transient");
+ 
+     DO_TEST("cdrom-scsi-file", "cdrom-scsi-file");
++    DO_TEST("cdrom-scsi-empty", "cdrom-scsi-empty");
+     DO_TEST("cdrom-scsi-device", "cdrom-scsi-device");
+     DO_TEST("cdrom-scsi-raw-device", "cdrom-scsi-raw-device");
+     DO_TEST("cdrom-scsi-raw-auto-detect", "cdrom-scsi-raw-auto-detect");
+     DO_TEST("cdrom-scsi-passthru", "cdrom-scsi-passthru");
+     DO_TEST("cdrom-ide-file", "cdrom-ide-file");
++    DO_TEST("cdrom-ide-empty", "cdrom-ide-empty");
+     DO_TEST("cdrom-ide-device", "cdrom-ide-device");
+     DO_TEST("cdrom-ide-raw-device", "cdrom-ide-raw-device");
+     DO_TEST("cdrom-ide-raw-auto-detect", "cdrom-ide-raw-auto-detect");
++    DO_TEST("cdrom-ide-raw-auto-detect", "cdrom-ide-raw-auto-detect");
+ 
+     DO_TEST("floppy-file", "floppy-file");
+     DO_TEST("floppy-device", "floppy-device");
+diff --git a/tests/xml2vmxdata/xml2vmx-cdrom-ide-empty.vmx b/tests/xml2vmxdata/xml2vmx-cdrom-ide-empty.vmx
+new file mode 100644
+index 0000000..45c7950
+--- /dev/null
++++ b/tests/xml2vmxdata/xml2vmx-cdrom-ide-empty.vmx
+@@ -0,0 +1,13 @@
++.encoding = "UTF-8"
++config.version = "8"
++virtualHW.version = "4"
++guestOS = "other"
++uuid.bios = "56 4d 9b ef ac d9 b4 e0-c8 f0 ae a8 b9 10 35 15"
++displayName = "cdrom-ide-file"
++memsize = "4"
++numvcpus = "1"
++ide0:0.present = "true"
++ide0:0.deviceType = "cdrom-image"
++ide0:0.fileName = "emptyBackingString"
++floppy0.present = "false"
++floppy1.present = "false"
+diff --git a/tests/xml2vmxdata/xml2vmx-cdrom-ide-empty.xml b/tests/xml2vmxdata/xml2vmx-cdrom-ide-empty.xml
+new file mode 100644
+index 0000000..219603e
+--- /dev/null
++++ b/tests/xml2vmxdata/xml2vmx-cdrom-ide-empty.xml
+@@ -0,0 +1,13 @@
++<domain type='vmware'>
++  <name>cdrom-ide-file</name>
++  <uuid>564d9bef-acd9-b4e0-c8f0-aea8b9103515</uuid>
++  <memory unit='KiB'>4096</memory>
++  <os>
++    <type>hvm</type>
++  </os>
++  <devices>
++    <disk type='file' device='cdrom'>
++      <target dev='hda' bus='ide'/>
++    </disk>
++  </devices>
++</domain>
+diff --git a/tests/xml2vmxdata/xml2vmx-cdrom-scsi-empty.vmx b/tests/xml2vmxdata/xml2vmx-cdrom-scsi-empty.vmx
+new file mode 100644
+index 0000000..1097cb1
+--- /dev/null
++++ b/tests/xml2vmxdata/xml2vmx-cdrom-scsi-empty.vmx
+@@ -0,0 +1,14 @@
++.encoding = "UTF-8"
++config.version = "8"
++virtualHW.version = "4"
++guestOS = "other"
++uuid.bios = "56 4d 9b ef ac d9 b4 e0-c8 f0 ae a8 b9 10 35 15"
++displayName = "cdrom-scsi-empty"
++memsize = "4"
++numvcpus = "1"
++scsi0.present = "true"
++scsi0:0.present = "true"
++scsi0:0.deviceType = "cdrom-image"
++scsi0:0.fileName = "emptyBackingString"
++floppy0.present = "false"
++floppy1.present = "false"
+diff --git a/tests/xml2vmxdata/xml2vmx-cdrom-scsi-empty.xml b/tests/xml2vmxdata/xml2vmx-cdrom-scsi-empty.xml
+new file mode 100644
+index 0000000..a5a6d80
+--- /dev/null
++++ b/tests/xml2vmxdata/xml2vmx-cdrom-scsi-empty.xml
+@@ -0,0 +1,13 @@
++<domain type='vmware'>
++  <name>cdrom-scsi-empty</name>
++  <uuid>564d9bef-acd9-b4e0-c8f0-aea8b9103515</uuid>
++  <memory unit='KiB'>4096</memory>
++  <os>
++    <type>hvm</type>
++  </os>
++  <devices>
++    <disk type='file' device='cdrom'>
++      <target dev='sda' bus='scsi'/>
++    </disk>
++  </devices>
++</domain>
+diff --git a/tests/xml2vmxtest.c b/tests/xml2vmxtest.c
+index 53efe31..0efd278 100644
+--- a/tests/xml2vmxtest.c
++++ b/tests/xml2vmxtest.c
+@@ -234,11 +234,13 @@ mymain(void)
+     DO_TEST("harddisk-ide-file", "harddisk-ide-file", 4);
+ 
+     DO_TEST("cdrom-scsi-file", "cdrom-scsi-file", 4);
++    DO_TEST("cdrom-scsi-empty", "cdrom-scsi-empty", 4);
+     DO_TEST("cdrom-scsi-device", "cdrom-scsi-device", 4);
+     DO_TEST("cdrom-scsi-raw-device", "cdrom-scsi-raw-device", 4);
+     DO_TEST("cdrom-scsi-raw-auto-detect", "cdrom-scsi-raw-auto-detect", 4);
+     DO_TEST("cdrom-scsi-passthru", "cdrom-scsi-passthru", 4);
+     DO_TEST("cdrom-ide-file", "cdrom-ide-file", 4);
++    DO_TEST("cdrom-ide-empty", "cdrom-ide-empty", 4);
+     DO_TEST("cdrom-ide-device", "cdrom-ide-device", 4);
+     DO_TEST("cdrom-ide-raw-device", "cdrom-ide-raw-device", 4);
+     DO_TEST("cdrom-ide-raw-auto-detect", "cdrom-ide-raw-auto-detect", 4);
+-- 
+2.7.0
+
