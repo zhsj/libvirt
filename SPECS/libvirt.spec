@@ -382,7 +382,7 @@
 Summary: Library providing a simple virtualization API
 Name: libvirt
 Version: 1.2.17
-Release: 13%{?dist}.5%{?extra_release}
+Release: 13%{?dist}.5.1%{?extra_release}
 License: LGPLv2+
 Group: Development/Libraries
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root
@@ -662,6 +662,7 @@ Patch266: libvirt-qemu-driver-Remove-unnecessary-flag-in-qemuDomainGetStatsBlock
 Patch267: libvirt-qemu-driver-Separate-bulk-stats-worker-for-block-devices.patch
 Patch268: libvirt-qemu-bulk-stats-Don-t-access-possibly-blocked-storage.patch
 
+Patch10000: libvirt-qemu-agent-Fix-QEMU-guest-agent-is-not-available-due-to-an-error.patch
 
 %if %{with_libvirtd}
 Requires: libvirt-daemon = %{version}-%{release}
@@ -2612,6 +2613,9 @@ exit 0
 %doc examples/systemtap
 
 %changelog
+* Mon Aug 29 2016 Yaowei Bai <baiyaowei@cmss.chinamobile.com> - 1.2.17-13.el7_2.5.1
+- libvirt-qemu-agent-Fix-QEMU-guest-agent-is-not-available-due-to-an-error.patch
+
 * Thu May 26 2016 Jiri Denemark <jdenemar@redhat.com> - 1.2.17-13.el7_2.5
 - nodedev: Indent PCI express for future fix (rhbz#1331328)
 - nodedev: Expose PCI header type (rhbz#1331328)
