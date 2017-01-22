@@ -1,0 +1,38 @@
+From 704cb78bdb0b5bbb8409d2795b82d3936aae6f2b Mon Sep 17 00:00:00 2001
+Message-Id: <704cb78bdb0b5bbb8409d2795b82d3936aae6f2b@dist-git>
+From: Michal Privoznik <mprivozn@redhat.com>
+Date: Tue, 16 Feb 2016 11:55:10 +0100
+Subject: [PATCH] virSystemdGetMachineNameByPID: Initialize @reply
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1308494
+
+I've noticed that variable @reply is not initialized and if
+something at the beginning of the function fails, e.g.
+virDBusGetSystemBus(), the control jump straight to cleanup label
+where dbus_message_unref() is then called over this uninitialized
+variable.
+
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+(cherry picked from commit a3b168d01a6254a5972d4eda87d7cbc3d9cdb3ef)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/util/virsystemd.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/util/virsystemd.c b/src/util/virsystemd.c
+index 0f4e1f0..7bc5d55 100644
+--- a/src/util/virsystemd.c
++++ b/src/util/virsystemd.c
+@@ -181,7 +181,7 @@ char *
+ virSystemdGetMachineNameByPID(pid_t pid)
+ {
+     DBusConnection *conn;
+-    DBusMessage *reply;
++    DBusMessage *reply = NULL;
+     char *name = NULL, *object = NULL;
+ 
+     if (virDBusIsServiceEnabled("org.freedesktop.machine1") < 0)
+-- 
+2.7.2
+

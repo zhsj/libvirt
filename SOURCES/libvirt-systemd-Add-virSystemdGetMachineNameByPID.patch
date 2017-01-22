@@ -1,0 +1,190 @@
+From 108e6134a8f61d2c809b7d0e423fba4a5f796e00 Mon Sep 17 00:00:00 2001
+Message-Id: <108e6134a8f61d2c809b7d0e423fba4a5f796e00@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Tue, 16 Feb 2016 11:55:08 +0100
+Subject: [PATCH] systemd: Add virSystemdGetMachineNameByPID
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1308494
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 92757d4d2d108cf612916928e733739d40a31942)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/libvirt_private.syms |  1 +
+ src/util/virsystemd.c    | 56 ++++++++++++++++++++++++++++++++++++++++++++++++
+ src/util/virsystemd.h    |  2 ++
+ tests/virsystemdtest.c   | 46 +++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 105 insertions(+)
+
+diff --git a/src/libvirt_private.syms b/src/libvirt_private.syms
+index 16ae24f..4ad9266 100644
+--- a/src/libvirt_private.syms
++++ b/src/libvirt_private.syms
+@@ -2228,6 +2228,7 @@ virSystemdCanHibernate;
+ virSystemdCanHybridSleep;
+ virSystemdCanSuspend;
+ virSystemdCreateMachine;
++virSystemdGetMachineNameByPID;
+ virSystemdMakeMachineName;
+ virSystemdMakeScopeName;
+ virSystemdMakeSliceName;
+diff --git a/src/util/virsystemd.c b/src/util/virsystemd.c
+index 0c8f026..daaa37c 100644
+--- a/src/util/virsystemd.c
++++ b/src/util/virsystemd.c
+@@ -113,6 +113,7 @@ char *virSystemdMakeSliceName(const char *partition)
+     return virBufferContentAndReset(&buf);
+ }
+ 
++
+ char *virSystemdMakeMachineName(const char *name,
+                                 const char *drivername,
+                                 bool privileged)
+@@ -139,6 +140,61 @@ char *virSystemdMakeMachineName(const char *name,
+     return machinename;
+ }
+ 
++
++char *
++virSystemdGetMachineNameByPID(pid_t pid)
++{
++    DBusConnection *conn;
++    DBusMessage *reply;
++    char *name = NULL, *object = NULL;
++
++    if (virDBusIsServiceEnabled("org.freedesktop.machine1") < 0)
++        goto cleanup;
++
++    if (virDBusIsServiceRegistered("org.freedesktop.systemd1") < 0)
++        goto cleanup;
++
++    if (!(conn = virDBusGetSystemBus()))
++        goto cleanup;
++
++    if (virDBusCallMethod(conn, &reply, NULL,
++                          "org.freedesktop.machine1",
++                          "/org/freedesktop/machine1",
++                          "org.freedesktop.machine1.Manager",
++                          "GetMachineByPID",
++                          "u", pid) < 0)
++        goto cleanup;
++
++    if (virDBusMessageRead(reply, "o", &object) < 0)
++        goto cleanup;
++
++    VIR_DEBUG("Domain with pid %llu has object path '%s'",
++              (unsigned long long)pid, object);
++
++    if (virDBusCallMethod(conn, &reply, NULL,
++                          "org.freedesktop.machine1",
++                          object,
++                          "org.freedesktop.DBus.Properties",
++                          "Get",
++                          "ss",
++                          "org.freedesktop.machine1.Machine",
++                          "Name") < 0)
++        goto cleanup;
++
++    if (virDBusMessageRead(reply, "v", "s", &name) < 0)
++        goto cleanup;
++
++    VIR_DEBUG("Domain with pid %llu has machine name '%s'",
++              (unsigned long long)pid, name);
++
++ cleanup:
++    VIR_FREE(object);
++    dbus_message_unref(reply);
++
++    return name;
++}
++
++
+ /**
+  * virSystemdCreateMachine:
+  * @name: driver unique name of the machine
+diff --git a/src/util/virsystemd.h b/src/util/virsystemd.h
+index 8af2169..a13a4c0 100644
+--- a/src/util/virsystemd.h
++++ b/src/util/virsystemd.h
+@@ -55,4 +55,6 @@ int virSystemdCanHibernate(bool *result);
+ 
+ int virSystemdCanHybridSleep(bool *result);
+ 
++char *virSystemdGetMachineNameByPID(pid_t pid);
++
+ #endif /* __VIR_SYSTEMD_H__ */
+diff --git a/tests/virsystemdtest.c b/tests/virsystemdtest.c
+index 06fec54..3a3cd99 100644
+--- a/tests/virsystemdtest.c
++++ b/tests/virsystemdtest.c
+@@ -54,6 +54,31 @@ VIR_MOCK_WRAP_RET_ARGS(dbus_connection_send_with_reply_and_block,
+                                  "Something went wrong creating the machine");
+         } else {
+             reply = dbus_message_new(DBUS_MESSAGE_TYPE_METHOD_RETURN);
++
++            if (STREQ(member, "GetMachineByPID")) {
++                const char *object_path = "/org/freedesktop/machine1/machine/qemu_2ddemo";
++                DBusMessageIter iter;
++
++                dbus_message_iter_init_append(reply, &iter);
++                if (!dbus_message_iter_append_basic(&iter,
++                                                    DBUS_TYPE_OBJECT_PATH,
++                                                    &object_path))
++                    goto error;
++            } else if (STREQ(member, "Get")) {
++                const char *name = "qemu-demo";
++                DBusMessageIter iter;
++                DBusMessageIter sub;
++
++                dbus_message_iter_init_append(reply, &iter);
++                dbus_message_iter_open_container(&iter, DBUS_TYPE_VARIANT,
++                                                 "s", &sub);
++
++                if (!dbus_message_iter_append_basic(&sub,
++                                                    DBUS_TYPE_STRING,
++                                                    &name))
++                    goto error;
++                dbus_message_iter_close_container(&iter, &sub);
++            }
+         }
+     } else if (STREQ(service, "org.freedesktop.login1")) {
+         char *supported = getenv("RESULT_SUPPORT");
+@@ -338,6 +363,25 @@ static int testCreateNetwork(const void *opaque ATTRIBUTE_UNUSED)
+ }
+ 
+ 
++static int
++testGetMachineName(const void *opaque ATTRIBUTE_UNUSED)
++{
++    char *tmp = virSystemdGetMachineNameByPID(1234);
++    int ret = -1;
++
++    if (!tmp) {
++        fprintf(stderr, "%s", "Failed to create LXC machine\n");
++        return ret;
++    }
++
++    if (STREQ(tmp, "qemu-demo"))
++        ret = 0;
++
++    VIR_FREE(tmp);
++    return ret;
++}
++
++
+ struct testNameData {
+     const char *name;
+     const char *expected;
+@@ -491,6 +535,8 @@ mymain(void)
+         ret = -1;
+     if (virtTestRun("Test create with network ", testCreateNetwork, NULL) < 0)
+         ret = -1;
++    if (virtTestRun("Test getting machine name ", testGetMachineName, NULL) < 0)
++        ret = -1;
+ 
+ # define TEST_SCOPE(name, unitname)                                     \
+     do {                                                                \
+-- 
+2.7.2
+

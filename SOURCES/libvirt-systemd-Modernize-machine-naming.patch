@@ -1,0 +1,905 @@
+From fdceac0494012ade9dddac2afe2965538f26206e Mon Sep 17 00:00:00 2001
+Message-Id: <fdceac0494012ade9dddac2afe2965538f26206e@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Tue, 16 Feb 2016 11:55:09 +0100
+Subject: [PATCH] systemd: Modernize machine naming
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1308494
+
+So, systemd-machined has this philosophy that machine names are like
+hostnames and hence should follow the same rules.  But we always allowed
+international characters in domain names.  Thus we need to modify the
+machine name we are passing to systemd.
+
+In order to change some machine names that we will be passing to systemd,
+we also need to call TerminateMachine at the end of a lifetime of a
+domain.  Even for domains that were started with older libvirt.  That
+can be achieved thanks to virSystemdGetMachineNameByPID().  And because
+we can change machine names, we can get rid of the inconsistent and
+pointless escaping of domain names when creating machine names.
+
+So this patch modifies the naming in the following way.  It creates the
+name as <drivername>-<id>-<name> where invalid hostname characters are
+stripped out of the name and if the resulting name is longer, it
+truncates it to 64 characters.  That way we can start domains we
+couldn't start before.  Well, at least on systemd.
+
+To make it work all together, the machineName (which is needed only with
+systemd) is saved in domain's private data.  That way the generation is
+moved to the driver and we don't need to pass various unnecessary
+arguments to cgroup functions.
+
+The only thing this complicates a bit is the scope generation when
+validating a cgroup where we must check both old and new naming, so a
+slight modification was needed there.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1282846
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit c3bd0019c0e3f080dbf0d4bd08245ffb2daa2765)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+
+Conflicts:
+	src/qemu/qemu_process.c - fe422b673b4b8 (context)
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/lxc/lxc_cgroup.c    | 13 +++++++--
+ src/lxc/lxc_domain.h    |  1 +
+ src/lxc/lxc_process.c   | 20 +++++++++----
+ src/qemu/qemu_cgroup.c  | 28 +++++++++++++-----
+ src/qemu/qemu_cgroup.h  |  2 +-
+ src/qemu/qemu_domain.h  |  1 +
+ src/qemu/qemu_process.c |  4 +--
+ src/util/vircgroup.c    | 59 ++++++++++++++++++++++++--------------
+ src/util/vircgroup.h    | 12 ++++----
+ src/util/virsystemd.c   | 75 +++++++++++++++++++++++++++++++++----------------
+ src/util/virsystemd.h   | 13 ++++-----
+ tests/virsystemdtest.c  | 67 +++++++++++++++++++++++++------------------
+ 12 files changed, 191 insertions(+), 104 deletions(-)
+
+diff --git a/src/lxc/lxc_cgroup.c b/src/lxc/lxc_cgroup.c
+index ad254e4..3148946 100644
+--- a/src/lxc/lxc_cgroup.c
++++ b/src/lxc/lxc_cgroup.c
+@@ -29,6 +29,7 @@
+ #include "viralloc.h"
+ #include "vircgroup.h"
+ #include "virstring.h"
++#include "virsystemd.h"
+ 
+ #define VIR_FROM_THIS VIR_FROM_LXC
+ 
+@@ -483,6 +484,13 @@ virCgroupPtr virLXCCgroupCreate(virDomainDefPtr def,
+                                 int *nicindexes)
+ {
+     virCgroupPtr cgroup = NULL;
++    char *machineName = virSystemdMakeMachineName("lxc",
++                                                  def->id,
++                                                  def->name,
++                                                  true);
++
++    if (!machineName)
++        goto cleanup;
+ 
+     if (def->resource->partition[0] != '/') {
+         virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
+@@ -491,9 +499,8 @@ virCgroupPtr virLXCCgroupCreate(virDomainDefPtr def,
+         goto cleanup;
+     }
+ 
+-    if (virCgroupNewMachine(def->name,
++    if (virCgroupNewMachine(machineName,
+                             "lxc",
+-                            true,
+                             def->uuid,
+                             NULL,
+                             initpid,
+@@ -517,6 +524,8 @@ virCgroupPtr virLXCCgroupCreate(virDomainDefPtr def,
+     }
+ 
+  cleanup:
++    VIR_FREE(machineName);
++
+     return cgroup;
+ }
+ 
+diff --git a/src/lxc/lxc_domain.h b/src/lxc/lxc_domain.h
+index 751aece..a9e319c 100644
+--- a/src/lxc/lxc_domain.h
++++ b/src/lxc/lxc_domain.h
+@@ -39,6 +39,7 @@ struct _virLXCDomainObjPrivate {
+     pid_t initpid;
+ 
+     virCgroupPtr cgroup;
++    char *machineName;
+ };
+ 
+ extern virDomainXMLPrivateDataCallbacks virLXCDriverPrivateDataCallbacks;
+diff --git a/src/lxc/lxc_process.c b/src/lxc/lxc_process.c
+index 87ee484..2eaad7d 100644
+--- a/src/lxc/lxc_process.c
++++ b/src/lxc/lxc_process.c
+@@ -216,8 +216,7 @@ static void virLXCProcessCleanup(virLXCDriverPtr driver,
+      * properly. See https://bugs.freedesktop.org/show_bug.cgi?id=68370 for
+      * the bug we are working around here.
+      */
+-    virSystemdTerminateMachine(vm->def->name, "lxc", true);
+-
++    virCgroupTerminateMachine(priv->machineName);
+ 
+     /* The "release" hook cleans up additional resources */
+     if (virHookPresent(VIR_HOOK_DRIVER_LXC)) {
+@@ -1318,8 +1317,9 @@ int virLXCProcessStart(virConnectPtr conn,
+      * point so lets detect that first, since it gives us a
+      * more reliable way to kill everything off if something
+      * goes wrong from here onwards ... */
+-    if (virCgroupNewDetectMachine(vm->def->name, "lxc", vm->pid,
+-                                  -1, &priv->cgroup) < 0)
++    if (virCgroupNewDetectMachine(vm->def->name, "lxc",
++                                  vm->def->id, true,
++                                  vm->pid, -1, &priv->cgroup) < 0)
+         goto cleanup;
+ 
+     if (!priv->cgroup) {
+@@ -1329,6 +1329,11 @@ int virLXCProcessStart(virConnectPtr conn,
+         goto cleanup;
+     }
+ 
++    /* Get the machine name so we can properly delete it through
++     * systemd later */
++    if (!(priv->machineName = virSystemdGetMachineNameByPID(vm->pid)))
++        virResetLastError();
++
+     /* And we can get the first monitor connection now too */
+     if (!(priv->monitor = virLXCProcessConnectMonitor(driver, vm))) {
+         /* Intentionally overwrite the real monitor error message,
+@@ -1501,8 +1506,8 @@ virLXCProcessReconnectDomain(virDomainObjPtr vm,
+         if (!(priv->monitor = virLXCProcessConnectMonitor(driver, vm)))
+             goto error;
+ 
+-        if (virCgroupNewDetectMachine(vm->def->name, "lxc", vm->pid,
+-                                      -1, &priv->cgroup) < 0)
++        if (virCgroupNewDetectMachine(vm->def->name, "lxc", vm->def->id, true,
++                                      vm->pid, -1, &priv->cgroup) < 0)
+             goto error;
+ 
+         if (!priv->cgroup) {
+@@ -1512,6 +1517,9 @@ virLXCProcessReconnectDomain(virDomainObjPtr vm,
+             goto error;
+         }
+ 
++        if (!(priv->machineName = virSystemdGetMachineNameByPID(vm->pid)))
++            virResetLastError();
++
+         if (virLXCUpdateActiveUSBHostdevs(driver, vm->def) < 0)
+             goto error;
+ 
+diff --git a/src/qemu/qemu_cgroup.c b/src/qemu/qemu_cgroup.c
+index 0da6c02..448183f 100644
+--- a/src/qemu/qemu_cgroup.c
++++ b/src/qemu/qemu_cgroup.c
+@@ -36,6 +36,7 @@
+ #include "virfile.h"
+ #include "virtypedparam.h"
+ #include "virnuma.h"
++#include "virsystemd.h"
+ 
+ #define VIR_FROM_THIS VIR_FROM_QEMU
+ 
+@@ -753,9 +754,19 @@ qemuInitCgroup(virQEMUDriverPtr driver,
+         goto cleanup;
+     }
+ 
+-    if (virCgroupNewMachine(vm->def->name,
++    /*
++     * We need to do this because of systemd-machined, because
++     * CreateMachine requires the name to be a valid hostname.
++     */
++    priv->machineName = virSystemdMakeMachineName("qemu",
++                                                  vm->def->id,
++                                                  vm->def->name,
++                                                  virQEMUDriverIsPrivileged(driver));
++    if (!priv->machineName)
++        goto cleanup;
++
++    if (virCgroupNewMachine(priv->machineName,
+                             "qemu",
+-                            true,
+                             vm->def->uuid,
+                             NULL,
+                             vm->pid,
+@@ -864,11 +875,17 @@ qemuConnectCgroup(virQEMUDriverPtr driver,
+ 
+     if (virCgroupNewDetectMachine(vm->def->name,
+                                   "qemu",
++                                  vm->def->id,
++                                  virQEMUDriverIsPrivileged(driver),
+                                   vm->pid,
+                                   cfg->cgroupControllers,
+                                   &priv->cgroup) < 0)
+         goto cleanup;
+ 
++    priv->machineName = virSystemdGetMachineNameByPID(vm->pid);
++    if (!priv->machineName)
++        virResetLastError();
++
+     qemuRestoreCgroupState(vm);
+ 
+  done:
+@@ -1250,17 +1267,14 @@ qemuSetupCgroupForIOThreads(virDomainObjPtr vm)
+ }
+ 
+ int
+-qemuRemoveCgroup(virQEMUDriverPtr driver,
+-                 virDomainObjPtr vm)
++qemuRemoveCgroup(virDomainObjPtr vm)
+ {
+     qemuDomainObjPrivatePtr priv = vm->privateData;
+ 
+     if (priv->cgroup == NULL)
+         return 0; /* Not supported, so claim success */
+ 
+-    if (virCgroupTerminateMachine(vm->def->name,
+-                                  "qemu",
+-                                  virQEMUDriverIsPrivileged(driver)) < 0) {
++    if (virCgroupTerminateMachine(priv->machineName) < 0) {
+         if (!virCgroupNewIgnoreError())
+             VIR_DEBUG("Failed to terminate cgroup for %s", vm->def->name);
+     }
+diff --git a/src/qemu/qemu_cgroup.h b/src/qemu/qemu_cgroup.h
+index 711a6de..3fc313f 100644
+--- a/src/qemu/qemu_cgroup.h
++++ b/src/qemu/qemu_cgroup.h
+@@ -56,7 +56,7 @@ int qemuSetupCgroupCpusetCpus(virCgroupPtr cgroup, virBitmapPtr cpumask);
+ int qemuSetupCgroupForVcpu(virDomainObjPtr vm);
+ int qemuSetupCgroupForIOThreads(virDomainObjPtr vm);
+ int qemuSetupCgroupForEmulator(virDomainObjPtr vm);
+-int qemuRemoveCgroup(virQEMUDriverPtr driver, virDomainObjPtr vm);
++int qemuRemoveCgroup(virDomainObjPtr vm);
+ int qemuAddToCgroup(virDomainObjPtr vm);
+ 
+ #endif /* __QEMU_CGROUP_H__ */
+diff --git a/src/qemu/qemu_domain.h b/src/qemu/qemu_domain.h
+index 32f713b..8d4e099 100644
+--- a/src/qemu/qemu_domain.h
++++ b/src/qemu/qemu_domain.h
+@@ -202,6 +202,7 @@ struct _qemuDomainObjPrivate {
+ 
+     bool signalIOError; /* true if the domain condition should be signalled on
+                            I/O error */
++    char *machineName;
+ };
+ 
+ # define QEMU_DOMAIN_DISK_PRIVATE(disk)	\
+diff --git a/src/qemu/qemu_process.c b/src/qemu/qemu_process.c
+index ed01bf4..1d06b6d 100644
+--- a/src/qemu/qemu_process.c
++++ b/src/qemu/qemu_process.c
+@@ -4540,7 +4540,7 @@ int qemuProcessStart(virConnectPtr conn,
+     /* Ensure no historical cgroup for this VM is lying around bogus
+      * settings */
+     VIR_DEBUG("Ensuring no historical cgroup is lying around");
+-    qemuRemoveCgroup(driver, vm);
++    qemuRemoveCgroup(vm);
+ 
+     for (i = 0; i < vm->def->ngraphics; ++i) {
+         virDomainGraphicsDefPtr graphics = vm->def->graphics[i];
+@@ -5390,7 +5390,7 @@ void qemuProcessStop(virQEMUDriverPtr driver,
+     }
+ 
+  retry:
+-    if ((ret = qemuRemoveCgroup(driver, vm)) < 0) {
++    if ((ret = qemuRemoveCgroup(vm)) < 0) {
+         if (ret == -EBUSY && (retries++ < 5)) {
+             usleep(200*1000);
+             goto retry;
+diff --git a/src/util/vircgroup.c b/src/util/vircgroup.c
+index c94512a..b43edb2 100644
+--- a/src/util/vircgroup.c
++++ b/src/util/vircgroup.c
+@@ -243,12 +243,17 @@ static bool
+ virCgroupValidateMachineGroup(virCgroupPtr group,
+                               const char *name,
+                               const char *drivername,
++                              int id,
++                              bool privileged,
+                               bool stripEmulatorSuffix)
+ {
+     size_t i;
+     bool valid = false;
+-    char *partname;
+-    char *scopename;
++    char *partname = NULL;
++    char *scopename_old = NULL;
++    char *scopename_new = NULL;
++    char *machinename = virSystemdMakeMachineName(drivername, id,
++                                                  name, privileged);
+ 
+     if (virAsprintf(&partname, "%s.libvirt-%s",
+                     name, drivername) < 0)
+@@ -257,10 +262,21 @@ virCgroupValidateMachineGroup(virCgroupPtr group,
+     if (virCgroupPartitionEscape(&partname) < 0)
+         goto cleanup;
+ 
+-    if (!(scopename = virSystemdMakeScopeName(name, drivername)))
++    if (!(scopename_old = virSystemdMakeScopeName(name, drivername, true)))
+         goto cleanup;
+ 
+-    if (virCgroupPartitionEscape(&scopename) < 0)
++    /* We should keep trying even if this failed */
++    if (!machinename)
++        virResetLastError();
++    else if (!(scopename_new = virSystemdMakeScopeName(machinename,
++                                                       drivername, false)))
++        goto cleanup;
++
++    if (virCgroupPartitionEscape(&scopename_old) < 0)
++        goto cleanup;
++
++    if (scopename_new &&
++        virCgroupPartitionEscape(&scopename_new) < 0)
+         goto cleanup;
+ 
+     for (i = 0; i < VIR_CGROUP_CONTROLLER_LAST; i++) {
+@@ -290,12 +306,15 @@ virCgroupValidateMachineGroup(virCgroupPtr group,
+         tmp++;
+ 
+         if (STRNEQ(tmp, name) &&
++            STRNEQ_NULLABLE(tmp, machinename) &&
+             STRNEQ(tmp, partname) &&
+-            STRNEQ(tmp, scopename)) {
++            STRNEQ(tmp, scopename_old) &&
++            STRNEQ_NULLABLE(tmp, scopename_new)) {
+             VIR_DEBUG("Name '%s' for controller '%s' does not match "
+-                      "'%s', '%s' or '%s'",
++                      "'%s', '%s', '%s', '%s' or '%s'",
+                       tmp, virCgroupControllerTypeToString(i),
+-                      name, partname, scopename);
++                      name, NULLSTR(machinename), partname,
++                      scopename_old, NULLSTR(scopename_new));
+             goto cleanup;
+         }
+     }
+@@ -304,7 +323,9 @@ virCgroupValidateMachineGroup(virCgroupPtr group,
+ 
+  cleanup:
+     VIR_FREE(partname);
+-    VIR_FREE(scopename);
++    VIR_FREE(scopename_old);
++    VIR_FREE(scopename_new);
++    VIR_FREE(machinename);
+     return valid;
+ }
+ 
+@@ -1555,6 +1576,8 @@ virCgroupNewDetect(pid_t pid,
+ int
+ virCgroupNewDetectMachine(const char *name,
+                           const char *drivername,
++                          int id,
++                          bool privileged,
+                           pid_t pid,
+                           int controllers,
+                           virCgroupPtr *group)
+@@ -1565,7 +1588,8 @@ virCgroupNewDetectMachine(const char *name,
+         return -1;
+     }
+ 
+-    if (!virCgroupValidateMachineGroup(*group, name, drivername, true)) {
++    if (!virCgroupValidateMachineGroup(*group, name, drivername,
++                                       id, privileged, true)) {
+         VIR_DEBUG("Failed to validate machine name for '%s' driver '%s'",
+                   name, drivername);
+         virCgroupFree(group);
+@@ -1582,7 +1606,6 @@ virCgroupNewDetectMachine(const char *name,
+ static int
+ virCgroupNewMachineSystemd(const char *name,
+                            const char *drivername,
+-                           bool privileged,
+                            const unsigned char *uuid,
+                            const char *rootdir,
+                            pid_t pidleader,
+@@ -1602,7 +1625,6 @@ virCgroupNewMachineSystemd(const char *name,
+     VIR_DEBUG("Trying to setup machine '%s' via systemd", name);
+     if ((rv = virSystemdCreateMachine(name,
+                                       drivername,
+-                                      privileged,
+                                       uuid,
+                                       rootdir,
+                                       pidleader,
+@@ -1690,11 +1712,9 @@ virCgroupNewMachineSystemd(const char *name,
+ /*
+  * Returns 0 on success, -1 on fatal error
+  */
+-int virCgroupTerminateMachine(const char *name,
+-                              const char *drivername,
+-                              bool privileged)
++int virCgroupTerminateMachine(const char *name)
+ {
+-    return virSystemdTerminateMachine(name, drivername, privileged);
++    return virSystemdTerminateMachine(name);
+ }
+ 
+ 
+@@ -1749,7 +1769,6 @@ virCgroupNewMachineManual(const char *name,
+ int
+ virCgroupNewMachine(const char *name,
+                     const char *drivername,
+-                    bool privileged,
+                     const unsigned char *uuid,
+                     const char *rootdir,
+                     pid_t pidleader,
+@@ -1766,7 +1785,6 @@ virCgroupNewMachine(const char *name,
+ 
+     if ((rv = virCgroupNewMachineSystemd(name,
+                                          drivername,
+-                                         privileged,
+                                          uuid,
+                                          rootdir,
+                                          pidleader,
+@@ -4220,6 +4238,8 @@ virCgroupNewDetect(pid_t pid ATTRIBUTE_UNUSED,
+ int
+ virCgroupNewDetectMachine(const char *name ATTRIBUTE_UNUSED,
+                           const char *drivername ATTRIBUTE_UNUSED,
++                          int id ATTRIBUTE_UNUSED,
++                          bool privileged ATTRIBUTE_UNUSED,
+                           pid_t pid ATTRIBUTE_UNUSED,
+                           int controllers ATTRIBUTE_UNUSED,
+                           virCgroupPtr *group ATTRIBUTE_UNUSED)
+@@ -4230,9 +4250,7 @@ virCgroupNewDetectMachine(const char *name ATTRIBUTE_UNUSED,
+ }
+ 
+ 
+-int virCgroupTerminateMachine(const char *name ATTRIBUTE_UNUSED,
+-                              const char *drivername ATTRIBUTE_UNUSED,
+-                              bool privileged ATTRIBUTE_UNUSED)
++int virCgroupTerminateMachine(const char *name ATTRIBUTE_UNUSED)
+ {
+     virReportSystemError(ENXIO, "%s",
+                          _("Control groups not supported on this platform"));
+@@ -4243,7 +4261,6 @@ int virCgroupTerminateMachine(const char *name ATTRIBUTE_UNUSED,
+ int
+ virCgroupNewMachine(const char *name ATTRIBUTE_UNUSED,
+                     const char *drivername ATTRIBUTE_UNUSED,
+-                    bool privileged ATTRIBUTE_UNUSED,
+                     const unsigned char *uuid ATTRIBUTE_UNUSED,
+                     const char *rootdir ATTRIBUTE_UNUSED,
+                     pid_t pidleader ATTRIBUTE_UNUSED,
+diff --git a/src/util/vircgroup.h b/src/util/vircgroup.h
+index 63a9e1c..6570cb3 100644
+--- a/src/util/vircgroup.h
++++ b/src/util/vircgroup.h
+@@ -91,13 +91,15 @@ int virCgroupNewDetect(pid_t pid,
+ 
+ int virCgroupNewDetectMachine(const char *name,
+                               const char *drivername,
++                              int id,
++                              bool privileged,
+                               pid_t pid,
+                               int controllers,
+-                              virCgroupPtr *group);
++                              virCgroupPtr *group)
++    ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2);
+ 
+ int virCgroupNewMachine(const char *name,
+                         const char *drivername,
+-                        bool privileged,
+                         const unsigned char *uuid,
+                         const char *rootdir,
+                         pid_t pidleader,
+@@ -110,10 +112,8 @@ int virCgroupNewMachine(const char *name,
+     ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2)
+     ATTRIBUTE_NONNULL(4);
+ 
+-int virCgroupTerminateMachine(const char *name,
+-                              const char *drivername,
+-                              bool privileged)
+-    ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2);
++int virCgroupTerminateMachine(const char *name)
++    ATTRIBUTE_NONNULL(1);
+ 
+ bool virCgroupNewIgnoreError(void);
+ 
+diff --git a/src/util/virsystemd.c b/src/util/virsystemd.c
+index daaa37c..0f4e1f0 100644
+--- a/src/util/virsystemd.c
++++ b/src/util/virsystemd.c
+@@ -27,6 +27,7 @@
+ 
+ #include "virsystemd.h"
+ #include "viratomic.h"
++#include "virbuffer.h"
+ #include "virdbus.h"
+ #include "virstring.h"
+ #include "viralloc.h"
+@@ -78,15 +79,17 @@ static void virSystemdEscapeName(virBufferPtr buf,
+ #undef VALID_CHARS
+ }
+ 
+-
+ char *virSystemdMakeScopeName(const char *name,
+-                              const char *drivername)
++                              const char *drivername,
++                              bool legacy_behaviour)
+ {
+     virBuffer buf = VIR_BUFFER_INITIALIZER;
+ 
+     virBufferAddLit(&buf, "machine-");
+-    virSystemdEscapeName(&buf, drivername);
+-    virBufferAddLit(&buf, "\\x2d");
++    if (legacy_behaviour) {
++        virSystemdEscapeName(&buf, drivername);
++        virBufferAddLit(&buf, "\\x2d");
++    }
+     virSystemdEscapeName(&buf, name);
+     virBufferAddLit(&buf, ".scope");
+ 
+@@ -113,10 +116,42 @@ char *virSystemdMakeSliceName(const char *partition)
+     return virBufferContentAndReset(&buf);
+ }
+ 
++#define HOSTNAME_CHARS                                                  \
++    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-"
+ 
+-char *virSystemdMakeMachineName(const char *name,
+-                                const char *drivername,
+-                                bool privileged)
++static void
++virSystemdAppendValidMachineName(virBufferPtr buf,
++                                 const char *name)
++{
++    bool skip_dot = false;
++
++    for (; *name; name++) {
++        if (strlen(virBufferCurrentContent(buf)) >= 64)
++            break;
++
++        if (*name == '.') {
++            if (!skip_dot)
++                virBufferAddChar(buf, *name);
++            skip_dot = true;
++            continue;
++        }
++
++        skip_dot = false;
++
++        if (!strchr(HOSTNAME_CHARS, *name))
++            continue;
++
++        virBufferAddChar(buf, *name);
++    }
++}
++
++#undef HOSTNAME_CHARS
++
++char *
++virSystemdMakeMachineName(const char *drivername,
++                          int id,
++                          const char *name,
++                          bool privileged)
+ {
+     char *machinename = NULL;
+     char *username = NULL;
+@@ -131,7 +166,8 @@ char *virSystemdMakeMachineName(const char *name,
+         virBufferAsprintf(&buf, "%s-%s-", username, drivername);
+     }
+ 
+-    virSystemdEscapeName(&buf, name);
++    virBufferAsprintf(&buf, "%d-", id);
++    virSystemdAppendValidMachineName(&buf, name);
+ 
+     machinename = virBufferContentAndReset(&buf);
+  cleanup:
+@@ -212,7 +248,6 @@ virSystemdGetMachineNameByPID(pid_t pid)
+  */
+ int virSystemdCreateMachine(const char *name,
+                             const char *drivername,
+-                            bool privileged,
+                             const unsigned char *uuid,
+                             const char *rootdir,
+                             pid_t pidleader,
+@@ -223,7 +258,6 @@ int virSystemdCreateMachine(const char *name,
+ {
+     int ret;
+     DBusConnection *conn;
+-    char *machinename = NULL;
+     char *creatorname = NULL;
+     char *slicename = NULL;
+     static int hasCreateWithNetwork = 1;
+@@ -239,8 +273,6 @@ int virSystemdCreateMachine(const char *name,
+         return -1;
+ 
+     ret = -1;
+-    if (!(machinename = virSystemdMakeMachineName(name, drivername, privileged)))
+-        goto cleanup;
+ 
+     if (virAsprintf(&creatorname, "libvirt-%s", drivername) < 0)
+         goto cleanup;
+@@ -318,7 +350,7 @@ int virSystemdCreateMachine(const char *name,
+                               "org.freedesktop.machine1.Manager",
+                               "CreateMachineWithNetwork",
+                               "sayssusa&ia(sv)",
+-                              machinename,
++                              name,
+                               16,
+                               uuid[0], uuid[1], uuid[2], uuid[3],
+                               uuid[4], uuid[5], uuid[6], uuid[7],
+@@ -360,7 +392,7 @@ int virSystemdCreateMachine(const char *name,
+                               "org.freedesktop.machine1.Manager",
+                               "CreateMachine",
+                               "sayssusa(sv)",
+-                              machinename,
++                              name,
+                               16,
+                               uuid[0], uuid[1], uuid[2], uuid[3],
+                               uuid[4], uuid[5], uuid[6], uuid[7],
+@@ -381,20 +413,19 @@ int virSystemdCreateMachine(const char *name,
+ 
+  cleanup:
+     VIR_FREE(creatorname);
+-    VIR_FREE(machinename);
+     VIR_FREE(slicename);
+     return ret;
+ }
+ 
+-int virSystemdTerminateMachine(const char *name,
+-                               const char *drivername,
+-                               bool privileged)
++int virSystemdTerminateMachine(const char *name)
+ {
+     int ret;
+     DBusConnection *conn;
+-    char *machinename = NULL;
+     virError error;
+ 
++    if (!name)
++        return 0;
++
+     memset(&error, 0, sizeof(error));
+ 
+     ret = virDBusIsServiceEnabled("org.freedesktop.machine1");
+@@ -409,9 +440,6 @@ int virSystemdTerminateMachine(const char *name,
+     if (!(conn = virDBusGetSystemBus()))
+         goto cleanup;
+ 
+-    if (!(machinename = virSystemdMakeMachineName(name, drivername, privileged)))
+-        goto cleanup;
+-
+     /*
+      * The systemd DBus API we're invoking has the
+      * following signature
+@@ -431,7 +459,7 @@ int virSystemdTerminateMachine(const char *name,
+                           "org.freedesktop.machine1.Manager",
+                           "TerminateMachine",
+                           "s",
+-                          machinename) < 0)
++                          name) < 0)
+         goto cleanup;
+ 
+     if (error.code == VIR_ERR_ERROR &&
+@@ -446,7 +474,6 @@ int virSystemdTerminateMachine(const char *name,
+  cleanup:
+     virResetError(&error);
+ 
+-    VIR_FREE(machinename);
+     return ret;
+ }
+ 
+diff --git a/src/util/virsystemd.h b/src/util/virsystemd.h
+index a13a4c0..93b0aae 100644
+--- a/src/util/virsystemd.h
++++ b/src/util/virsystemd.h
+@@ -25,16 +25,17 @@
+ # include "internal.h"
+ 
+ char *virSystemdMakeScopeName(const char *name,
+-                              const char *drivername);
++                              const char *drivername,
++                              bool legacy_behaviour);
+ char *virSystemdMakeSliceName(const char *partition);
+ 
+-char *virSystemdMakeMachineName(const char *name,
+-                                const char *drivername,
++char *virSystemdMakeMachineName(const char *drivername,
++                                int id,
++                                const char *name,
+                                 bool privileged);
+ 
+ int virSystemdCreateMachine(const char *name,
+                             const char *drivername,
+-                            bool privileged,
+                             const unsigned char *uuid,
+                             const char *rootdir,
+                             pid_t pidleader,
+@@ -43,9 +44,7 @@ int virSystemdCreateMachine(const char *name,
+                             int *nicindexes,
+                             const char *partition);
+ 
+-int virSystemdTerminateMachine(const char *name,
+-                               const char *drivername,
+-                               bool privileged);
++int virSystemdTerminateMachine(const char *name);
+ 
+ void virSystemdNotifyStartup(void);
+ 
+diff --git a/tests/virsystemdtest.c b/tests/virsystemdtest.c
+index 3a3cd99..46452dd 100644
+--- a/tests/virsystemdtest.c
++++ b/tests/virsystemdtest.c
+@@ -166,7 +166,6 @@ static int testCreateContainer(const void *opaque ATTRIBUTE_UNUSED)
+     };
+     if (virSystemdCreateMachine("demo",
+                                 "lxc",
+-                                true,
+                                 uuid,
+                                 "/proc/123/root",
+                                 123,
+@@ -182,9 +181,7 @@ static int testCreateContainer(const void *opaque ATTRIBUTE_UNUSED)
+ 
+ static int testTerminateContainer(const void *opaque ATTRIBUTE_UNUSED)
+ {
+-    if (virSystemdTerminateMachine("demo",
+-                                   "lxc",
+-                                   true) < 0) {
++    if (virSystemdTerminateMachine("lxc-demo") < 0) {
+         fprintf(stderr, "%s", "Failed to terminate LXC machine\n");
+         return -1;
+     }
+@@ -202,7 +199,6 @@ static int testCreateMachine(const void *opaque ATTRIBUTE_UNUSED)
+     };
+     if (virSystemdCreateMachine("demo",
+                                 "qemu",
+-                                false,
+                                 uuid,
+                                 NULL,
+                                 123,
+@@ -218,9 +214,7 @@ static int testCreateMachine(const void *opaque ATTRIBUTE_UNUSED)
+ 
+ static int testTerminateMachine(const void *opaque ATTRIBUTE_UNUSED)
+ {
+-    if (virSystemdTerminateMachine("demo",
+-                                   "qemu",
+-                                   false) < 0) {
++    if (virSystemdTerminateMachine("test-qemu-demo") < 0) {
+         fprintf(stderr, "%s", "Failed to terminate KVM machine\n");
+         return -1;
+     }
+@@ -242,7 +236,6 @@ static int testCreateNoSystemd(const void *opaque ATTRIBUTE_UNUSED)
+ 
+     if ((rv = virSystemdCreateMachine("demo",
+                                       "qemu",
+-                                      true,
+                                       uuid,
+                                       NULL,
+                                       123,
+@@ -277,7 +270,6 @@ static int testCreateSystemdNotRunning(const void *opaque ATTRIBUTE_UNUSED)
+ 
+     if ((rv = virSystemdCreateMachine("demo",
+                                       "qemu",
+-                                      true,
+                                       uuid,
+                                       NULL,
+                                       123,
+@@ -312,7 +304,6 @@ static int testCreateBadSystemd(const void *opaque ATTRIBUTE_UNUSED)
+ 
+     if ((rv = virSystemdCreateMachine("demo",
+                                       "qemu",
+-                                      true,
+                                       uuid,
+                                       NULL,
+                                       123,
+@@ -348,7 +339,6 @@ static int testCreateNetwork(const void *opaque ATTRIBUTE_UNUSED)
+     size_t nnicindexes = ARRAY_CARDINALITY(nicindexes);
+     if (virSystemdCreateMachine("demo",
+                                 "lxc",
+-                                true,
+                                 uuid,
+                                 "/proc/123/root",
+                                 123,
+@@ -385,6 +375,8 @@ testGetMachineName(const void *opaque ATTRIBUTE_UNUSED)
+ struct testNameData {
+     const char *name;
+     const char *expected;
++    int id;
++    bool legacy;
+ };
+ 
+ static int
+@@ -394,7 +386,7 @@ testScopeName(const void *opaque)
+     int ret = -1;
+     char *actual = NULL;
+ 
+-    if (!(actual = virSystemdMakeScopeName(data->name, "lxc")))
++    if (!(actual = virSystemdMakeScopeName(data->name, "lxc", data->legacy)))
+         goto cleanup;
+ 
+     if (STRNEQ(actual, data->expected)) {
+@@ -417,7 +409,8 @@ testMachineName(const void *opaque)
+     int ret = -1;
+     char *actual = NULL;
+ 
+-    if (!(actual = virSystemdMakeMachineName(data->name, "qemu", true)))
++    if (!(actual = virSystemdMakeMachineName("qemu", data->id,
++                                             data->name, true)))
+         goto cleanup;
+ 
+     if (STRNEQ(actual, data->expected)) {
+@@ -518,6 +511,12 @@ mymain(void)
+ {
+     int ret = 0;
+ 
++    unsigned char uuid[VIR_UUID_BUFLEN];
++
++    /* The one we use in tests quite often */
++    if (virUUIDParse("c7a5fdbd-edaf-9455-926a-d65c16db1809", uuid) < 0)
++        return EXIT_FAILURE;
++
+     if (virtTestRun("Test create container ", testCreateContainer, NULL) < 0)
+         ret = -1;
+     if (virtTestRun("Test terminate container ", testTerminateContainer, NULL) < 0)
+@@ -538,35 +537,47 @@ mymain(void)
+     if (virtTestRun("Test getting machine name ", testGetMachineName, NULL) < 0)
+         ret = -1;
+ 
+-# define TEST_SCOPE(name, unitname)                                     \
++# define TEST_SCOPE(_name, unitname, _legacy)                           \
+     do {                                                                \
+         struct testNameData data = {                                    \
+-            name, unitname                                              \
++            .name = _name, .expected = unitname, .legacy = _legacy,     \
+         };                                                              \
+         if (virtTestRun("Test scopename", testScopeName, &data) < 0)    \
+             ret = -1;                                                   \
+     } while (0)
+ 
+-    TEST_SCOPE("demo", "machine-lxc\\x2ddemo.scope");
+-    TEST_SCOPE("demo-name", "machine-lxc\\x2ddemo\\x2dname.scope");
+-    TEST_SCOPE("demo!name", "machine-lxc\\x2ddemo\\x21name.scope");
+-    TEST_SCOPE(".demo", "machine-lxc\\x2d\\x2edemo.scope");
+-    TEST_SCOPE("bull💩", "machine-lxc\\x2dbull\\xf0\\x9f\\x92\\xa9.scope");
++# define TEST_SCOPE_OLD(name, unitname)         \
++    TEST_SCOPE(name, unitname, true)
++# define TEST_SCOPE_NEW(name, unitname)         \
++    TEST_SCOPE(name, unitname, false)
+ 
+-# define TEST_MACHINE(name, machinename)                                \
++    TEST_SCOPE_OLD("demo", "machine-lxc\\x2ddemo.scope");
++    TEST_SCOPE_OLD("demo-name", "machine-lxc\\x2ddemo\\x2dname.scope");
++    TEST_SCOPE_OLD("demo!name", "machine-lxc\\x2ddemo\\x21name.scope");
++    TEST_SCOPE_OLD(".demo", "machine-lxc\\x2d\\x2edemo.scope");
++    TEST_SCOPE_OLD("bull💩", "machine-lxc\\x2dbull\\xf0\\x9f\\x92\\xa9.scope");
++
++    TEST_SCOPE_NEW("qemu-3-demo", "machine-qemu\\x2d3\\x2ddemo.scope");
++
++# define TEST_MACHINE(_name, _id, machinename)                           \
+     do {                                                                \
+         struct testNameData data = {                                    \
+-            name, machinename                                           \
++            .name = _name, .expected = machinename, .id = _id,         \
+         };                                                              \
+         if (virtTestRun("Test scopename", testMachineName, &data) < 0)  \
+             ret = -1;                                                   \
+     } while (0)
+ 
+-    TEST_MACHINE("demo", "qemu-demo");
+-    TEST_MACHINE("demo-name", "qemu-demo\\x2dname");
+-    TEST_MACHINE("demo!name", "qemu-demo\\x21name");
+-    TEST_MACHINE(".demo", "qemu-\\x2edemo");
+-    TEST_MACHINE("bull\U0001f4a9", "qemu-bull\\xf0\\x9f\\x92\\xa9");
++    TEST_MACHINE("demo", 1, "qemu-1-demo");
++    TEST_MACHINE("demo-name", 2, "qemu-2-demo-name");
++    TEST_MACHINE("demo!name", 3, "qemu-3-demoname");
++    TEST_MACHINE(".demo", 4, "qemu-4-.demo");
++    TEST_MACHINE("bull\U0001f4a9", 5, "qemu-5-bull");
++    TEST_MACHINE("demo..name", 6, "qemu-6-demo.name");
++    TEST_MACHINE("12345678901234567890123456789012345678901234567890123456789", 7,
++                 "qemu-7-123456789012345678901234567890123456789012345678901234567");
++    TEST_MACHINE("123456789012345678901234567890123456789012345678901234567890", 8,
++                 "qemu-8-123456789012345678901234567890123456789012345678901234567");
+ 
+ # define TESTS_PM_SUPPORT_HELPER(name, function)                        \
+     do {                                                                \
+-- 
+2.7.2
+

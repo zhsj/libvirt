@@ -1,0 +1,384 @@
+From 70e32568957d60bbea5f50fc2d9210e2faaca5cd Mon Sep 17 00:00:00 2001
+Message-Id: <70e32568957d60bbea5f50fc2d9210e2faaca5cd@dist-git>
+From: Matthias Bolte <matthias.bolte@googlemail.com>
+Date: Mon, 8 Feb 2016 13:47:35 +0100
+Subject: [PATCH] vmx: Expose datacenter path in domain XML
+
+RHEL-7.3: https://bugzilla.redhat.com/show_bug.cgi?id=1263574
+RHEL-7.2.z: https://bugzilla.redhat.com/show_bug.cgi?id=1305489
+
+Tool such as libguestfs need the datacenter path to get access to disk
+images. The ESX driver knows the correct datacenter path, but this
+information cannot be accessed using libvirt API yet. Also, it cannot
+be deduced from the connection URI in a robust way.
+
+Expose the datacenter path in the domain XML as <vmware:datacenterpath>
+node similar to the way the <qemu:commandline> node works. The new node
+is ignored while parsing the domain XML. In contrast to <qemu:commandline>
+it is output only.
+
+(cherry picked from commit 636a99058758a0447482f3baad94de8de3ab1151)
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/esx/esx_driver.c                         |  4 ++
+ src/vmware/vmware_conf.c                     |  3 ++
+ src/vmware/vmware_driver.c                   |  9 ++++
+ src/vmx/vmx.c                                | 68 +++++++++++++++++++++++-----
+ src/vmx/vmx.h                                | 10 ++--
+ tests/vmx2xmldata/vmx2xml-datacenterpath.vmx |  2 +
+ tests/vmx2xmldata/vmx2xml-datacenterpath.xml | 19 ++++++++
+ tests/vmx2xmltest.c                          |  5 ++
+ tests/xml2vmxdata/xml2vmx-datacenterpath.vmx | 10 ++++
+ tests/xml2vmxdata/xml2vmx-datacenterpath.xml |  9 ++++
+ tests/xml2vmxtest.c                          |  3 ++
+ 11 files changed, 126 insertions(+), 16 deletions(-)
+ create mode 100644 tests/vmx2xmldata/vmx2xml-datacenterpath.vmx
+ create mode 100644 tests/vmx2xmldata/vmx2xml-datacenterpath.xml
+ create mode 100644 tests/xml2vmxdata/xml2vmx-datacenterpath.vmx
+ create mode 100644 tests/xml2vmxdata/xml2vmx-datacenterpath.xml
+
+diff --git a/src/esx/esx_driver.c b/src/esx/esx_driver.c
+index c304ff3..5944947 100644
+--- a/src/esx/esx_driver.c
++++ b/src/esx/esx_driver.c
+@@ -2741,6 +2741,7 @@ esxDomainGetXMLDesc(virDomainPtr domain, unsigned int flags)
+     ctx.parseFileName = esxParseVMXFileName;
+     ctx.formatFileName = NULL;
+     ctx.autodetectSCSIControllerModel = NULL;
++    ctx.datacenterPath = priv->primary->datacenterPath;
+ 
+     def = virVMXParseConfig(&ctx, priv->xmlopt, vmx);
+ 
+@@ -2799,6 +2800,7 @@ esxConnectDomainXMLFromNative(virConnectPtr conn, const char *nativeFormat,
+     ctx.parseFileName = esxParseVMXFileName;
+     ctx.formatFileName = NULL;
+     ctx.autodetectSCSIControllerModel = NULL;
++    ctx.datacenterPath = NULL;
+ 
+     def = virVMXParseConfig(&ctx, priv->xmlopt, nativeConfig);
+ 
+@@ -2853,6 +2855,7 @@ esxConnectDomainXMLToNative(virConnectPtr conn, const char *nativeFormat,
+     ctx.parseFileName = NULL;
+     ctx.formatFileName = esxFormatVMXFileName;
+     ctx.autodetectSCSIControllerModel = esxAutodetectSCSIControllerModel;
++    ctx.datacenterPath = NULL;
+ 
+     vmx = virVMXFormatConfig(&ctx, priv->xmlopt, def, virtualHW_version);
+ 
+@@ -3096,6 +3099,7 @@ esxDomainDefineXMLFlags(virConnectPtr conn, const char *xml, unsigned int flags)
+     ctx.parseFileName = NULL;
+     ctx.formatFileName = esxFormatVMXFileName;
+     ctx.autodetectSCSIControllerModel = esxAutodetectSCSIControllerModel;
++    ctx.datacenterPath = NULL;
+ 
+     vmx = virVMXFormatConfig(&ctx, priv->xmlopt, def, virtualHW_version);
+ 
+diff --git a/src/vmware/vmware_conf.c b/src/vmware/vmware_conf.c
+index 21cf333..f3cbbf5 100644
+--- a/src/vmware/vmware_conf.c
++++ b/src/vmware/vmware_conf.c
+@@ -145,6 +145,9 @@ vmwareLoadDomains(struct vmware_driver *driver)
+     virCommandPtr cmd;
+ 
+     ctx.parseFileName = vmwareCopyVMXFileName;
++    ctx.formatFileName = NULL;
++    ctx.autodetectSCSIControllerModel = NULL;
++    ctx.datacenterPath = NULL;
+ 
+     cmd = virCommandNewArgList(driver->vmrun, "-T",
+                                vmwareDriverTypeToString(driver->type),
+diff --git a/src/vmware/vmware_driver.c b/src/vmware/vmware_driver.c
+index ec74fe3..e228aaa 100644
+--- a/src/vmware/vmware_driver.c
++++ b/src/vmware/vmware_driver.c
+@@ -381,7 +381,10 @@ vmwareDomainDefineXMLFlags(virConnectPtr conn, const char *xml, unsigned int fla
+     if (flags & VIR_DOMAIN_DEFINE_VALIDATE)
+         parse_flags |= VIR_DOMAIN_DEF_PARSE_VALIDATE;
+ 
++    ctx.parseFileName = NULL;
+     ctx.formatFileName = vmwareCopyVMXFileName;
++    ctx.autodetectSCSIControllerModel = NULL;
++    ctx.datacenterPath = NULL;
+ 
+     vmwareDriverLock(driver);
+     if ((vmdef = virDomainDefParseString(xml, driver->caps, driver->xmlopt,
+@@ -671,7 +674,10 @@ vmwareDomainCreateXML(virConnectPtr conn, const char *xml,
+     if (flags & VIR_DOMAIN_START_VALIDATE)
+         parse_flags |= VIR_DOMAIN_DEF_PARSE_VALIDATE;
+ 
++    ctx.parseFileName = NULL;
+     ctx.formatFileName = vmwareCopyVMXFileName;
++    ctx.autodetectSCSIControllerModel = NULL;
++    ctx.datacenterPath = NULL;
+ 
+     vmwareDriverLock(driver);
+ 
+@@ -1022,6 +1028,9 @@ vmwareConnectDomainXMLFromNative(virConnectPtr conn, const char *nativeFormat,
+     }
+ 
+     ctx.parseFileName = vmwareCopyVMXFileName;
++    ctx.formatFileName = NULL;
++    ctx.autodetectSCSIControllerModel = NULL;
++    ctx.datacenterPath = NULL;
+ 
+     def = virVMXParseConfig(&ctx, driver->xmlopt, nativeConfig);
+ 
+diff --git a/src/vmx/vmx.c b/src/vmx/vmx.c
+index 805ad60..2befdb2 100644
+--- a/src/vmx/vmx.c
++++ b/src/vmx/vmx.c
+@@ -523,10 +523,11 @@ VIR_ENUM_IMPL(virVMXControllerModelSCSI, VIR_DOMAIN_CONTROLLER_MODEL_SCSI_LAST,
+ /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+  * Helpers
+  */
++
+ static int
+-vmxDomainDefPostParse(virDomainDefPtr def,
+-                      virCapsPtr caps ATTRIBUTE_UNUSED,
+-                      void *opaque ATTRIBUTE_UNUSED)
++virVMXDomainDefPostParse(virDomainDefPtr def,
++                         virCapsPtr caps ATTRIBUTE_UNUSED,
++                         void *opaque ATTRIBUTE_UNUSED)
+ {
+     /* memory hotplug tunables are not supported by this driver */
+     if (virDomainDefCheckUnsupportedMemoryHotplug(def) < 0)
+@@ -536,27 +537,60 @@ vmxDomainDefPostParse(virDomainDefPtr def,
+ }
+ 
+ static int
+-vmxDomainDeviceDefPostParse(virDomainDeviceDefPtr dev ATTRIBUTE_UNUSED,
+-                            const virDomainDef *def ATTRIBUTE_UNUSED,
+-                            virCapsPtr caps ATTRIBUTE_UNUSED,
+-                            void *opaque ATTRIBUTE_UNUSED)
++virVMXDomainDevicesDefPostParse(virDomainDeviceDefPtr dev ATTRIBUTE_UNUSED,
++                                const virDomainDef *def ATTRIBUTE_UNUSED,
++                                virCapsPtr caps ATTRIBUTE_UNUSED,
++                                void *opaque ATTRIBUTE_UNUSED)
+ {
+     return 0;
+ }
+ 
+-virDomainDefParserConfig virVMXDomainDefParserConfig = {
++static virDomainDefParserConfig virVMXDomainDefParserConfig = {
+     .hasWideSCSIBus = true,
+     .macPrefix = {0x00, 0x0c, 0x29},
+-    .devicesPostParseCallback = vmxDomainDeviceDefPostParse,
+-    .domainPostParseCallback = vmxDomainDefPostParse,
++    .devicesPostParseCallback = virVMXDomainDevicesDefPostParse,
++    .domainPostParseCallback = virVMXDomainDefPostParse,
+ };
+ 
++static void
++virVMXDomainDefNamespaceFree(void *nsdata)
++{
++    VIR_FREE(nsdata);
++}
++
++static int
++virVMXDomainDefNamespaceFormatXML(virBufferPtr buf, void *nsdata)
++{
++    const char *datacenterPath = nsdata;
++
++    if (!datacenterPath)
++        return 0;
++
++    virBufferAddLit(buf, "<vmware:datacenterpath>");
++    virBufferEscapeString(buf, "%s", datacenterPath);
++    virBufferAddLit(buf, "</vmware:datacenterpath>\n");
++
++    return 0;
++}
++
++static const char *
++virVMXDomainDefNamespaceHref(void)
++{
++    return "xmlns:vmware='http://libvirt.org/schemas/domain/vmware/1.0'";
++}
++
++static virDomainXMLNamespace virVMXDomainXMLNamespace = {
++    .parse = NULL,
++    .free = virVMXDomainDefNamespaceFree,
++    .format = virVMXDomainDefNamespaceFormatXML,
++    .href = virVMXDomainDefNamespaceHref,
++};
+ 
+ virDomainXMLOptionPtr
+ virVMXDomainXMLConfInit(void)
+ {
+-    return virDomainXMLOptionNew(&virVMXDomainDefParserConfig,
+-                               NULL, NULL);
++    return virDomainXMLOptionNew(&virVMXDomainDefParserConfig, NULL,
++                                 &virVMXDomainXMLNamespace);
+ }
+ 
+ char *
+@@ -1266,6 +1300,7 @@ virVMXParseConfig(virVMXContext *ctx,
+     bool hgfs_disabled = true;
+     long long sharedFolder_maxNum = 0;
+     int cpumasklen;
++    char *namespaceData;
+ 
+     if (ctx->parseFileName == NULL) {
+         virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+@@ -1765,6 +1800,15 @@ virVMXParseConfig(virVMXContext *ctx,
+             ++def->nparallels;
+     }
+ 
++    /* ctx:datacenterPath -> def:namespaceData */
++    if (ctx->datacenterPath) {
++        if (VIR_STRDUP(namespaceData, ctx->datacenterPath) < 0)
++            goto cleanup;
++
++        def->ns = *virDomainXMLOptionGetNamespace(xmlopt);
++        def->namespaceData = namespaceData;
++    }
++
+     success = true;
+ 
+  cleanup:
+diff --git a/src/vmx/vmx.h b/src/vmx/vmx.h
+index 6a68c8b..0f012fd 100644
+--- a/src/vmx/vmx.h
++++ b/src/vmx/vmx.h
+@@ -1,7 +1,7 @@
+ /*
+  * vmx.h: VMware VMX parsing/formatting functions
+  *
+- * Copyright (C) 2009-2010 Matthias Bolte <matthias.bolte@googlemail.com>
++ * Copyright (C) 2009-2011, 2015 Matthias Bolte <matthias.bolte@googlemail.com>
+  *
+  * This library is free software; you can redistribute it and/or
+  * modify it under the terms of the GNU Lesser General Public
+@@ -41,15 +41,17 @@ typedef int (*virVMXAutodetectSCSIControllerModel)(virDomainDiskDefPtr def,
+                                                    int *model, void *opaque);
+ 
+ /*
+- * virVMXParseFileName is only used by virVMXParseConfig.
+- * virVMXFormatFileName is only used by virVMXFormatConfig.
+- * virVMXAutodetectSCSIControllerModel is optionally used by virVMXFormatConfig.
++ * parseFileName is only used by virVMXParseConfig.
++ * formatFileName is only used by virVMXFormatConfig.
++ * autodetectSCSIControllerModel is optionally used by virVMXFormatConfig.
++ * datacenterPath is only used by virVMXFormatConfig.
+  */
+ struct _virVMXContext {
+     void *opaque;
+     virVMXParseFileName parseFileName;
+     virVMXFormatFileName formatFileName;
+     virVMXAutodetectSCSIControllerModel autodetectSCSIControllerModel;
++    const char *datacenterPath; /* including folders */
+ };
+ 
+ 
+diff --git a/tests/vmx2xmldata/vmx2xml-datacenterpath.vmx b/tests/vmx2xmldata/vmx2xml-datacenterpath.vmx
+new file mode 100644
+index 0000000..a8e5db3
+--- /dev/null
++++ b/tests/vmx2xmldata/vmx2xml-datacenterpath.vmx
+@@ -0,0 +1,2 @@
++config.version = "8"
++virtualHW.version = "4"
+diff --git a/tests/vmx2xmldata/vmx2xml-datacenterpath.xml b/tests/vmx2xmldata/vmx2xml-datacenterpath.xml
+new file mode 100644
+index 0000000..a690c0f
+--- /dev/null
++++ b/tests/vmx2xmldata/vmx2xml-datacenterpath.xml
+@@ -0,0 +1,19 @@
++<domain type='vmware' xmlns:vmware='http://libvirt.org/schemas/domain/vmware/1.0'>
++  <uuid>00000000-0000-0000-0000-000000000000</uuid>
++  <memory unit='KiB'>32768</memory>
++  <currentMemory unit='KiB'>32768</currentMemory>
++  <vcpu placement='static'>1</vcpu>
++  <os>
++    <type arch='i686'>hvm</type>
++  </os>
++  <clock offset='utc'/>
++  <on_poweroff>destroy</on_poweroff>
++  <on_reboot>restart</on_reboot>
++  <on_crash>destroy</on_crash>
++  <devices>
++    <video>
++      <model type='vmvga' vram='4096'/>
++    </video>
++  </devices>
++  <vmware:datacenterpath>folder1/folder2/datacenter1</vmware:datacenterpath>
++</domain>
+diff --git a/tests/vmx2xmltest.c b/tests/vmx2xmltest.c
+index b8dbd31..258cba3 100644
+--- a/tests/vmx2xmltest.c
++++ b/tests/vmx2xmltest.c
+@@ -201,6 +201,7 @@ mymain(void)
+     ctx.parseFileName = testParseVMXFileName;
+     ctx.formatFileName = NULL;
+     ctx.autodetectSCSIControllerModel = NULL;
++    ctx.datacenterPath = NULL;
+ 
+     DO_TEST("case-insensitive-1", "case-insensitive-1");
+     DO_TEST("case-insensitive-2", "case-insensitive-2");
+@@ -283,6 +284,10 @@ mymain(void)
+ 
+     DO_TEST("svga", "svga");
+ 
++    ctx.datacenterPath = "folder1/folder2/datacenter1";
++
++    DO_TEST("datacenterpath", "datacenterpath");
++
+     virObjectUnref(caps);
+     virObjectUnref(xmlopt);
+ 
+diff --git a/tests/xml2vmxdata/xml2vmx-datacenterpath.vmx b/tests/xml2vmxdata/xml2vmx-datacenterpath.vmx
+new file mode 100644
+index 0000000..59bde03
+--- /dev/null
++++ b/tests/xml2vmxdata/xml2vmx-datacenterpath.vmx
+@@ -0,0 +1,10 @@
++.encoding = "UTF-8"
++config.version = "8"
++virtualHW.version = "4"
++guestOS = "other"
++uuid.bios = "56 4d 9b ef ac d9 b4 e0-c8 f0 ae a8 b9 10 35 15"
++displayName = "datacenterpath"
++memsize = "4"
++numvcpus = "1"
++floppy0.present = "false"
++floppy1.present = "false"
+diff --git a/tests/xml2vmxdata/xml2vmx-datacenterpath.xml b/tests/xml2vmxdata/xml2vmx-datacenterpath.xml
+new file mode 100644
+index 0000000..048e13d
+--- /dev/null
++++ b/tests/xml2vmxdata/xml2vmx-datacenterpath.xml
+@@ -0,0 +1,9 @@
++<domain type='vmware' xmlns:vmware='http://libvirt.org/schemas/domain/vmware/1.0'>
++  <name>datacenterpath</name>
++  <uuid>564d9bef-acd9-b4e0-c8f0-aea8b9103515</uuid>
++  <memory unit='KiB'>4096</memory>
++  <os>
++    <type>hvm</type>
++  </os>
++  <vmware:datacenterpath>folder1/folder2/datacenter1</vmware:datacenterpath>
++</domain>
+diff --git a/tests/xml2vmxtest.c b/tests/xml2vmxtest.c
+index 0efd278..d970240 100644
+--- a/tests/xml2vmxtest.c
++++ b/tests/xml2vmxtest.c
+@@ -221,6 +221,7 @@ mymain(void)
+     ctx.parseFileName = NULL;
+     ctx.formatFileName = testFormatVMXFileName;
+     ctx.autodetectSCSIControllerModel = testAutodetectSCSIControllerModel;
++    ctx.datacenterPath = NULL;
+ 
+     DO_TEST("minimal", "minimal", 4);
+     DO_TEST("minimal-64bit", "minimal-64bit", 4);
+@@ -295,6 +296,8 @@ mymain(void)
+ 
+     DO_TEST("svga", "svga", 4);
+ 
++    DO_TEST("datacenterpath", "datacenterpath", 4);
++
+     virObjectUnref(caps);
+     virObjectUnref(xmlopt);
+ 
+-- 
+2.7.2
+

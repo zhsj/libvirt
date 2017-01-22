@@ -1,0 +1,141 @@
+From 81d3458e0534b76bc2de780b0b03428b383fb270 Mon Sep 17 00:00:00 2001
+Message-Id: <81d3458e0534b76bc2de780b0b03428b383fb270@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Tue, 16 Feb 2016 11:55:07 +0100
+Subject: [PATCH] systemd: Escape machine name for machined
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1308494
+
+According to the documentation, CreateMachine accepts only 7bit ASCII
+characters in the machinename parameter, so let's make sure we can start
+machines with unicode names with systemd.  We already have a function
+for that, we just forgot to use it.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1062943
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1282846
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit e24eda48cfae84a9003456b68eaf753a26123639)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/util/virsystemd.c  | 12 ++++++++----
+ tests/virsystemdtest.c | 45 ++++++++++++++++++++++++++++++++++++++++++---
+ 2 files changed, 50 insertions(+), 7 deletions(-)
+
+diff --git a/src/util/virsystemd.c b/src/util/virsystemd.c
+index 54c409d..0c8f026 100644
+--- a/src/util/virsystemd.c
++++ b/src/util/virsystemd.c
+@@ -119,16 +119,20 @@ char *virSystemdMakeMachineName(const char *name,
+ {
+     char *machinename = NULL;
+     char *username = NULL;
++    virBuffer buf = VIR_BUFFER_INITIALIZER;
++
+     if (privileged) {
+-        if (virAsprintf(&machinename, "%s-%s", drivername, name) < 0)
+-            goto cleanup;
++        virBufferAsprintf(&buf, "%s-", drivername);
+     } else {
+         if (!(username = virGetUserName(geteuid())))
+             goto cleanup;
+-        if (virAsprintf(&machinename, "%s-%s-%s", username, drivername, name) < 0)
+-            goto cleanup;
++
++        virBufferAsprintf(&buf, "%s-%s-", username, drivername);
+     }
+ 
++    virSystemdEscapeName(&buf, name);
++
++    machinename = virBufferContentAndReset(&buf);
+  cleanup:
+     VIR_FREE(username);
+ 
+diff --git a/tests/virsystemdtest.c b/tests/virsystemdtest.c
+index d0b9335..06fec54 100644
+--- a/tests/virsystemdtest.c
++++ b/tests/virsystemdtest.c
+@@ -338,7 +338,7 @@ static int testCreateNetwork(const void *opaque ATTRIBUTE_UNUSED)
+ }
+ 
+ 
+-struct testScopeData {
++struct testNameData {
+     const char *name;
+     const char *expected;
+ };
+@@ -346,7 +346,7 @@ struct testScopeData {
+ static int
+ testScopeName(const void *opaque)
+ {
+-    const struct testScopeData *data = opaque;
++    const struct testNameData *data = opaque;
+     int ret = -1;
+     char *actual = NULL;
+ 
+@@ -366,6 +366,29 @@ testScopeName(const void *opaque)
+     return ret;
+ }
+ 
++static int
++testMachineName(const void *opaque)
++{
++    const struct testNameData *data = opaque;
++    int ret = -1;
++    char *actual = NULL;
++
++    if (!(actual = virSystemdMakeMachineName(data->name, "qemu", true)))
++        goto cleanup;
++
++    if (STRNEQ(actual, data->expected)) {
++        fprintf(stderr, "Expected '%s' but got '%s'\n",
++                data->expected, actual);
++        goto cleanup;
++    }
++
++    ret = 0;
++
++ cleanup:
++    VIR_FREE(actual);
++    return ret;
++}
++
+ typedef int (*virSystemdCanHelper)(bool * result);
+ struct testPMSupportData {
+     virSystemdCanHelper tested;
+@@ -471,7 +494,7 @@ mymain(void)
+ 
+ # define TEST_SCOPE(name, unitname)                                     \
+     do {                                                                \
+-        struct testScopeData data = {                                   \
++        struct testNameData data = {                                    \
+             name, unitname                                              \
+         };                                                              \
+         if (virtTestRun("Test scopename", testScopeName, &data) < 0)    \
+@@ -482,6 +505,22 @@ mymain(void)
+     TEST_SCOPE("demo-name", "machine-lxc\\x2ddemo\\x2dname.scope");
+     TEST_SCOPE("demo!name", "machine-lxc\\x2ddemo\\x21name.scope");
+     TEST_SCOPE(".demo", "machine-lxc\\x2d\\x2edemo.scope");
++    TEST_SCOPE("bull💩", "machine-lxc\\x2dbull\\xf0\\x9f\\x92\\xa9.scope");
++
++# define TEST_MACHINE(name, machinename)                                \
++    do {                                                                \
++        struct testNameData data = {                                    \
++            name, machinename                                           \
++        };                                                              \
++        if (virtTestRun("Test scopename", testMachineName, &data) < 0)  \
++            ret = -1;                                                   \
++    } while (0)
++
++    TEST_MACHINE("demo", "qemu-demo");
++    TEST_MACHINE("demo-name", "qemu-demo\\x2dname");
++    TEST_MACHINE("demo!name", "qemu-demo\\x21name");
++    TEST_MACHINE(".demo", "qemu-\\x2edemo");
++    TEST_MACHINE("bull\U0001f4a9", "qemu-bull\\xf0\\x9f\\x92\\xa9");
+ 
+ # define TESTS_PM_SUPPORT_HELPER(name, function)                        \
+     do {                                                                \
+-- 
+2.7.2
+

@@ -382,7 +382,7 @@
 Summary: Library providing a simple virtualization API
 Name: libvirt
 Version: 1.2.17
-Release: 13%{?dist}.3%{?extra_release}
+Release: 13%{?dist}.4%{?extra_release}
 License: LGPLv2+
 Group: Development/Libraries
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root
@@ -648,6 +648,13 @@ Patch252: libvirt-qemu-Add-ppc64-specific-math-to-qemuDomainGetMlockLimitBytes.p
 Patch253: libvirt-qemu-Always-set-locked-memory-limit-for-ppc64-domains.patch
 Patch254: libvirt-qemu-Support-vhost-user-multiqueue-with-QEMU-2.3.patch
 Patch255: libvirt-vmx-Adapt-to-emptyBackingString-for-cdrom-image.patch
+Patch256: libvirt-systemd-Escape-machine-name-for-machined.patch
+Patch257: libvirt-systemd-Add-virSystemdGetMachineNameByPID.patch
+Patch258: libvirt-systemd-Modernize-machine-naming.patch
+Patch259: libvirt-virSystemdGetMachineNameByPID-Initialize-reply.patch
+Patch260: libvirt-util-Fix-virCgroupNewMachine-ATTRIBUTE_NONNULL-args.patch
+Patch261: libvirt-dbus-Don-t-unref-NULL-messages.patch
+Patch262: libvirt-vmx-Expose-datacenter-path-in-domain-XML.patch
 
 
 %if %{with_libvirtd}
@@ -2599,6 +2606,15 @@ exit 0
 %doc examples/systemtap
 
 %changelog
+* Wed Mar  2 2016 Jiri Denemark <jdenemar@redhat.com> - 1.2.17-13.el7_2.4
+- systemd: Escape machine name for machined (rhbz#1308494)
+- systemd: Add virSystemdGetMachineNameByPID (rhbz#1308494)
+- systemd: Modernize machine naming (rhbz#1308494)
+- virSystemdGetMachineNameByPID: Initialize @reply (rhbz#1308494)
+- util: Fix virCgroupNewMachine ATTRIBUTE_NONNULL args (rhbz#1308494)
+- dbus: Don't unref NULL messages (rhbz#1308494)
+- vmx: Expose datacenter path in domain XML (rhbz#1305489)
+
 * Wed Jan 27 2016 Jiri Denemark <jdenemar@redhat.com> - 1.2.17-13.el7_2.3
 - vmx: Adapt to emptyBackingString for cdrom-image (rhbz#1301892)
 

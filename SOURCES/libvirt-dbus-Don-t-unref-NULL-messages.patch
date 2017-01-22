@@ -1,0 +1,327 @@
+From 58235a6cc62f33a6934d214e967b6ef879a77ec0 Mon Sep 17 00:00:00 2001
+Message-Id: <58235a6cc62f33a6934d214e967b6ef879a77ec0@dist-git>
+From: Michal Privoznik <mprivozn@redhat.com>
+Date: Tue, 16 Feb 2016 11:55:12 +0100
+Subject: [PATCH] dbus: Don't unref NULL messages
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1308494
+
+Apparently we are not the only ones with dumb free functions
+because dbus_message_unref() does not accept NULL either. But if
+I were to vote, this one is even more evil. Instead of returning
+an error just like we do it immediately dereference any pointer
+passed and thus crash you app. Well done DBus!
+
+  Program received signal SIGSEGV, Segmentation fault.
+  [Switching to Thread 0x7f878ebda700 (LWP 31264)]
+  0x00007f87be4016e5 in ?? () from /usr/lib64/libdbus-1.so.3
+  (gdb) bt
+  #0  0x00007f87be4016e5 in ?? () from /usr/lib64/libdbus-1.so.3
+  #1  0x00007f87be3f004e in dbus_message_unref () from /usr/lib64/libdbus-1.so.3
+  #2  0x00007f87bf6ecf95 in virSystemdGetMachineNameByPID (pid=9849) at util/virsystemd.c:228
+  #3  0x00007f879761bd4d in qemuConnectCgroup (driver=0x7f87600a32a0, vm=0x7f87600c7550) at qemu/qemu_cgroup.c:909
+  #4  0x00007f87976386b7 in qemuProcessReconnect (opaque=0x7f87600db840) at qemu/qemu_process.c:3386
+  #5  0x00007f87bf6edfff in virThreadHelper (data=0x7f87600d5580) at util/virthread.c:206
+  #6  0x00007f87bb602334 in start_thread (arg=0x7f878ebda700) at pthread_create.c:333
+  #7  0x00007f87bb3481bd in clone () at ../sysdeps/unix/sysv/linux/x86_64/clone.S:109
+  (gdb) frame 2
+  #2  0x00007f87bf6ecf95 in virSystemdGetMachineNameByPID (pid=9849) at util/virsystemd.c:228
+  228         dbus_message_unref(reply);
+  (gdb) p reply
+  $1 = (DBusMessage *) 0x0
+
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+(cherry picked from commit 862298a2e7bef059b73f477e8a88d403c523e10b)
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+Signed-off-by: Jiri Denemark <jdenemar@redhat.com>
+---
+ src/libvirt_private.syms |  1 +
+ src/rpc/virnetdaemon.c   |  4 ++--
+ src/util/virdbus.c       | 14 +++++++-------
+ src/util/virdbus.h       |  1 -
+ src/util/virfirewall.c   |  3 +--
+ src/util/virsystemd.c    |  2 +-
+ tests/virdbustest.c      | 20 ++++++++++----------
+ tests/virfirewalltest.c  |  3 +--
+ tests/virpolkittest.c    |  2 +-
+ tests/virsystemdtest.c   |  3 ++-
+ 10 files changed, 26 insertions(+), 27 deletions(-)
+
+diff --git a/src/libvirt_private.syms b/src/libvirt_private.syms
+index 4ad9266..86909c1 100644
+--- a/src/libvirt_private.syms
++++ b/src/libvirt_private.syms
+@@ -1348,6 +1348,7 @@ virDBusHasSystemBus;
+ virDBusMessageDecode;
+ virDBusMessageEncode;
+ virDBusMessageRead;
++virDBusMessageUnref;
+ virDBusSetSharedBus;
+ 
+ 
+diff --git a/src/rpc/virnetdaemon.c b/src/rpc/virnetdaemon.c
+index 910f266..18c962c 100644
+--- a/src/rpc/virnetdaemon.c
++++ b/src/rpc/virnetdaemon.c
+@@ -374,7 +374,7 @@ virNetDaemonGotInhibitReply(DBusPendingCall *pending,
+             VIR_FORCE_CLOSE(fd);
+         }
+     }
+-    dbus_message_unref(reply);
++    virDBusMessageUnref(reply);
+ 
+  cleanup:
+     virObjectUnlock(dmn);
+@@ -426,7 +426,7 @@ virNetDaemonCallInhibit(virNetDaemonPtr dmn,
+                                      dmn, NULL);
+         dmn->autoShutdownCallingInhibit = true;
+     }
+-    dbus_message_unref(message);
++    virDBusMessageUnref(message);
+ }
+ #endif
+ 
+diff --git a/src/util/virdbus.c b/src/util/virdbus.c
+index 1cf1eef..a34e845 100644
+--- a/src/util/virdbus.c
++++ b/src/util/virdbus.c
+@@ -1394,7 +1394,7 @@ int virDBusCreateMethodV(DBusMessage **call,
+     }
+ 
+     if (virDBusMessageEncodeArgs(*call, types, args) < 0) {
+-        dbus_message_unref(*call);
++        virDBusMessageUnref(*call);
+         *call = NULL;
+         goto cleanup;
+     }
+@@ -1463,7 +1463,7 @@ int virDBusCreateReplyV(DBusMessage **reply,
+     }
+ 
+     if (virDBusMessageEncodeArgs(*reply, types, args) < 0) {
+-        dbus_message_unref(*reply);
++        virDBusMessageUnref(*reply);
+         *reply = NULL;
+         goto cleanup;
+     }
+@@ -1582,7 +1582,7 @@ virDBusCall(DBusConnection *conn,
+         if (ret == 0 && replyout)
+             *replyout = reply;
+         else
+-            dbus_message_unref(reply);
++            virDBusMessageUnref(reply);
+     }
+     return ret;
+ }
+@@ -1646,8 +1646,7 @@ int virDBusCallMethod(DBusConnection *conn,
+     ret = virDBusCall(conn, call, replyout, error);
+ 
+  cleanup:
+-    if (call)
+-        dbus_message_unref(call);
++    virDBusMessageUnref(call);
+     return ret;
+ }
+ 
+@@ -1723,7 +1722,7 @@ static int virDBusIsServiceInList(const char *listMethod, const char *name)
+     }
+ 
+  cleanup:
+-    dbus_message_unref(reply);
++    virDBusMessageUnref(reply);
+     return ret;
+ }
+ 
+@@ -1759,7 +1758,8 @@ int virDBusIsServiceRegistered(const char *name)
+ 
+ void virDBusMessageUnref(DBusMessage *msg)
+ {
+-    dbus_message_unref(msg);
++    if (msg)
++        dbus_message_unref(msg);
+ }
+ 
+ #else /* ! WITH_DBUS */
+diff --git a/src/util/virdbus.h b/src/util/virdbus.h
+index 9e86538..86b4223 100644
+--- a/src/util/virdbus.h
++++ b/src/util/virdbus.h
+@@ -28,7 +28,6 @@
+ # else
+ #  define DBusConnection void
+ #  define DBusMessage void
+-#  define dbus_message_unref(m) do {} while (0)
+ # endif
+ # include "internal.h"
+ 
+diff --git a/src/util/virfirewall.c b/src/util/virfirewall.c
+index a972c05..f26fd86 100644
+--- a/src/util/virfirewall.c
++++ b/src/util/virfirewall.c
+@@ -822,8 +822,7 @@ virFirewallApplyRuleFirewallD(virFirewallRulePtr rule,
+ 
+  cleanup:
+     virResetError(&error);
+-    if (reply)
+-        dbus_message_unref(reply);
++    virDBusMessageUnref(reply);
+     return ret;
+ }
+ 
+diff --git a/src/util/virsystemd.c b/src/util/virsystemd.c
+index 7bc5d55..08fd6bb 100644
+--- a/src/util/virsystemd.c
++++ b/src/util/virsystemd.c
+@@ -225,7 +225,7 @@ virSystemdGetMachineNameByPID(pid_t pid)
+ 
+  cleanup:
+     VIR_FREE(object);
+-    dbus_message_unref(reply);
++    virDBusMessageUnref(reply);
+ 
+     return name;
+ }
+diff --git a/tests/virdbustest.c b/tests/virdbustest.c
+index 4ec3c0d..1622b03 100644
+--- a/tests/virdbustest.c
++++ b/tests/virdbustest.c
+@@ -121,7 +121,7 @@ static int testMessageSimple(const void *args ATTRIBUTE_UNUSED)
+     VIR_FREE(out_string);
+     VIR_FREE(out_signature);
+     VIR_FREE(out_objectpath);
+-    dbus_message_unref(msg);
++    virDBusMessageUnref(msg);
+     return ret;
+ }
+ 
+@@ -171,7 +171,7 @@ static int testMessageVariant(const void *args ATTRIBUTE_UNUSED)
+  cleanup:
+     VIR_FREE(out_str1);
+     VIR_FREE(out_str2);
+-    dbus_message_unref(msg);
++    virDBusMessageUnref(msg);
+     return ret;
+ }
+ 
+@@ -230,7 +230,7 @@ static int testMessageArray(const void *args ATTRIBUTE_UNUSED)
+  cleanup:
+     VIR_FREE(out_str1);
+     VIR_FREE(out_str2);
+-    dbus_message_unref(msg);
++    virDBusMessageUnref(msg);
+     return ret;
+ }
+ 
+@@ -274,7 +274,7 @@ static int testMessageEmptyArrayRef(const void *args ATTRIBUTE_UNUSED)
+     ret = 0;
+ 
+  cleanup:
+-    dbus_message_unref(msg);
++    virDBusMessageUnref(msg);
+     return ret;
+ }
+ 
+@@ -323,7 +323,7 @@ static int testMessageSingleArrayRef(const void *args ATTRIBUTE_UNUSED)
+  cleanup:
+     if (out_strv1)
+         VIR_FREE(out_strv1[0]);
+-    dbus_message_unref(msg);
++    virDBusMessageUnref(msg);
+     return ret;
+ }
+ 
+@@ -436,7 +436,7 @@ static int testMessageArrayRef(const void *args ATTRIBUTE_UNUSED)
+     for (i = 0; i < out_nstrv2; i++)
+         VIR_FREE(out_strv2[i]);
+     VIR_FREE(out_strv2);
+-    dbus_message_unref(msg);
++    virDBusMessageUnref(msg);
+     return ret;
+ }
+ 
+@@ -511,7 +511,7 @@ static int testMessageStruct(const void *args ATTRIBUTE_UNUSED)
+     VIR_FREE(out_string);
+     VIR_FREE(out_signature);
+     VIR_FREE(out_objectpath);
+-    dbus_message_unref(msg);
++    virDBusMessageUnref(msg);
+     return ret;
+ }
+ 
+@@ -581,7 +581,7 @@ static int testMessageDict(const void *args ATTRIBUTE_UNUSED)
+     VIR_FREE(out_key1);
+     VIR_FREE(out_key2);
+     VIR_FREE(out_key3);
+-    dbus_message_unref(msg);
++    virDBusMessageUnref(msg);
+     return ret;
+ }
+ 
+@@ -652,7 +652,7 @@ static int testMessageDictRef(const void *args ATTRIBUTE_UNUSED)
+         VIR_FREE(out_strv1[5]);
+     }
+     VIR_FREE(out_strv1);
+-    dbus_message_unref(msg);
++    virDBusMessageUnref(msg);
+     return ret;
+ }
+ 
+@@ -695,7 +695,7 @@ static int testMessageEmptyDictRef(const void *args ATTRIBUTE_UNUSED)
+     ret = 0;
+ 
+  cleanup:
+-    dbus_message_unref(msg);
++    virDBusMessageUnref(msg);
+     return ret;
+ }
+ 
+diff --git a/tests/virfirewalltest.c b/tests/virfirewalltest.c
+index 1f8d8f1..8f6fc9e 100644
+--- a/tests/virfirewalltest.c
++++ b/tests/virfirewalltest.c
+@@ -179,8 +179,7 @@ VIR_MOCK_WRAP_RET_ARGS(dbus_connection_send_with_reply_and_block,
+     return reply;
+ 
+  error:
+-    if (reply)
+-        dbus_message_unref(reply);
++    virDBusMessageUnref(reply);
+     reply = NULL;
+     if (error && !dbus_error_is_set(error))
+         dbus_set_error_const(error,
+diff --git a/tests/virpolkittest.c b/tests/virpolkittest.c
+index cdf78f5..b39beed 100644
+--- a/tests/virpolkittest.c
++++ b/tests/virpolkittest.c
+@@ -140,7 +140,7 @@ VIR_MOCK_WRAP_RET_ARGS(dbus_connection_send_with_reply_and_block,
+     return reply;
+ 
+  error:
+-    dbus_message_unref(reply);
++    virDBusMessageUnref(reply);
+     return NULL;
+ }
+ 
+diff --git a/tests/virsystemdtest.c b/tests/virsystemdtest.c
+index 46452dd..101f5e0 100644
+--- a/tests/virsystemdtest.c
++++ b/tests/virsystemdtest.c
+@@ -28,6 +28,7 @@
+ # include <dbus/dbus.h>
+ 
+ # include "virsystemd.h"
++# include "virdbus.h"
+ # include "virlog.h"
+ # include "virmock.h"
+ # define VIR_FROM_THIS VIR_FROM_NONE
+@@ -151,7 +152,7 @@ VIR_MOCK_WRAP_RET_ARGS(dbus_connection_send_with_reply_and_block,
+     return reply;
+ 
+  error:
+-    dbus_message_unref(reply);
++    virDBusMessageUnref(reply);
+     return NULL;
+ }
+ 
+-- 
+2.7.2
+
