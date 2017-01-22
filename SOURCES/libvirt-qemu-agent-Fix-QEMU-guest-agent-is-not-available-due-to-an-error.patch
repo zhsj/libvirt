@@ -1,0 +1,133 @@
+From: Xiubo Li <lixiubo cmss chinamobile com> 
+Subject: [libvirt] [PATCHv2] qemu: agent: Fix QEMU guest agent is not available due to an error 
+Date: Thu, 7 Jul 2016 17:53:26 +0800
+
+These days, we experienced one qemu guest agent is not available
+error. Then the guest agent couldn't be used forever before rebooting
+the libvirtd daemon or reboot the qemu-guest-agent in the VM(you can
+also reboot the VM) to clear the priv->agentError.
+
+This is one bug for a long time in many verisons of libvirtd:
+https://bugzilla.redhat.com/show_bug.cgi?id=1090551
+
+And there is one python script to reproduce this bug from the bugzilla:
+https://github.com/aspirer/study/blob/master/qemu-guest-agent/test2.py
+Just set the timeout to 0 at Line26, you can reproduce it very quickly:
+rsp = libvirt_qemu.qemuAgentCommand(dom, cmd, 1, 0) // 1 -> 0
+
+The reason why this could happen is that:
+
+In case we received something like {"return": {}} for example, it is
+likely that somebody:
+
+1) Started GA thread which sent one "guest-ping" command with seconds
+equals to VIR_DOMAIN_QEMU_AGENT_COMMAND_NOWAIT(0) makes this function
+return immediately without waiting, but after updating the events, it
+will sleep in virCondWait() or virCondWaitUntil().
+
+2) While in AgentIO thread the "guest-ping" command is sent successfully,
+with updating the events it will wait for reply.
+
+3) Then the GA thread is woken up and the mon->msg is set to NULL and exit.
+
+4) At last the AgentIO thread receives the reply of "guest-ping" command
+with the mon->msg == NULL.
+
+This case could be adapt to all the GA commands, including guest-sync, etc.
+
+This patch will check if this is the case and don't report an error but
+return silently.
+
+Signed-off-by: Xiubo Li <lixiubo cmss chinamobile com>
+Signed-off-by: Zhuoyu Zhang <zhangzhuoyu cmss chinamobile com>
+Signed-off-by: Wei Tang <tangwei cmss chinamobile com>
+Signed-off-by: Yaowei Bai <baiyaowei cmss chinamobile com>
+Signed-off-by: Qide Chen <chenqide cmss chinamobile com>
+---
+
+Changes in V2:
+- check value type instead of object type.
+
+
+
+ src/qemu/qemu_agent.c | 37 ++++++++++++++++++++++++++++---------
+ src/util/virjson.h    |  7 +++++++
+ 2 files changed, 35 insertions(+), 9 deletions(-)
+
+diff --git a/src/qemu/qemu_agent.c b/src/qemu/qemu_agent.c
+index eeede6b..f5408cc 100644
+--- a/src/qemu/qemu_agent.c
++++ b/src/qemu/qemu_agent.c
+@@ -308,7 +308,6 @@ qemuAgentIOProcessLine(qemuAgentPtr mon,
+ {
+     virJSONValuePtr obj = NULL;
+     int ret = -1;
+-    unsigned long long id;
+ 
+     VIR_DEBUG("Line [%s]", line);
+ 
+@@ -333,16 +332,36 @@ qemuAgentIOProcessLine(qemuAgentPtr mon,
+             obj = NULL;
+             ret = 0;
+         } else {
+-            /* If we've received something like:
+-             *  {"return": 1234}
+-             * it is likely that somebody started GA
+-             * which is now processing our previous
+-             * guest-sync commands. Check if this is
+-             * the case and don't report an error but
++            virJSONValuePtr val;
++
++            /* In case we received something like:
++             *  {"return": {}} for example,
++             * it is likely that somebody:
++             *
++             * 1) Started GA thread which sent one "guest-ping" command
++             * with seconds equals to VIR_DOMAIN_QEMU_AGENT_COMMAND_NOWAIT(0)
++             * makes this function return immediately without waiting, but
++             * after updating the events, it will sleep in virCondWait() or
++             * virCondWaitUntil().
++             *
++             * 2) While in AgentIO thread the "guest-ping" command is sent
++             * successfully, with updating the events it will wait for reply.
++             *
++             * 3) Then the GA thread is woken up and the mon->msg is set
++             * to NULL and exit.
++             *
++             * 4) At last the AgentIO thread receives the reply of "guest-ping"
++             * command with the mon->msg == NULL.
++             *
++             * This case could be adapt to all the GA commands, including
++             * guest-sync, etc.
++             *
++             * Check if this is the case and don't report an error but
+              * return silently.
+              */
+-            if (virJSONValueObjectGetNumberUlong(obj, "return", &id) == 0) {
+-                VIR_DEBUG("Ignoring delayed reply to guest-sync: %llu", id);
++            val = virJSONValueObjectGet(obj, "return");
++            if (val && virJSONValueTypeIsValid(val)) {
++                VIR_DEBUG("Ignoring delayed command reply");
+                 ret = 0;
+                 goto cleanup;
+             }
+diff --git a/src/util/virjson.h b/src/util/virjson.h
+index 66ed48a..cb1d973 100644
+--- a/src/util/virjson.h
++++ b/src/util/virjson.h
+@@ -80,6 +80,13 @@ struct _virJSONValue {
+     } data;
+ };
+ 
++static inline bool
++virJSONValueTypeIsValid(virJSONValuePtr value)
++{
++    return ((value->type >= VIR_JSON_TYPE_OBJECT) &&
++            (value->type <= VIR_JSON_TYPE_BOOLEAN));
++}
++
+ void virJSONValueFree(virJSONValuePtr value);
+ 
+ int virJSONValueObjectCreate(virJSONValuePtr *obj, ...)
+-- 
+1.8.3.1

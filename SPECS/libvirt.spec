@@ -382,7 +382,7 @@
 Summary: Library providing a simple virtualization API
 Name: libvirt
 Version: 1.2.17
-Release: 13%{?dist}.4%{?extra_release}
+Release: 13%{?dist}.4.1%{?extra_release}
 License: LGPLv2+
 Group: Development/Libraries
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root
@@ -656,6 +656,7 @@ Patch260: libvirt-util-Fix-virCgroupNewMachine-ATTRIBUTE_NONNULL-args.patch
 Patch261: libvirt-dbus-Don-t-unref-NULL-messages.patch
 Patch262: libvirt-vmx-Expose-datacenter-path-in-domain-XML.patch
 
+Patch10000: libvirt-qemu-agent-Fix-QEMU-guest-agent-is-not-available-due-to-an-error.patch
 
 %if %{with_libvirtd}
 Requires: libvirt-daemon = %{version}-%{release}
@@ -2606,6 +2607,9 @@ exit 0
 %doc examples/systemtap
 
 %changelog
+* Tue Sep 13 2016 Yaowei Bai <baiyaowei@cmss.chinamobile.com> - 1.2.17-13.el7_2.4.1
+- libvirt-qemu-agent-Fix-QEMU-guest-agent-is-not-available-due-to-an-error.patch
+
 * Wed Mar  2 2016 Jiri Denemark <jdenemar@redhat.com> - 1.2.17-13.el7_2.4
 - systemd: Escape machine name for machined (rhbz#1308494)
 - systemd: Add virSystemdGetMachineNameByPID (rhbz#1308494)
