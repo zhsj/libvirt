@@ -1,0 +1,74 @@
+From 3b9712c09ff6ac00d5d371f3e1e71391037eb5bf Mon Sep 17 00:00:00 2001
+Message-Id: <3b9712c09ff6ac00d5d371f3e1e71391037eb5bf@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Mon, 23 May 2016 18:10:03 +0200
+Subject: [PATCH] nodedev: Indent PCI express for future fix
+
+RHEL-7.2.z: https://bugzilla.redhat.com/show_bug.cgi?id=1331328
+
+Best viewed with '-w' as this is just an adjustment for future patch to
+be readable without that.
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 0d8f45246a74b627e62eccef2bb19068690312e2)
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+---
+ src/node_device/node_device_udev.c | 38 ++++++++++++++++++++------------------
+ 1 file changed, 20 insertions(+), 18 deletions(-)
+
+diff --git a/src/node_device/node_device_udev.c b/src/node_device/node_device_udev.c
+index 100b44d..aaee0e5 100644
+--- a/src/node_device/node_device_udev.c
++++ b/src/node_device/node_device_udev.c
+@@ -505,28 +505,30 @@ static int udevProcessPCI(struct udev_device *device,
+         goto out;
+ 
+     /* We need to be root to read PCI device configs */
+-    if (priv->privileged && virPCIDeviceIsPCIExpress(pciDev) > 0) {
+-        if (VIR_ALLOC(pci_express) < 0)
+-            goto out;
+-
+-        if (virPCIDeviceHasPCIExpressLink(pciDev) > 0) {
+-            if (VIR_ALLOC(pci_express->link_cap) < 0 ||
+-                VIR_ALLOC(pci_express->link_sta) < 0)
++    if (priv->privileged) {
++        if (virPCIDeviceIsPCIExpress(pciDev) > 0) {
++            if (VIR_ALLOC(pci_express) < 0)
+                 goto out;
+ 
+-            if (virPCIDeviceGetLinkCapSta(pciDev,
+-                                          &pci_express->link_cap->port,
+-                                          &pci_express->link_cap->speed,
+-                                          &pci_express->link_cap->width,
+-                                          &pci_express->link_sta->speed,
+-                                          &pci_express->link_sta->width) < 0)
+-                goto out;
++            if (virPCIDeviceHasPCIExpressLink(pciDev) > 0) {
++                if (VIR_ALLOC(pci_express->link_cap) < 0 ||
++                    VIR_ALLOC(pci_express->link_sta) < 0)
++                    goto out;
++
++                if (virPCIDeviceGetLinkCapSta(pciDev,
++                                              &pci_express->link_cap->port,
++                                              &pci_express->link_cap->speed,
++                                              &pci_express->link_cap->width,
++                                              &pci_express->link_sta->speed,
++                                              &pci_express->link_sta->width) < 0)
++                    goto out;
+ 
+-            pci_express->link_sta->port = -1; /* PCIe can't negotiate port. Yet :) */
++                pci_express->link_sta->port = -1; /* PCIe can't negotiate port. Yet :) */
++            }
++            data->pci_dev.flags |= VIR_NODE_DEV_CAP_FLAG_PCIE;
++            data->pci_dev.pci_express = pci_express;
++            pci_express = NULL;
+         }
+-        data->pci_dev.flags |= VIR_NODE_DEV_CAP_FLAG_PCIE;
+-        data->pci_dev.pci_express = pci_express;
+-        pci_express = NULL;
+     }
+ 
+     ret = 0;
+-- 
+2.8.3
+

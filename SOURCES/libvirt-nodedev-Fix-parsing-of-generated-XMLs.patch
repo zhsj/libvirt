@@ -1,0 +1,67 @@
+From f583c2a22e7ce86586aa30f3ee66b6a830778550 Mon Sep 17 00:00:00 2001
+Message-Id: <f583c2a22e7ce86586aa30f3ee66b6a830778550@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Mon, 23 May 2016 18:10:05 +0200
+Subject: [PATCH] nodedev: Fix parsing of generated XMLs
+
+RHEL-7.2.z: https://bugzilla.redhat.com/show_bug.cgi?id=1331328
+
+Commit d77ffb6876 added not only reporting of the PCI header type, but
+also parsing of that information.  However, because there was no parsing
+done for the other sub-PCI capabilities, if there was any other
+capability then a valid header type name (like phys_function or
+virt_functions) the parsing would fail.  This prevented passing node
+device XMLs that we generated into our own functions when dealing with,
+e.g. with SRIOV cards.
+
+Instead of reworking the whole parsing, just fix this one occurence and
+remove a test for it for the time being.  Future patches will deal with
+the rest.
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 17a94ba70fc11c21f8ea70ff92131d0868f4cde1)
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+---
+ src/conf/node_device_conf.c | 12 ------------
+ tests/nodedevxml2xmltest.c  |  2 --
+ 2 files changed, 14 deletions(-)
+
+diff --git a/src/conf/node_device_conf.c b/src/conf/node_device_conf.c
+index feefb9a..fdea79e 100644
+--- a/src/conf/node_device_conf.c
++++ b/src/conf/node_device_conf.c
+@@ -1328,18 +1328,6 @@ virNodeDevCapPCIDevParseXML(xmlXPathContextPtr ctxt,
+                                           _("invalid NUMA node ID supplied for '%s'")) < 0)
+         goto out;
+ 
+-    if ((tmp = virXPathString("string(./capability[1]/@type)", ctxt))) {
+-        int hdrType = virPCIHeaderTypeFromString(tmp);
+-
+-        if (hdrType <= 0) {
+-            virReportError(VIR_ERR_INTERNAL_ERROR,
+-                           _("Unknown PCI header type '%s'"), tmp);
+-            goto out;
+-        }
+-
+-        data->pci_dev.hdrType = hdrType;
+-    }
+-
+     if ((pciExpress = virXPathNode("./pci-express[1]", ctxt))) {
+         if (VIR_ALLOC(pci_express) < 0)
+             goto out;
+diff --git a/tests/nodedevxml2xmltest.c b/tests/nodedevxml2xmltest.c
+index d2cd444..a37d729 100644
+--- a/tests/nodedevxml2xmltest.c
++++ b/tests/nodedevxml2xmltest.c
+@@ -91,8 +91,6 @@ mymain(void)
+     DO_TEST("usb_device_1d6b_1_0000_00_1d_0");
+     DO_TEST("pci_8086_4238_pcie_wireless");
+     DO_TEST("pci_8086_0c0c_snd_hda_intel");
+-    DO_TEST("pci_0000_00_02_0_header_type");
+-    DO_TEST("pci_0000_00_1c_0_header_type");
+ 
+     return ret == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+ }
+-- 
+2.8.3
+

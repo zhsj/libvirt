@@ -1,0 +1,343 @@
+From 00d879937512b24db576a39fc94c78b427f8916d Mon Sep 17 00:00:00 2001
+Message-Id: <00d879937512b24db576a39fc94c78b427f8916d@dist-git>
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Mon, 23 May 2016 18:10:04 +0200
+Subject: [PATCH] nodedev: Expose PCI header type
+
+RHEL-7.2.z: https://bugzilla.redhat.com/show_bug.cgi?id=1331328
+Upstream:   https://bugzilla.redhat.com/show_bug.cgi?id=1317531
+
+If we expose this information, which is one byte in every PCI config
+file, we let all mgmt apps know whether the device itself is an endpoint
+or not so it's easier for them to decide whether such device can be
+passed through into a VM (endpoint) or not (*-bridge).
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit d77ffb6876e87a5c6f4c74c49cf0d89ade4f8326)
+Signed-off-by: Michal Privoznik <mprivozn@redhat.com>
+---
+ docs/formatnode.html.in                            | 36 ++++++++++++++--------
+ docs/schemas/nodedev.rng                           | 11 +++++++
+ src/conf/node_device_conf.c                        | 20 ++++++++++++
+ src/conf/node_device_conf.h                        |  1 +
+ src/libvirt_private.syms                           |  3 ++
+ src/node_device/node_device_udev.c                 |  3 ++
+ src/util/virpci.c                                  | 33 ++++++++++++++++++++
+ src/util/virpci.h                                  | 12 ++++++++
+ .../pci_0000_00_02_0_header_type.xml               | 15 +++++++++
+ .../pci_0000_00_1c_0_header_type.xml               | 20 ++++++++++++
+ tests/nodedevxml2xmltest.c                         |  2 ++
+ 11 files changed, 144 insertions(+), 12 deletions(-)
+ create mode 100644 tests/nodedevschemadata/pci_0000_00_02_0_header_type.xml
+ create mode 100644 tests/nodedevschemadata/pci_0000_00_1c_0_header_type.xml
+
+diff --git a/docs/formatnode.html.in b/docs/formatnode.html.in
+index 3ff1bef..a14bcfd 100644
+--- a/docs/formatnode.html.in
++++ b/docs/formatnode.html.in
+@@ -97,18 +97,30 @@
+               <dd>
+                 This optional element can occur multiple times. If it
+                 exists, it has a mandatory <code>type</code> attribute
+-                which will be set to
+-                either <code>physical_function</code>
+-                or <code>virtual_functions</code>. If the type
+-                is <code>physical_function</code>, there will be a
+-                single <code>address</code> subelement which contains
+-                the PCI address of the SRIOV Physical Function (PF)
+-                that is the parent of this device (and this device is,
+-                by implication, an SRIOV Virtual Function (VF)). If
+-                the type is <code>virtual_functions</code>, then this
+-                device is an SRIOV PF, and the capability element will
+-                have a list of <code>address</code> subelements, one
+-                for each VF on this PF.
++                which will be set to:
++                <dl>
++                  <dt><code>physical_function</code></dt>
++                  <dd>
++                    That means there will be a single <code>address</code>
++                    subelement which contains the PCI address of the SRIOV
++                    Physical Function (PF) that is the parent of this device
++                    (and this device is, by implication, an SRIOV Virtual
++                    Function (VF)).
++                  </dd>
++                  <dt><code>virtual_function</code></dt>
++                  <dd>
++                    In this case this device is an SRIOV PF, and the capability
++                    element will have a list of <code>address</code>
++                    subelements, one for each VF on this PF.
++                  </dd>
++                  <dt><code>pci-bridge</code> or <code>cardbus-bridge</code></dt>
++                  <dd>
++                    This shows merely that the lower 7 bits of PCI header type
++                    have either value of 1 or 2 respectively.  Usually this
++                    means such device cannot be used for PCI passthrough.
++                    <span class="since">Since 1.3.3</span>
++                  </dd>
++                </dl>
+               </dd>
+               <dt><code>numa</code></dt>
+               <dd>
+diff --git a/docs/schemas/nodedev.rng b/docs/schemas/nodedev.rng
+index 744dccd..949811c 100644
+--- a/docs/schemas/nodedev.rng
++++ b/docs/schemas/nodedev.rng
+@@ -169,6 +169,17 @@
+     </optional>
+ 
+     <optional>
++      <element name='capability'>
++        <attribute name='type'>
++          <choice>
++            <value>pci-bridge</value>
++            <value>cardbus-bridge</value>
++          </choice>
++        </attribute>
++      </element>
++    </optional>
++
++    <optional>
+       <element name='pci-express'>
+         <zeroOrMore>
+           <element name='link'>
+diff --git a/src/conf/node_device_conf.c b/src/conf/node_device_conf.c
+index e6f3f27..feefb9a 100644
+--- a/src/conf/node_device_conf.c
++++ b/src/conf/node_device_conf.c
+@@ -394,6 +394,12 @@ char *virNodeDeviceDefFormat(const virNodeDeviceDef *def)
+             if (data->pci_dev.numa_node >= 0)
+                 virBufferAsprintf(&buf, "<numa node='%d'/>\n",
+                                   data->pci_dev.numa_node);
++
++            if (data->pci_dev.hdrType) {
++                virBufferAsprintf(&buf, "<capability type='%s'/>\n",
++                                  virPCIHeaderTypeToString(data->pci_dev.hdrType));
++            }
++
+             if (data->pci_dev.flags & VIR_NODE_DEV_CAP_FLAG_PCIE)
+                 virPCIEDeviceInfoFormat(&buf, data->pci_dev.pci_express);
+             break;
+@@ -1264,6 +1270,7 @@ virNodeDevCapPCIDevParseXML(xmlXPathContextPtr ctxt,
+     xmlNodePtr orignode, iommuGroupNode, pciExpress;
+     int ret = -1;
+     virPCIEDeviceInfoPtr pci_express = NULL;
++    char *tmp = NULL;
+ 
+     orignode = ctxt->node;
+     ctxt->node = node;
+@@ -1321,6 +1328,18 @@ virNodeDevCapPCIDevParseXML(xmlXPathContextPtr ctxt,
+                                           _("invalid NUMA node ID supplied for '%s'")) < 0)
+         goto out;
+ 
++    if ((tmp = virXPathString("string(./capability[1]/@type)", ctxt))) {
++        int hdrType = virPCIHeaderTypeFromString(tmp);
++
++        if (hdrType <= 0) {
++            virReportError(VIR_ERR_INTERNAL_ERROR,
++                           _("Unknown PCI header type '%s'"), tmp);
++            goto out;
++        }
++
++        data->pci_dev.hdrType = hdrType;
++    }
++
+     if ((pciExpress = virXPathNode("./pci-express[1]", ctxt))) {
+         if (VIR_ALLOC(pci_express) < 0)
+             goto out;
+@@ -1335,6 +1354,7 @@ virNodeDevCapPCIDevParseXML(xmlXPathContextPtr ctxt,
+ 
+     ret = 0;
+  out:
++    VIR_FREE(tmp);
+     virPCIEDeviceInfoFree(pci_express);
+     ctxt->node = orignode;
+     return ret;
+diff --git a/src/conf/node_device_conf.h b/src/conf/node_device_conf.h
+index 7dd39ca..73d2a7f 100644
+--- a/src/conf/node_device_conf.h
++++ b/src/conf/node_device_conf.h
+@@ -118,6 +118,7 @@ typedef struct _virNodeDevCapData {
+             unsigned int iommuGroupNumber;
+             int numa_node;
+             virPCIEDeviceInfoPtr pci_express;
++            int hdrType; /* enum virPCIHeaderType or -1 */
+         } pci_dev;
+         struct {
+             unsigned int bus;
+diff --git a/src/libvirt_private.syms b/src/libvirt_private.syms
+index 86909c1..0db30be 100644
+--- a/src/libvirt_private.syms
++++ b/src/libvirt_private.syms
+@@ -1976,11 +1976,14 @@ virPCIDeviceSetUsedBy;
+ virPCIDeviceUnbind;
+ virPCIDeviceWaitForCleanup;
+ virPCIEDeviceInfoFree;
++virPCIGetHeaderType;
+ virPCIGetNetName;
+ virPCIGetPhysicalFunction;
+ virPCIGetVirtualFunctionIndex;
+ virPCIGetVirtualFunctionInfo;
+ virPCIGetVirtualFunctions;
++virPCIHeaderTypeFromString;
++virPCIHeaderTypeToString;
+ virPCIIsVirtualFunction;
+ 
+ 
+diff --git a/src/node_device/node_device_udev.c b/src/node_device/node_device_udev.c
+index aaee0e5..6bff5ba 100644
+--- a/src/node_device/node_device_udev.c
++++ b/src/node_device/node_device_udev.c
+@@ -506,6 +506,9 @@ static int udevProcessPCI(struct udev_device *device,
+ 
+     /* We need to be root to read PCI device configs */
+     if (priv->privileged) {
++        if (virPCIGetHeaderType(pciDev, &data->pci_dev.hdrType) < 0)
++            goto out;
++
+         if (virPCIDeviceIsPCIExpress(pciDev) > 0) {
+             if (VIR_ALLOC(pci_express) < 0)
+                 goto out;
+diff --git a/src/util/virpci.c b/src/util/virpci.c
+index 35b1459..d98db3f 100644
+--- a/src/util/virpci.c
++++ b/src/util/virpci.c
+@@ -55,6 +55,12 @@ VIR_LOG_INIT("util.pci");
+ VIR_ENUM_IMPL(virPCIELinkSpeed, VIR_PCIE_LINK_SPEED_LAST,
+               "", "2.5", "5", "8")
+ 
++VIR_ENUM_IMPL(virPCIHeader, VIR_PCI_HEADER_LAST,
++              "endpoint",
++              "pci-bridge",
++              "cardbus-bridge",
++);
++
+ struct _virPCIDevice {
+     unsigned int  domain;
+     unsigned int  bus;
+@@ -2872,6 +2878,33 @@ virPCIDeviceGetLinkCapSta(virPCIDevicePtr dev,
+ }
+ 
+ 
++int virPCIGetHeaderType(virPCIDevicePtr dev, int *hdrType)
++{
++    int fd;
++    uint8_t type;
++
++    *hdrType = -1;
++
++    if ((fd = virPCIDeviceConfigOpen(dev, true)) < 0)
++        return -1;
++
++    type = virPCIDeviceRead8(dev, fd, PCI_HEADER_TYPE);
++
++    virPCIDeviceConfigClose(dev, fd);
++
++    type &= PCI_HEADER_TYPE_MASK;
++    if (type >= VIR_PCI_HEADER_LAST) {
++        virReportError(VIR_ERR_INTERNAL_ERROR,
++                       _("Unknown PCI header type '%d'"), type);
++        return -1;
++    }
++
++    *hdrType = type;
++
++    return 0;
++}
++
++
+ void
+ virPCIEDeviceInfoFree(virPCIEDeviceInfoPtr dev)
+ {
+diff --git a/src/util/virpci.h b/src/util/virpci.h
+index 64b9e96..1ed59dd 100644
+--- a/src/util/virpci.h
++++ b/src/util/virpci.h
+@@ -52,6 +52,16 @@ typedef enum {
+ 
+ VIR_ENUM_DECL(virPCIELinkSpeed)
+ 
++typedef enum {
++    VIR_PCI_HEADER_ENDPOINT = 0,
++    VIR_PCI_HEADER_PCI_BRIDGE,
++    VIR_PCI_HEADER_CARDBUS_BRIDGE,
++
++    VIR_PCI_HEADER_LAST
++} virPCIHeaderType;
++
++VIR_ENUM_DECL(virPCIHeader)
++
+ typedef struct _virPCIELink virPCIELink;
+ typedef virPCIELink *virPCIELinkPtr;
+ struct _virPCIELink {
+@@ -214,6 +224,8 @@ int virPCIDeviceGetLinkCapSta(virPCIDevicePtr dev,
+                               unsigned int *sta_speed,
+                               unsigned int *sta_width);
+ 
++int virPCIGetHeaderType(virPCIDevicePtr dev, int *hdrType);
++
+ void virPCIEDeviceInfoFree(virPCIEDeviceInfoPtr dev);
+ 
+ #endif /* __VIR_PCI_H__ */
+diff --git a/tests/nodedevschemadata/pci_0000_00_02_0_header_type.xml b/tests/nodedevschemadata/pci_0000_00_02_0_header_type.xml
+new file mode 100644
+index 0000000..5150fd1
+--- /dev/null
++++ b/tests/nodedevschemadata/pci_0000_00_02_0_header_type.xml
+@@ -0,0 +1,15 @@
++<device>
++  <name>pci_0000_00_02_0</name>
++  <parent>computer</parent>
++  <capability type='pci'>
++    <domain>0</domain>
++    <bus>0</bus>
++    <slot>2</slot>
++    <function>0</function>
++    <product id='0x0416'>4th Gen Core Processor Integrated Graphics Controller</product>
++    <vendor id='0x8086'>Intel Corporation</vendor>
++    <iommuGroup number='1'>
++      <address domain='0x0000' bus='0x00' slot='0x02' function='0x0'/>
++    </iommuGroup>
++  </capability>
++</device>
+diff --git a/tests/nodedevschemadata/pci_0000_00_1c_0_header_type.xml b/tests/nodedevschemadata/pci_0000_00_1c_0_header_type.xml
+new file mode 100644
+index 0000000..dea5f05
+--- /dev/null
++++ b/tests/nodedevschemadata/pci_0000_00_1c_0_header_type.xml
+@@ -0,0 +1,20 @@
++<device>
++  <name>pci_0000_00_1c_0</name>
++  <parent>computer</parent>
++  <capability type='pci'>
++    <domain>0</domain>
++    <bus>0</bus>
++    <slot>28</slot>
++    <function>0</function>
++    <product id='0x8c10'>8 Series/C220 Series Chipset Family PCI Express Root Port #1</product>
++    <vendor id='0x8086'>Intel Corporation</vendor>
++    <iommuGroup number='8'>
++      <address domain='0x0000' bus='0x00' slot='0x1c' function='0x0'/>
++    </iommuGroup>
++    <capability type='pci-bridge'/>
++    <pci-express>
++      <link validity='cap' port='1' speed='5' width='1'/>
++      <link validity='sta' speed='2.5' width='1'/>
++    </pci-express>
++  </capability>
++</device>
+diff --git a/tests/nodedevxml2xmltest.c b/tests/nodedevxml2xmltest.c
+index a37d729..d2cd444 100644
+--- a/tests/nodedevxml2xmltest.c
++++ b/tests/nodedevxml2xmltest.c
+@@ -91,6 +91,8 @@ mymain(void)
+     DO_TEST("usb_device_1d6b_1_0000_00_1d_0");
+     DO_TEST("pci_8086_4238_pcie_wireless");
+     DO_TEST("pci_8086_0c0c_snd_hda_intel");
++    DO_TEST("pci_0000_00_02_0_header_type");
++    DO_TEST("pci_0000_00_1c_0_header_type");
+ 
+     return ret == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+ }
+-- 
+2.8.3
+

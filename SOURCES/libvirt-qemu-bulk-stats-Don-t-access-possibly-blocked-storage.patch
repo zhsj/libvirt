@@ -1,0 +1,57 @@
+From a3176697f2d1288d3e30ca6aac0d2c5891a6b135 Mon Sep 17 00:00:00 2001
+Message-Id: <a3176697f2d1288d3e30ca6aac0d2c5891a6b135@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Thu, 26 May 2016 12:54:54 +0200
+Subject: [PATCH] qemu: bulk stats: Don't access possibly blocked storage
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1339963
+
+If the stats for a block device can't be acquired from qemu we've
+fallen back to loading them from the file on the disk in libvirt.
+
+If qemu is not cooperating due to being stuck on an inaccessible NFS
+share we would then attempt to read the files and get stuck too with
+the VM object locked. All other APIs would eventually get stuck waiting
+on the VM lock.
+
+Avoid this problem by skipping the block stats if the VM is online but
+the monitor did not provide any stats.
+
+Resolves: https://bugzilla.redhat.com/show_bug.cgi?id=1337073
+(cherry picked from commit 71d2c172edb997bae1e883b2e1bafa97d9f953a1)
+---
+ src/qemu/qemu_driver.c | 13 +++++++++++--
+ 1 file changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index 1075237..5e28b21 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -19392,13 +19392,22 @@ qemuDomainGetStatsOneBlock(virQEMUDriverPtr driver,
+         QEMU_ADD_BLOCK_PARAM_UI(record, maxparams, block_idx, "backingIndex",
+                                 backing_idx);
+ 
+-    /* use fallback path if data is not available */
+-    if (!stats || !alias || !(entry = virHashLookup(stats, alias))) {
++    /* the VM is offline so we have to go and load the stast from the disk by
++     * ourselves */
++    if (!virDomainObjIsActive(dom)) {
+         ret = qemuDomainGetStatsOneBlockFallback(driver, cfg, dom, record,
+                                                  maxparams, src, block_idx);
+         goto cleanup;
+     }
+ 
++    /* In case where qemu didn't provide the stats we stop here rather than
++     * trying to refresh the stats from the disk. Inability to provide stats is
++     * usually caused by blocked storage so this would make libvirtd hang */
++    if (!stats || !alias || !(entry = virHashLookup(stats, alias))) {
++        ret = 0;
++        goto cleanup;
++    }
++
+     QEMU_ADD_BLOCK_PARAM_LL(record, maxparams, block_idx,
+                             "rd.reqs", entry->rd_req);
+     QEMU_ADD_BLOCK_PARAM_LL(record, maxparams, block_idx,
+-- 
+2.8.3
+

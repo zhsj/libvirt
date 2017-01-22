@@ -1,0 +1,96 @@
+From fdf02246eb2837e144b1929887af94aa9ce9a77e Mon Sep 17 00:00:00 2001
+Message-Id: <fdf02246eb2837e144b1929887af94aa9ce9a77e@dist-git>
+From: Peter Krempa <pkrempa@redhat.com>
+Date: Thu, 26 May 2016 12:54:53 +0200
+Subject: [PATCH] qemu: driver: Separate bulk stats worker for block devices
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1339963
+
+Extract the fallback path that reloads the stats from disk into a
+separate function.
+
+(cherry picked from commit 3aa5d51a9530a8737ca584b393c29297dd9bbc37)
+---
+ src/qemu/qemu_driver.c | 58 ++++++++++++++++++++++++++++++++------------------
+ 1 file changed, 37 insertions(+), 21 deletions(-)
+
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index e403103..1075237 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -19329,6 +19329,40 @@ do { \
+         goto cleanup; \
+ } while (0)
+ 
++/* refresh information by opening images on the disk */
++static int
++qemuDomainGetStatsOneBlockFallback(virQEMUDriverPtr driver,
++                                   virQEMUDriverConfigPtr cfg,
++                                   virDomainObjPtr dom,
++                                   virDomainStatsRecordPtr record,
++                                   int *maxparams,
++                                   virStorageSourcePtr src,
++                                   size_t block_idx)
++{
++    int ret = -1;
++
++    if (virStorageSourceIsEmpty(src))
++        return 0;
++
++    if (qemuStorageLimitsRefresh(driver, cfg, dom, src) < 0) {
++        virResetLastError();
++        return 0;
++    }
++
++    if (src->allocation)
++        QEMU_ADD_BLOCK_PARAM_ULL(record, maxparams, block_idx,
++                                 "allocation", src->allocation);
++    if (src->capacity)
++        QEMU_ADD_BLOCK_PARAM_ULL(record, maxparams, block_idx,
++                                 "capacity", src->capacity);
++    if (src->physical)
++        QEMU_ADD_BLOCK_PARAM_ULL(record, maxparams, block_idx,
++                                 "physical", src->physical);
++    ret = 0;
++ cleanup:
++    return ret;
++}
++
+ 
+ static int
+ qemuDomainGetStatsOneBlock(virQEMUDriverPtr driver,
+@@ -19358,28 +19392,10 @@ qemuDomainGetStatsOneBlock(virQEMUDriverPtr driver,
+         QEMU_ADD_BLOCK_PARAM_UI(record, maxparams, block_idx, "backingIndex",
+                                 backing_idx);
+ 
++    /* use fallback path if data is not available */
+     if (!stats || !alias || !(entry = virHashLookup(stats, alias))) {
+-        if (virStorageSourceIsEmpty(src)) {
+-            ret = 0;
+-            goto cleanup;
+-        }
+-
+-        if (qemuStorageLimitsRefresh(driver, cfg, dom, src) < 0) {
+-            virResetLastError();
+-            ret = 0;
+-            goto cleanup;
+-        }
+-
+-        if (src->allocation)
+-            QEMU_ADD_BLOCK_PARAM_ULL(record, maxparams, block_idx,
+-                                     "allocation", src->allocation);
+-        if (src->capacity)
+-            QEMU_ADD_BLOCK_PARAM_ULL(record, maxparams, block_idx,
+-                                     "capacity", src->capacity);
+-        if (src->physical)
+-            QEMU_ADD_BLOCK_PARAM_ULL(record, maxparams, block_idx,
+-                                     "physical", src->physical);
+-        ret = 0;
++        ret = qemuDomainGetStatsOneBlockFallback(driver, cfg, dom, record,
++                                                 maxparams, src, block_idx);
+         goto cleanup;
+     }
+ 
+-- 
+2.8.3
+
