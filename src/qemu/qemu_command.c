@@ -3372,12 +3372,14 @@ qemuGetDriveSourceString(virStorageSourcePtr src,
                 encode = true;
                 secretType = VIR_SECRET_USAGE_TYPE_CEPH;
             }
-
-            if (!(secret = qemuGetSecretString(conn,
-                                               protocol,
-                                               encode,
-                                               src->auth,
-                                               secretType)))
+            if (src->auth->key) {
+                if (VIR_STRDUP(secret, src->auth->key) < 0)
+                    goto cleanup;
+            } else if (!(secret = qemuGetSecretString(conn,
+                                                      protocol,
+                                                      encode,
+                                                      src->auth,
+                                                      secretType)))
                 goto cleanup;
         }
     }

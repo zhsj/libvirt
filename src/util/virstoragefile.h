@@ -213,6 +213,7 @@ typedef struct _virStorageAuthDef virStorageAuthDef;
 typedef virStorageAuthDef *virStorageAuthDefPtr;
 struct _virStorageAuthDef {
     char *username;
+    char *key;
     char *secrettype; /* <secret type='%s' for disk source */
     int authType;     /* virStorageAuthType */
     int secretType;   /* virStorageSecretType */

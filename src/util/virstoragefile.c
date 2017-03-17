@@ -2338,6 +2338,10 @@ virStorageSourceParseRBDColonString(const char *rbdstr,
              * what is provided.
              */
         }
+        if (STRPREFIX(p, "key=")) {
+            if (!src->auth || VIR_STRDUP(src->auth->key, p + strlen("key=")) < 0)
+                goto error;
+        }
         if (STRPREFIX(p, "mon_host=")) {
             char *h, *sep;
 
